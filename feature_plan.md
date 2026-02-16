@@ -18,9 +18,9 @@
 ## Phase 2: Team Workflow (Next)
 
 - [ ] Role-based access
-- [ ] Reviewer assignment + audit logs
-- [ ] Dataset/version snapshot for reviewed examples
-- [ ] Confidence and drift dashboard
+- [x] Reviewer assignment + audit logs
+- [x] Dataset snapshot for reviewed examples
+- [x] Confidence dashboard (drift view pending)
 
 ## Phase 3: Flowstate Parity Layer
 

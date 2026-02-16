@@ -126,6 +126,12 @@ h3 {
   font-weight: 500;
 }
 
+.metric {
+  margin: 0.5rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
 .field {
   display: flex;
   flex-direction: column;

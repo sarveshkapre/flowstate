@@ -12,6 +12,11 @@ Phase 1 wedge is implemented:
 - export approved jobs to CSV
 - dispatch approved jobs to external webhook endpoints
 
+Phase 2 foundations are now in progress:
+- reviewer assignment action + audit event log
+- dataset snapshot creation from reviewed jobs
+- live operations metrics endpoint + dashboard cards
+
 ## Core Principles
 
 - OpenAI APIs only for model and agent capabilities
@@ -65,9 +70,13 @@ docs/         # architecture notes
 - `GET /api/v1/extractions`
 - `POST /api/v1/extractions`
 - `GET /api/v1/extractions/:jobId`
-- `PATCH /api/v1/extractions/:jobId` (review approve/reject)
+- `PATCH /api/v1/extractions/:jobId` (assign reviewer or review approve/reject)
 - `GET /api/v1/exports/csv`
 - `POST /api/v1/exports/webhook`
+- `GET /api/v1/metrics`
+- `GET /api/v1/audit-events`
+- `GET /api/v1/datasets/snapshots`
+- `POST /api/v1/datasets/snapshots`
 
 ## Commands
 
@@ -83,4 +92,3 @@ npm run format:write
 ## Public Repository
 
 - GitHub: [sarveshkapre/flowstate](https://github.com/sarveshkapre/flowstate)
-

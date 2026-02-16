@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { DashboardMetrics } from "./dashboard-metrics";
+
 const capabilities = [
   "Upload pipeline for image/PDF artifacts",
   "Invoice + receipt extraction templates",
@@ -34,6 +36,8 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      <DashboardMetrics />
     </main>
   );
 }

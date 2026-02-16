@@ -60,6 +60,8 @@ export async function POST(request: Request) {
     success,
     statusCode,
     responseBody,
+    actor: "system",
+    jobIds: jobs.map((job) => job.id),
   });
 
   if (!success) {

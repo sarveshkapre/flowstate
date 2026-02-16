@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getExtractionJob, updateReviewStatus } from "@/lib/data-store";
+import { assignReviewer, getExtractionJob, updateReviewStatus } from "@/lib/data-store";
 
-const patchSchema = z.object({
-  reviewStatus: z.enum(["approved", "rejected"]),
-  reviewer: z.string().max(120).optional(),
-  reviewNotes: z.string().max(4000).optional(),
-});
+const patchSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("assign"),
+    reviewer: z.string().min(1).max(120),
+  }),
+  z.object({
+    action: z.literal("review"),
+    reviewStatus: z.enum(["approved", "rejected"]),
+    reviewer: z.string().max(120).optional(),
+    reviewNotes: z.string().max(4000).optional(),
+  }),
+]);
 
 type Params = {
   params: Promise<{ jobId: string }>;
@@ -33,16 +40,23 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const updated = await updateReviewStatus({
-    jobId,
-    reviewStatus: parsed.data.reviewStatus,
-    reviewer: parsed.data.reviewer,
-    reviewNotes: parsed.data.reviewNotes,
-  });
+  const updated =
+    parsed.data.action === "assign"
+      ? await assignReviewer({
+          jobId,
+          reviewer: parsed.data.reviewer,
+          actor: parsed.data.reviewer,
+        })
+      : await updateReviewStatus({
+          jobId,
+          reviewStatus: parsed.data.reviewStatus,
+          reviewer: parsed.data.reviewer,
+          reviewNotes: parsed.data.reviewNotes,
+        });
 
   if (!updated) {
     return NextResponse.json(
-      { error: "Job not found or not reviewable (must be completed first)" },
+      { error: "Job not found or action not allowed for current job state" },
       { status: 404 },
     );
   }

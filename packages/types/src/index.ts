@@ -92,6 +92,28 @@ export const extractionJobRecordSchema = z.object({
 
 export type ExtractionJobRecord = z.infer<typeof extractionJobRecordSchema>;
 
+export const auditEventTypeSchema = z.enum([
+  "job_created",
+  "job_processing",
+  "job_completed",
+  "job_failed",
+  "review_assigned",
+  "review_decision",
+  "webhook_dispatched",
+]);
+export type AuditEventType = z.infer<typeof auditEventTypeSchema>;
+
+export const auditEventRecordSchema = z.object({
+  id: z.string(),
+  job_id: z.string().nullable(),
+  event_type: auditEventTypeSchema,
+  actor: z.string().nullable(),
+  metadata: z.unknown().nullable(),
+  created_at: z.string(),
+});
+
+export type AuditEventRecord = z.infer<typeof auditEventRecordSchema>;
+
 export const webhookDeliveryRecordSchema = z.object({
   id: z.string(),
   target_url: z.string(),
@@ -103,3 +125,13 @@ export const webhookDeliveryRecordSchema = z.object({
 });
 
 export type WebhookDeliveryRecord = z.infer<typeof webhookDeliveryRecordSchema>;
+
+export const datasetSnapshotRecordSchema = z.object({
+  id: z.string(),
+  review_status: reviewStatusSchema,
+  item_count: z.number().int().nonnegative(),
+  file_name: z.string(),
+  created_at: z.string(),
+});
+
+export type DatasetSnapshotRecord = z.infer<typeof datasetSnapshotRecordSchema>;

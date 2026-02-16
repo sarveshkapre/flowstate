@@ -22,12 +22,21 @@ type QueueJob = {
   artifact_file_url?: string;
 };
 
+type AuditEvent = {
+  id: string;
+  event_type: string;
+  job_id: string | null;
+  actor: string | null;
+  created_at: string;
+};
+
 export function ReviewClient() {
   const [jobs, setJobs] = useState<QueueJob[]>([]);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState("ops@flowstate.local");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [recentEvents, setRecentEvents] = useState<AuditEvent[]>([]);
 
   const loadJobs = useCallback(async () => {
     const response = await fetch("/api/v1/extractions?status=completed", { cache: "no-store" });
@@ -35,9 +44,16 @@ export function ReviewClient() {
     setJobs(payload.jobs ?? []);
   }, []);
 
+  const loadEvents = useCallback(async () => {
+    const response = await fetch("/api/v1/audit-events?limit=8", { cache: "no-store" });
+    const payload = (await response.json()) as { events: AuditEvent[] };
+    setRecentEvents(payload.events ?? []);
+  }, []);
+
   useEffect(() => {
     void loadJobs();
-  }, [loadJobs]);
+    void loadEvents();
+  }, [loadJobs, loadEvents]);
 
   const pendingCount = useMemo(
     () => jobs.filter((job) => job.review_status === "pending").length,
@@ -52,7 +68,7 @@ export function ReviewClient() {
       const response = await fetch(`/api/v1/extractions/${jobId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reviewStatus, reviewer }),
+        body: JSON.stringify({ action: "review", reviewStatus, reviewer }),
       });
 
       if (!response.ok) {
@@ -60,10 +76,63 @@ export function ReviewClient() {
       }
 
       await loadJobs();
+      await loadEvents();
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Unknown review error");
     } finally {
       setBusyJobId(null);
+    }
+  }
+
+  async function assign(jobId: string) {
+    setBusyJobId(jobId);
+    setStatusMessage(null);
+
+    try {
+      const response = await fetch(`/api/v1/extractions/${jobId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "assign", reviewer }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to assign reviewer.");
+      }
+
+      await loadJobs();
+      await loadEvents();
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Unknown assignment error");
+    } finally {
+      setBusyJobId(null);
+    }
+  }
+
+  async function createSnapshot() {
+    setStatusMessage(null);
+
+    try {
+      const response = await fetch("/api/v1/datasets/snapshots", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reviewStatus: "approved" }),
+      });
+
+      const payload = (await response.json()) as {
+        snapshot?: { file_name: string; item_count: number };
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to create snapshot");
+      }
+
+      setStatusMessage(
+        `Snapshot created (${payload.snapshot?.item_count ?? 0} items): ${payload.snapshot?.file_name ?? ""}`,
+      );
+      await loadEvents();
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Unknown snapshot error");
     }
   }
 
@@ -118,9 +187,17 @@ export function ReviewClient() {
                   {job.document_type} • review: {job.review_status}
                 </p>
                 <p className="muted">confidence: {job.validation?.confidence ?? "-"}</p>
+                <p className="muted">reviewer: {job.reviewer ?? "unassigned"}</p>
               </div>
 
               <div className="row">
+                <button
+                  className="button secondary"
+                  disabled={busyJobId === job.id || !reviewer.trim()}
+                  onClick={() => void assign(job.id)}
+                >
+                  Assign
+                </button>
                 <button
                   className="button"
                   disabled={busyJobId === job.id}
@@ -166,6 +243,9 @@ export function ReviewClient() {
         <a className="button secondary" href="/api/v1/exports/csv?reviewStatus=approved">
           Download Approved CSV
         </a>
+        <button className="button secondary" onClick={() => void createSnapshot()}>
+          Create Approved Snapshot
+        </button>
       </div>
 
       <label className="field">
@@ -181,6 +261,16 @@ export function ReviewClient() {
       </button>
 
       {statusMessage && <p className="muted">{statusMessage}</p>}
+
+      <div className="divider" />
+      <h3>Recent Audit Events</h3>
+      <div className="stack">
+        {recentEvents.map((event) => (
+          <p key={event.id} className="mono">
+            {event.created_at} • {event.event_type} • {event.actor ?? "system"} • {event.job_id ?? "-"}
+          </p>
+        ))}
+      </div>
     </section>
   );
 }

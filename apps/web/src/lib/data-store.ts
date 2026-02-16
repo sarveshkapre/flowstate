@@ -5,10 +5,16 @@ import path from "node:path";
 import {
   type ArtifactRecord,
   artifactRecordSchema,
+  type AuditEventRecord,
+  type AuditEventType,
+  auditEventRecordSchema,
+  type DatasetSnapshotRecord,
+  datasetSnapshotRecordSchema,
   type DocumentType,
   type ExtractionJobRecord,
   extractionJobRecordSchema,
   reviewStatusSchema,
+  type ReviewStatus,
   type ValidationResult,
   type WebhookDeliveryRecord,
   webhookDeliveryRecordSchema,
@@ -18,12 +24,16 @@ type DbState = {
   artifacts: ArtifactRecord[];
   extraction_jobs: ExtractionJobRecord[];
   webhook_deliveries: WebhookDeliveryRecord[];
+  audit_events: AuditEventRecord[];
+  dataset_snapshots: DatasetSnapshotRecord[];
 };
 
 const DEFAULT_DB_STATE: DbState = {
   artifacts: [],
   extraction_jobs: [],
   webhook_deliveries: [],
+  audit_events: [],
+  dataset_snapshots: [],
 };
 
 const WORKSPACE_ROOT = path.resolve(process.cwd(), "../..");
@@ -31,12 +41,14 @@ const DATA_DIR = process.env.FLOWSTATE_DATA_DIR
   ? path.resolve(process.env.FLOWSTATE_DATA_DIR)
   : path.join(WORKSPACE_ROOT, ".flowstate-data");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
+const SNAPSHOTS_DIR = path.join(DATA_DIR, "snapshots");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
 let writeChain = Promise.resolve();
 
 async function ensureDataInfrastructure() {
   await fs.mkdir(UPLOADS_DIR, { recursive: true });
+  await fs.mkdir(SNAPSHOTS_DIR, { recursive: true });
 
   try {
     await fs.access(DB_FILE);
@@ -54,6 +66,8 @@ async function readDbState(): Promise<DbState> {
     artifacts: (parsed.artifacts ?? []).map((item) => artifactRecordSchema.parse(item)),
     extraction_jobs: (parsed.extraction_jobs ?? []).map((item) => extractionJobRecordSchema.parse(item)),
     webhook_deliveries: (parsed.webhook_deliveries ?? []).map((item) => webhookDeliveryRecordSchema.parse(item)),
+    audit_events: (parsed.audit_events ?? []).map((item) => auditEventRecordSchema.parse(item)),
+    dataset_snapshots: (parsed.dataset_snapshots ?? []).map((item) => datasetSnapshotRecordSchema.parse(item)),
   };
 }
 
@@ -105,6 +119,25 @@ function inferExtension(fileName: string, mimeType: string): string {
   return ".bin";
 }
 
+function appendAuditEvent(state: DbState, input: {
+  eventType: AuditEventType;
+  jobId?: string | null;
+  actor?: string | null;
+  metadata?: unknown;
+}) {
+  const event = auditEventRecordSchema.parse({
+    id: randomUUID(),
+    job_id: input.jobId ?? null,
+    event_type: input.eventType,
+    actor: input.actor ?? null,
+    metadata: input.metadata ?? null,
+    created_at: new Date().toISOString(),
+  });
+
+  state.audit_events.unshift(event);
+  return event;
+}
+
 export async function createArtifact(input: {
   originalName: string;
   mimeType: string;
@@ -152,11 +185,6 @@ export async function readArtifactBytes(artifactId: string): Promise<{ artifact:
   }
 }
 
-export async function listArtifacts(): Promise<ArtifactRecord[]> {
-  const state = await readDbState();
-  return state.artifacts;
-}
-
 export async function createExtractionJob(input: {
   artifactId: string;
   documentType: DocumentType;
@@ -180,6 +208,13 @@ export async function createExtractionJob(input: {
     });
 
     state.extraction_jobs.unshift(job);
+    appendAuditEvent(state, {
+      eventType: "job_created",
+      jobId: job.id,
+      actor: "system",
+      metadata: { document_type: job.document_type },
+    });
+
     return job;
   });
 }
@@ -225,6 +260,12 @@ export async function setExtractionJobProcessing(jobId: string): Promise<Extract
     job.error_message = null;
     job.updated_at = new Date().toISOString();
 
+    appendAuditEvent(state, {
+      eventType: "job_processing",
+      jobId,
+      actor: "system",
+    });
+
     return extractionJobRecordSchema.parse(job);
   });
 }
@@ -249,6 +290,16 @@ export async function setExtractionJobCompleted(
     job.error_message = null;
     job.updated_at = new Date().toISOString();
 
+    appendAuditEvent(state, {
+      eventType: "job_completed",
+      jobId,
+      actor: "system",
+      metadata: {
+        confidence: payload.validation.confidence,
+        issues: payload.validation.issues.length,
+      },
+    });
+
     return extractionJobRecordSchema.parse(job);
   });
 }
@@ -264,6 +315,39 @@ export async function setExtractionJobFailed(jobId: string, errorMessage: string
     job.status = "failed";
     job.error_message = errorMessage;
     job.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "job_failed",
+      jobId,
+      actor: "system",
+      metadata: { error: errorMessage },
+    });
+
+    return extractionJobRecordSchema.parse(job);
+  });
+}
+
+export async function assignReviewer(input: {
+  jobId: string;
+  reviewer: string;
+  actor?: string;
+}): Promise<ExtractionJobRecord | null> {
+  return withWriteLock(async (state) => {
+    const job = state.extraction_jobs.find((item) => item.id === input.jobId);
+
+    if (!job) {
+      return null;
+    }
+
+    job.reviewer = input.reviewer.trim() || null;
+    job.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "review_assigned",
+      jobId: job.id,
+      actor: input.actor ?? input.reviewer,
+      metadata: { reviewer: job.reviewer },
+    });
 
     return extractionJobRecordSchema.parse(job);
   });
@@ -289,12 +373,77 @@ export async function updateReviewStatus(input: {
     }
 
     job.review_status = input.reviewStatus;
-    job.reviewer = input.reviewer?.trim() ? input.reviewer.trim() : null;
+    job.reviewer = input.reviewer?.trim() ? input.reviewer.trim() : job.reviewer;
     job.review_notes = input.reviewNotes?.trim() ? input.reviewNotes.trim() : null;
     job.updated_at = new Date().toISOString();
 
+    appendAuditEvent(state, {
+      eventType: "review_decision",
+      jobId: job.id,
+      actor: job.reviewer,
+      metadata: {
+        review_status: job.review_status,
+        has_notes: Boolean(job.review_notes),
+      },
+    });
+
     return extractionJobRecordSchema.parse(job);
   });
+}
+
+export async function listAuditEvents(filters?: {
+  jobId?: string;
+  limit?: number;
+}): Promise<AuditEventRecord[]> {
+  const state = await readDbState();
+
+  const events = state.audit_events.filter((event) => {
+    if (filters?.jobId && event.job_id !== filters.jobId) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (filters?.limit) {
+    return events.slice(0, filters.limit);
+  }
+
+  return events;
+}
+
+export async function writeSnapshotJsonl(input: {
+  fileName: string;
+  lines: string[];
+}): Promise<string> {
+  await ensureDataInfrastructure();
+  const targetPath = path.join(SNAPSHOTS_DIR, input.fileName);
+  await fs.writeFile(targetPath, `${input.lines.join("\n")}\n`, "utf8");
+  return targetPath;
+}
+
+export async function createDatasetSnapshotRecord(input: {
+  reviewStatus: ReviewStatus;
+  itemCount: number;
+  fileName: string;
+}): Promise<DatasetSnapshotRecord> {
+  return withWriteLock(async (state) => {
+    const snapshot = datasetSnapshotRecordSchema.parse({
+      id: randomUUID(),
+      review_status: input.reviewStatus,
+      item_count: input.itemCount,
+      file_name: input.fileName,
+      created_at: new Date().toISOString(),
+    });
+
+    state.dataset_snapshots.unshift(snapshot);
+    return snapshot;
+  });
+}
+
+export async function listDatasetSnapshots(): Promise<DatasetSnapshotRecord[]> {
+  const state = await readDbState();
+  return state.dataset_snapshots;
 }
 
 export async function recordWebhookDelivery(input: {
@@ -303,6 +452,8 @@ export async function recordWebhookDelivery(input: {
   success: boolean;
   statusCode: number | null;
   responseBody: string | null;
+  actor?: string;
+  jobIds?: string[];
 }) {
   return withWriteLock(async (state) => {
     const delivery = webhookDeliveryRecordSchema.parse({
@@ -316,6 +467,18 @@ export async function recordWebhookDelivery(input: {
     });
 
     state.webhook_deliveries.unshift(delivery);
+
+    appendAuditEvent(state, {
+      eventType: "webhook_dispatched",
+      actor: input.actor ?? "system",
+      metadata: {
+        target_url: input.targetUrl,
+        success: input.success,
+        status_code: input.statusCode,
+        jobs: input.jobIds?.length ?? 0,
+      },
+    });
+
     return delivery;
   });
 }

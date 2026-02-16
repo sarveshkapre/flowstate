@@ -17,6 +17,13 @@
 - Added review queue actions (approve/reject) and frontend review UI.
 - Added CSV export and webhook dispatch endpoints for approved jobs.
 
+## 2026-02-16 (Phase 2 Foundations)
+
+- Added reviewer assignment action (`PATCH /api/v1/extractions/:jobId` with `action=assign`).
+- Added audit event stream for job lifecycle, review actions, and webhook deliveries.
+- Added dataset snapshot endpoint that writes reviewed-job JSONL files.
+- Added live metrics endpoint and dashboard cards for queue/quality visibility.
+
 ## Decisions
 
 - OpenAI APIs only for model capabilities.

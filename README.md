@@ -49,11 +49,13 @@ npm run dev
 For local single-operator deployments on macOS:
 
 ```bash
-# set OPENAI_API_KEY in .env first
+# set OPENAI_API_KEY in .env or export OPENAI_API_KEY in your shell
 npm run setup:mac
 npm start
 # same as: npm run flowstate -- start
 ```
+
+If `.env` is missing, `npm start` auto-creates it from `.env.example`.
 
 To auto-ingest files dropped into `~/Flowstate/inbox`, set:
 

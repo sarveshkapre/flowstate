@@ -81,6 +81,10 @@
 - Added `scripts/flowstate.sh` local runtime wrapper:
   - `start`, `stop`, `restart`, `status`, `logs`
   - mapped to npm commands (`npm start`, `npm stop`, `npm run flowstate -- <command>`)
+- Updated local start behavior:
+  - `npm start` auto-creates `.env` from `.env.example` when missing
+  - accepts `OPENAI_API_KEY` from shell environment when `.env` key is empty
+  - fixed macOS Bash 3.2 compatibility in watcher flag parsing
 - Added inbox watcher worker (`apps/worker/src/watch/inbox.ts`) with:
   - auto-upload from `~/Flowstate/inbox`
   - workflow-triggered processing (or document-type fallback extraction)

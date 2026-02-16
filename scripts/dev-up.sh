@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env"
+ENV_EXAMPLE_FILE="$ROOT_DIR/.env.example"
 RUNTIME_DIR="$ROOT_DIR/.flowstate-runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
@@ -24,6 +25,20 @@ print_info() {
 read_env_value() {
   local key="$1"
   grep -E "^${key}=" "$ENV_FILE" | head -n 1 | sed -E "s/^${key}=//"
+}
+
+ensure_env_file() {
+  if [[ -f "$ENV_FILE" ]]; then
+    return
+  fi
+
+  if [[ ! -f "$ENV_EXAMPLE_FILE" ]]; then
+    print_error "Missing .env and .env.example."
+    exit 1
+  fi
+
+  cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
+  print_info "Created .env from .env.example"
 }
 
 is_running() {
@@ -79,18 +94,20 @@ start_service() {
   print_info "$name started (pid $pid)"
 }
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  print_error "Missing .env. Run scripts/setup-mac.sh first."
-  exit 1
+ensure_env_file
+
+OPENAI_API_KEY_VALUE="${OPENAI_API_KEY:-}"
+if [[ -z "$OPENAI_API_KEY_VALUE" ]]; then
+  OPENAI_API_KEY_VALUE="$(read_env_value OPENAI_API_KEY || true)"
 fi
 
-OPENAI_API_KEY_VALUE="$(grep -E '^OPENAI_API_KEY=' "$ENV_FILE" | head -n 1 | sed -E 's/^OPENAI_API_KEY=//' || true)"
 if [[ -z "$OPENAI_API_KEY_VALUE" ]]; then
-  print_error "OPENAI_API_KEY is not set in .env"
+  print_error "OPENAI_API_KEY is not set. Add it to .env or export it in your shell."
   exit 1
 fi
 
 FOLDER_WATCHER_ENABLED="$(read_env_value FLOWSTATE_ENABLE_FOLDER_WATCHER || true)"
+FOLDER_WATCHER_ENABLED_NORMALIZED="$(printf '%s' "$FOLDER_WATCHER_ENABLED" | tr '[:upper:]' '[:lower:]')"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
@@ -98,27 +115,27 @@ start_service \
   "web" \
   "$WEB_PID_FILE" \
   "$WEB_LOG" \
-  bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && npm run dev --workspace @flowstate/web"
+  env FLOWSTATE_EFFECTIVE_OPENAI_API_KEY="$OPENAI_API_KEY_VALUE" bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && export OPENAI_API_KEY=\"\$FLOWSTATE_EFFECTIVE_OPENAI_API_KEY\" && npm run dev --workspace @flowstate/web"
 
 start_service \
   "worker" \
   "$WORKER_PID_FILE" \
   "$WORKER_LOG" \
-  bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && npm run dev --workspace @flowstate/worker"
+  env FLOWSTATE_EFFECTIVE_OPENAI_API_KEY="$OPENAI_API_KEY_VALUE" bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && export OPENAI_API_KEY=\"\$FLOWSTATE_EFFECTIVE_OPENAI_API_KEY\" && npm run dev --workspace @flowstate/worker"
 
-if [[ "${FOLDER_WATCHER_ENABLED,,}" == "1" || "${FOLDER_WATCHER_ENABLED,,}" == "true" || "${FOLDER_WATCHER_ENABLED,,}" == "yes" ]]; then
+if [[ "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "1" || "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "true" || "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "yes" ]]; then
   start_service \
     "inbox-watcher" \
     "$WATCHER_PID_FILE" \
     "$WATCHER_LOG" \
-    bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && npm run watch:inbox --workspace @flowstate/worker"
+    env FLOWSTATE_EFFECTIVE_OPENAI_API_KEY="$OPENAI_API_KEY_VALUE" bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && export OPENAI_API_KEY=\"\$FLOWSTATE_EFFECTIVE_OPENAI_API_KEY\" && npm run watch:inbox --workspace @flowstate/worker"
 fi
 
 printf "\nFlowstate dev services are running.\n"
 printf "  Web URL:      %s\n" "http://localhost:3000"
 printf "  Web log:      %s\n" "$WEB_LOG"
 printf "  Worker log:   %s\n" "$WORKER_LOG"
-if [[ "${FOLDER_WATCHER_ENABLED,,}" == "1" || "${FOLDER_WATCHER_ENABLED,,}" == "true" || "${FOLDER_WATCHER_ENABLED,,}" == "yes" ]]; then
+if [[ "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "1" || "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "true" || "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "yes" ]]; then
   printf "  Watcher log:  %s\n" "$WATCHER_LOG"
 fi
 printf "  Stop command: %s\n" "scripts/dev-down.sh"

@@ -51,7 +51,8 @@ For local single-operator deployments on macOS:
 ```bash
 # set OPENAI_API_KEY in .env first
 npm run setup:mac
-npm run dev:up
+npm start
+# same as: npm run flowstate -- start
 ```
 
 To auto-ingest files dropped into `~/Flowstate/inbox`, set:
@@ -66,7 +67,16 @@ FLOWSTATE_WATCH_WORKFLOW_ID=<workflow-id> # recommended
 Stop services:
 
 ```bash
-npm run dev:down
+npm stop
+# same as: npm run flowstate -- stop
+```
+
+Check status and logs:
+
+```bash
+npm run flowstate -- status
+npm run flowstate -- logs
+npm run flowstate -- logs web
 ```
 
 Runtime artifacts:
@@ -138,6 +148,10 @@ docs/         # architecture notes
 
 ```bash
 npm run setup:mac
+npm start
+npm stop
+npm run flowstate -- status
+npm run flowstate -- logs
 npm run dev:up
 npm run dev:down
 npm run watch:inbox

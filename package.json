@@ -13,10 +13,13 @@
     "packages/*"
   ],
   "scripts": {
+    "start": "bash scripts/flowstate.sh start",
+    "stop": "bash scripts/flowstate.sh stop",
     "dev": "turbo run dev --parallel",
     "setup:mac": "bash scripts/setup-mac.sh",
     "dev:up": "bash scripts/dev-up.sh",
     "dev:down": "bash scripts/dev-down.sh",
+    "flowstate": "bash scripts/flowstate.sh",
     "watch:inbox": "npm run watch:inbox --workspace @flowstate/worker",
     "build": "turbo run build",
     "lint": "turbo run lint",

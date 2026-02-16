@@ -78,6 +78,9 @@
 - Added `scripts/dev-up.sh` and `scripts/dev-down.sh`:
   - starts/stops web + worker as background services
   - stores PID files and logs under `.flowstate-runtime/`
+- Added `scripts/flowstate.sh` local runtime wrapper:
+  - `start`, `stop`, `restart`, `status`, `logs`
+  - mapped to npm commands (`npm start`, `npm stop`, `npm run flowstate -- <command>`)
 - Added inbox watcher worker (`apps/worker/src/watch/inbox.ts`) with:
   - auto-upload from `~/Flowstate/inbox`
   - workflow-triggered processing (or document-type fallback extraction)

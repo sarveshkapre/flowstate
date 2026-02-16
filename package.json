@@ -17,6 +17,7 @@
     "setup:mac": "bash scripts/setup-mac.sh",
     "dev:up": "bash scripts/dev-up.sh",
     "dev:down": "bash scripts/dev-down.sh",
+    "watch:inbox": "npm run watch:inbox --workspace @flowstate/worker",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

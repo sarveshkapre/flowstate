@@ -54,6 +54,15 @@ npm run setup:mac
 npm run dev:up
 ```
 
+To auto-ingest files dropped into `~/Flowstate/inbox`, set:
+
+```bash
+FLOWSTATE_ENABLE_FOLDER_WATCHER=1
+FLOWSTATE_WATCH_WORKFLOW_ID=<workflow-id> # recommended
+# or fallback:
+# FLOWSTATE_WATCH_DOCUMENT_TYPE=invoice
+```
+
 Stop services:
 
 ```bash
@@ -64,6 +73,7 @@ Runtime artifacts:
 - logs: `.flowstate-runtime/logs/`
 - pids: `.flowstate-runtime/pids/`
 - data: `.flowstate-data/` (or `FLOWSTATE_DATA_DIR`)
+- inbox/archive/error dirs: `~/Flowstate/` (configurable via `FLOWSTATE_WATCH_*`)
 
 Web app:
 - http://localhost:3000
@@ -130,6 +140,7 @@ docs/         # architecture notes
 npm run setup:mac
 npm run dev:up
 npm run dev:down
+npm run watch:inbox
 npm run dev
 npm run build
 npm run lint

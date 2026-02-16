@@ -4,6 +4,7 @@
 
 - `apps/web`: Next.js UI + API gateway
 - `apps/worker`: async job processor (queue-driven)
+- `apps/worker/src/watch/inbox.ts`: local folder watcher for file-drop ingestion
 - `packages/types`: shared contracts and schemas
 - `packages/ui`: shared UI primitives
 - `scripts/dev-up.sh` + `scripts/dev-down.sh`: local process manager for macOS runtime

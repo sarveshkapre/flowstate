@@ -6,6 +6,7 @@ RUNTIME_DIR="$ROOT_DIR/.flowstate-runtime"
 PID_DIR="$RUNTIME_DIR/pids"
 WEB_PID_FILE="$PID_DIR/web.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
+WATCHER_PID_FILE="$PID_DIR/inbox-watcher.pid"
 
 print_info() {
   printf "\033[36m%s\033[0m\n" "$1"
@@ -54,5 +55,6 @@ stop_service() {
 
 stop_service "web" "$WEB_PID_FILE"
 stop_service "worker" "$WORKER_PID_FILE"
+stop_service "inbox-watcher" "$WATCHER_PID_FILE"
 
 print_info "Flowstate dev services are stopped"

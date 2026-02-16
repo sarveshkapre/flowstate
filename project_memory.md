@@ -78,10 +78,16 @@
 - Added `scripts/dev-up.sh` and `scripts/dev-down.sh`:
   - starts/stops web + worker as background services
   - stores PID files and logs under `.flowstate-runtime/`
+- Added inbox watcher worker (`apps/worker/src/watch/inbox.ts`) with:
+  - auto-upload from `~/Flowstate/inbox`
+  - workflow-triggered processing (or document-type fallback extraction)
+  - retry + archive/error file routing
+- Added optional watcher auto-start from `dev-up` via `FLOWSTATE_ENABLE_FOLDER_WATCHER=1`
 - Added root npm scripts:
   - `setup:mac`
   - `dev:up`
   - `dev:down`
+  - `watch:inbox`
 - Updated README with local macOS deployment workflow.
 
 ## Decisions

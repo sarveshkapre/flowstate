@@ -8,8 +8,10 @@ LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
 WEB_LOG="$LOG_DIR/web.log"
 WORKER_LOG="$LOG_DIR/worker.log"
+WATCHER_LOG="$LOG_DIR/inbox-watcher.log"
 WEB_PID_FILE="$PID_DIR/web.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
+WATCHER_PID_FILE="$PID_DIR/inbox-watcher.pid"
 
 print_error() {
   printf "\033[31m%s\033[0m\n" "$1" >&2
@@ -17,6 +19,11 @@ print_error() {
 
 print_info() {
   printf "\033[36m%s\033[0m\n" "$1"
+}
+
+read_env_value() {
+  local key="$1"
+  grep -E "^${key}=" "$ENV_FILE" | head -n 1 | sed -E "s/^${key}=//"
 }
 
 is_running() {
@@ -83,6 +90,8 @@ if [[ -z "$OPENAI_API_KEY_VALUE" ]]; then
   exit 1
 fi
 
+FOLDER_WATCHER_ENABLED="$(read_env_value FLOWSTATE_ENABLE_FOLDER_WATCHER || true)"
+
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
 start_service \
@@ -97,8 +106,19 @@ start_service \
   "$WORKER_LOG" \
   bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && npm run dev --workspace @flowstate/worker"
 
+if [[ "${FOLDER_WATCHER_ENABLED,,}" == "1" || "${FOLDER_WATCHER_ENABLED,,}" == "true" || "${FOLDER_WATCHER_ENABLED,,}" == "yes" ]]; then
+  start_service \
+    "inbox-watcher" \
+    "$WATCHER_PID_FILE" \
+    "$WATCHER_LOG" \
+    bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && npm run watch:inbox --workspace @flowstate/worker"
+fi
+
 printf "\nFlowstate dev services are running.\n"
 printf "  Web URL:      %s\n" "http://localhost:3000"
 printf "  Web log:      %s\n" "$WEB_LOG"
 printf "  Worker log:   %s\n" "$WORKER_LOG"
+if [[ "${FOLDER_WATCHER_ENABLED,,}" == "1" || "${FOLDER_WATCHER_ENABLED,,}" == "true" || "${FOLDER_WATCHER_ENABLED,,}" == "yes" ]]; then
+  printf "  Watcher log:  %s\n" "$WATCHER_LOG"
+fi
 printf "  Stop command: %s\n" "scripts/dev-down.sh"

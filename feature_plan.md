@@ -34,6 +34,6 @@
 
 - [x] One-command macOS setup script
 - [x] Local dev service manager (up/down with logs + PID files)
-- [ ] Folder watcher ingestion (`~/Flowstate/inbox`)
+- [x] Folder watcher ingestion (`~/Flowstate/inbox`)
 - [ ] `launchd` service install/uninstall scripts
 - [ ] Local backup/restore tooling

@@ -31,6 +31,22 @@ read_env_value() {
   grep -E "^${key}=" "$ENV_FILE" | head -n 1 | sed -E "s/^${key}=//"
 }
 
+resolve_local_path() {
+  local raw="$1"
+
+  if [[ "$raw" == ~/* ]]; then
+    printf "%s/%s" "$HOME" "${raw#~/}"
+    return
+  fi
+
+  if [[ "$raw" == /* ]]; then
+    printf "%s" "$raw"
+    return
+  fi
+
+  printf "%s/%s" "$ROOT_DIR" "$raw"
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   print_error "setup-mac.sh is intended for macOS only."
   exit 1
@@ -68,20 +84,22 @@ npm -C "$ROOT_DIR" install
 
 FLOWSTATE_DATA_DIR_VALUE="$(read_env_value FLOWSTATE_DATA_DIR || true)"
 if [[ -n "$FLOWSTATE_DATA_DIR_VALUE" ]]; then
-  if [[ "$FLOWSTATE_DATA_DIR_VALUE" = /* ]]; then
-    DATA_DIR="$FLOWSTATE_DATA_DIR_VALUE"
-  else
-    DATA_DIR="$ROOT_DIR/$FLOWSTATE_DATA_DIR_VALUE"
-  fi
+  DATA_DIR="$(resolve_local_path "$FLOWSTATE_DATA_DIR_VALUE")"
 else
   DATA_DIR="$ROOT_DIR/.flowstate-data"
 fi
 
+WATCH_DIR="$(resolve_local_path "$(read_env_value FLOWSTATE_WATCH_DIR || echo "~/Flowstate/inbox")")"
+WATCH_ARCHIVE_DIR="$(resolve_local_path "$(read_env_value FLOWSTATE_WATCH_ARCHIVE_DIR || echo "~/Flowstate/archive")")"
+WATCH_ERROR_DIR="$(resolve_local_path "$(read_env_value FLOWSTATE_WATCH_ERROR_DIR || echo "~/Flowstate/error")")"
+
 mkdir -p "$DATA_DIR/uploads" "$DATA_DIR/snapshots" "$DATA_DIR/edge-bundles"
 mkdir -p "$RUNTIME_DIR/logs" "$RUNTIME_DIR/pids"
+mkdir -p "$WATCH_DIR" "$WATCH_ARCHIVE_DIR" "$WATCH_ERROR_DIR"
 
 print_info "Setup complete."
 printf "\nNext steps:\n"
 printf "  1. Start services: %s\n" "scripts/dev-up.sh"
 printf "  2. Stop services:  %s\n" "scripts/dev-down.sh"
 printf "  3. Open app:       %s\n" "http://localhost:3000"
+printf "  4. Drop files in:  %s\n" "$WATCH_DIR"

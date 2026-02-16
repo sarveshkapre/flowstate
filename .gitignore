@@ -8,6 +8,7 @@ dist/
 coverage/
 .turbo/
 *.tsbuildinfo
+.flowstate-data/
 
 # local env
 .env

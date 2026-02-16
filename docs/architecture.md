@@ -9,13 +9,15 @@
 
 ## Data Flow (v1)
 
-1. Client uploads artifact to web app.
-2. Web API validates payload and enqueues extraction job.
-3. Worker calls OpenAI API and returns structured output.
-4. Web app stores result and exposes review tasks.
+1. Client uploads artifact (`image/*` or `application/pdf`) to web app.
+2. Web API stores artifact metadata + bytes in `.flowstate-data/`.
+3. Client creates extraction job (`invoice` or `receipt` template).
+4. Web API runs OpenAI Responses extraction and validates result.
+5. Completed jobs enter review queue (`pending` / `approved` / `rejected`).
+6. Approved jobs export to CSV and/or outbound webhook.
 
 ## Boundaries
 
 - Web handles request/response and user interaction.
-- Worker handles long-running tasks and retries.
+- Worker is reserved for asynchronous job execution as volume grows.
 - Shared packages enforce type-safe contracts.

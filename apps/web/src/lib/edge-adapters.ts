@@ -82,6 +82,7 @@ export function buildEdgeBundleManifest(input: {
     },
     workflow: {
       id: input.workflow.id,
+      organization_id: input.workflow.organization_id,
       name: input.workflow.name,
       description: input.workflow.description,
       is_active: input.workflow.is_active,

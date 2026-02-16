@@ -33,6 +33,7 @@ function computeFieldCoverage(job: ExtractionJobRecord): number {
 }
 
 export async function runEvaluation(input: {
+  organizationId?: string;
   reviewStatus: ReviewStatus;
   sampleLimit: number;
 }) {
@@ -64,6 +65,7 @@ export async function runEvaluation(input: {
   const safeDivisor = sampleCount > 0 ? sampleCount : 1;
 
   const run = await createEvalRunRecord({
+    organizationId: input.organizationId,
     reviewStatus: input.reviewStatus,
     sampleLimit: input.sampleLimit,
     sampleCount,
@@ -80,6 +82,7 @@ export async function runEvaluation(input: {
 }
 
 export async function getEvaluationRuns(input?: {
+  organizationId?: string;
   reviewStatus?: ReviewStatus;
   limit?: number;
 }) {

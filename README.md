@@ -21,6 +21,7 @@ Phase 2 foundations are now in progress:
 - drift insights endpoint (confidence trend + issue frequency)
 - edge adapter bundle generation (Cloudflare Worker / Vercel Edge / Browser WASM)
 - eval run API/UI for benchmark-style extraction quality tracking
+- organization management + tenant scoping for workflow/edge/eval modules
 
 ## Core Principles
 
@@ -50,6 +51,7 @@ Web app:
 - Workflow UI: http://localhost:3000/workflows
 - Edge Adapter UI: http://localhost:3000/edge
 - Eval UI: http://localhost:3000/evals
+- Organizations UI: http://localhost:3000/organizations
 
 ## Environment Variables
 
@@ -89,6 +91,8 @@ docs/         # architecture notes
 - `GET /api/v1/edge/bundles/:bundleId/download`
 - `GET /api/v1/evals/runs`
 - `POST /api/v1/evals/runs`
+- `GET /api/v1/organizations`
+- `POST /api/v1/organizations`
 - `GET /api/v1/audit-events`
 - `GET /api/v1/datasets/snapshots`
 - `POST /api/v1/datasets/snapshots`

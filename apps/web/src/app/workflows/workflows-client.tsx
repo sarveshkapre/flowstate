@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Workflow = {
   id: string;
+  organization_id: string;
   name: string;
   description: string | null;
   document_type: "invoice" | "receipt";
@@ -30,7 +31,16 @@ type Artifact = {
   mime_type: string;
 };
 
+type Organization = {
+  id: string;
+  slug: string;
+  name: string;
+  is_active: boolean;
+};
+
 export function WorkflowsClient() {
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>("");
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>("");
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
@@ -44,16 +54,32 @@ export function WorkflowsClient() {
   const [threshold, setThreshold] = useState(0.92);
   const [webhookUrl, setWebhookUrl] = useState("");
 
-  const loadWorkflows = useCallback(async () => {
-    const response = await fetch("/api/v1/workflows", { cache: "no-store" });
-    const payload = (await response.json()) as { workflows: Workflow[] };
-    setWorkflows(payload.workflows ?? []);
+  const loadOrganizations = useCallback(async () => {
+    const response = await fetch("/api/v1/organizations", { cache: "no-store" });
+    const payload = (await response.json()) as { organizations: Organization[] };
+    const nextOrganizations = payload.organizations ?? [];
+    setOrganizations(nextOrganizations);
 
-    const firstWorkflow = payload.workflows?.[0];
-    if (!selectedWorkflowId && firstWorkflow) {
-      setSelectedWorkflowId(firstWorkflow.id);
+    if (!selectedOrganizationId && nextOrganizations[0]) {
+      setSelectedOrganizationId(nextOrganizations[0].id);
     }
-  }, [selectedWorkflowId]);
+  }, [selectedOrganizationId]);
+
+  const loadWorkflows = useCallback(async () => {
+    const query = selectedOrganizationId
+      ? `/api/v1/workflows?organizationId=${encodeURIComponent(selectedOrganizationId)}`
+      : "/api/v1/workflows";
+    const response = await fetch(query, { cache: "no-store" });
+    const payload = (await response.json()) as { workflows: Workflow[] };
+    const nextWorkflows = payload.workflows ?? [];
+    setWorkflows(nextWorkflows);
+
+    const firstWorkflow = nextWorkflows[0];
+    const selectedExists = nextWorkflows.some((workflow) => workflow.id === selectedWorkflowId);
+    if (!selectedExists) {
+      setSelectedWorkflowId(firstWorkflow?.id ?? "");
+    }
+  }, [selectedOrganizationId, selectedWorkflowId]);
 
   const loadArtifacts = useCallback(async () => {
     const response = await fetch("/api/v1/uploads?limit=100", { cache: "no-store" });
@@ -78,9 +104,10 @@ export function WorkflowsClient() {
   }, []);
 
   useEffect(() => {
+    void loadOrganizations();
     void loadWorkflows();
     void loadArtifacts();
-  }, [loadArtifacts, loadWorkflows]);
+  }, [loadArtifacts, loadOrganizations, loadWorkflows]);
 
   useEffect(() => {
     void loadRuns(selectedWorkflowId);
@@ -98,6 +125,7 @@ export function WorkflowsClient() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        organizationId: selectedOrganizationId || undefined,
         name,
         description,
         documentType,
@@ -159,6 +187,18 @@ export function WorkflowsClient() {
       <div className="grid two-col">
         <article className="card stack">
           <h3>Create Workflow</h3>
+
+          <label className="field">
+            <span>Organization</span>
+            <select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
+              <option value="">Select organization</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <label className="field">
             <span>Name</span>

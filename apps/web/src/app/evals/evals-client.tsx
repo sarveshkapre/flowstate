@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 type EvalRun = {
   id: string;
+  organization_id: string;
   review_status: "pending" | "approved" | "rejected";
   sample_limit: number;
   sample_count: number;
@@ -15,22 +16,46 @@ type EvalRun = {
   created_at: string;
 };
 
+type Organization = {
+  id: string;
+  slug: string;
+  name: string;
+  is_active: boolean;
+};
+
 export function EvalsClient() {
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>("");
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [reviewStatus, setReviewStatus] = useState<"approved" | "rejected" | "pending">("approved");
   const [sampleLimit, setSampleLimit] = useState(100);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [sampledJobIds, setSampledJobIds] = useState<string[]>([]);
 
+  const loadOrganizations = useCallback(async () => {
+    const response = await fetch("/api/v1/organizations", { cache: "no-store" });
+    const payload = (await response.json()) as { organizations: Organization[] };
+    const nextOrganizations = payload.organizations ?? [];
+    setOrganizations(nextOrganizations);
+
+    if (!selectedOrganizationId && nextOrganizations[0]) {
+      setSelectedOrganizationId(nextOrganizations[0].id);
+    }
+  }, [selectedOrganizationId]);
+
   const loadRuns = useCallback(async () => {
-    const response = await fetch("/api/v1/evals/runs?limit=50", { cache: "no-store" });
+    const query = selectedOrganizationId
+      ? `/api/v1/evals/runs?organizationId=${encodeURIComponent(selectedOrganizationId)}&limit=50`
+      : "/api/v1/evals/runs?limit=50";
+    const response = await fetch(query, { cache: "no-store" });
     const payload = (await response.json()) as { runs: EvalRun[] };
     setRuns(payload.runs ?? []);
-  }, []);
+  }, [selectedOrganizationId]);
 
   useEffect(() => {
+    void loadOrganizations();
     void loadRuns();
-  }, [loadRuns]);
+  }, [loadOrganizations, loadRuns]);
 
   async function createRun() {
     setStatusMessage(null);
@@ -39,6 +64,7 @@ export function EvalsClient() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        organizationId: selectedOrganizationId || undefined,
         reviewStatus,
         sampleLimit,
       }),
@@ -69,6 +95,18 @@ export function EvalsClient() {
 
       <article className="card stack">
         <h3>Create Run</h3>
+
+        <label className="field small">
+          <span>Organization</span>
+          <select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
+            <option value="">Select organization</option>
+            {organizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label className="field small">
           <span>Review Status Slice</span>

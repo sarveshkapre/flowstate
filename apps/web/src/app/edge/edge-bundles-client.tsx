@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Workflow = {
   id: string;
+  organization_id: string;
   name: string;
   document_type: "invoice" | "receipt";
 };
@@ -20,6 +21,7 @@ type Adapter = {
 
 type Bundle = {
   id: string;
+  organization_id: string;
   workflow_id: string;
   workflow_name: string;
   adapter: string;
@@ -31,7 +33,16 @@ type Bundle = {
   created_at: string;
 };
 
+type Organization = {
+  id: string;
+  slug: string;
+  name: string;
+  is_active: boolean;
+};
+
 export function EdgeBundlesClient() {
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>("");
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [bundles, setBundles] = useState<Bundle[]>([]);
@@ -41,17 +52,33 @@ export function EdgeBundlesClient() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [manifestPreview, setManifestPreview] = useState<string>("");
 
+  const loadOrganizations = useCallback(async () => {
+    const response = await fetch("/api/v1/organizations", { cache: "no-store" });
+    const payload = (await response.json()) as { organizations: Organization[] };
+    const nextOrganizations = payload.organizations ?? [];
+    setOrganizations(nextOrganizations);
+
+    if (!selectedOrganizationId && nextOrganizations[0]) {
+      setSelectedOrganizationId(nextOrganizations[0].id);
+    }
+  }, [selectedOrganizationId]);
+
   const loadWorkflows = useCallback(async () => {
-    const response = await fetch("/api/v1/workflows", { cache: "no-store" });
+    const query = selectedOrganizationId
+      ? `/api/v1/workflows?organizationId=${encodeURIComponent(selectedOrganizationId)}`
+      : "/api/v1/workflows";
+    const response = await fetch(query, { cache: "no-store" });
     const payload = (await response.json()) as { workflows: Workflow[] };
     const nextWorkflows = payload.workflows ?? [];
 
     setWorkflows(nextWorkflows);
 
-    if (!workflowId && nextWorkflows[0]) {
-      setWorkflowId(nextWorkflows[0].id);
+    const firstWorkflow = nextWorkflows[0];
+    const selectedExists = nextWorkflows.some((workflow) => workflow.id === workflowId);
+    if (!selectedExists) {
+      setWorkflowId(firstWorkflow?.id ?? "");
     }
-  }, [workflowId]);
+  }, [selectedOrganizationId, workflowId]);
 
   const loadAdapters = useCallback(async () => {
     const response = await fetch("/api/v1/edge/adapters", { cache: "no-store" });
@@ -66,16 +93,20 @@ export function EdgeBundlesClient() {
   }, [adapterId]);
 
   const loadBundles = useCallback(async () => {
-    const response = await fetch("/api/v1/edge/bundles?limit=50", { cache: "no-store" });
+    const query = selectedOrganizationId
+      ? `/api/v1/edge/bundles?organizationId=${encodeURIComponent(selectedOrganizationId)}&limit=50`
+      : "/api/v1/edge/bundles?limit=50";
+    const response = await fetch(query, { cache: "no-store" });
     const payload = (await response.json()) as { bundles: Bundle[] };
     setBundles(payload.bundles ?? []);
-  }, []);
+  }, [selectedOrganizationId]);
 
   useEffect(() => {
+    void loadOrganizations();
     void loadWorkflows();
     void loadAdapters();
     void loadBundles();
-  }, [loadAdapters, loadBundles, loadWorkflows]);
+  }, [loadAdapters, loadBundles, loadOrganizations, loadWorkflows]);
 
   const selectedAdapter = useMemo(() => adapters.find((item) => item.id === adapterId) ?? null, [adapterId, adapters]);
 
@@ -121,6 +152,18 @@ export function EdgeBundlesClient() {
       <div className="grid two-col">
         <article className="card stack">
           <h3>Create Bundle</h3>
+
+          <label className="field">
+            <span>Organization</span>
+            <select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
+              <option value="">Select organization</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <label className="field">
             <span>Workflow</span>

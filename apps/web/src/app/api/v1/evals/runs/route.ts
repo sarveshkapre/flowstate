@@ -5,12 +5,14 @@ import { z } from "zod";
 import { getEvaluationRuns, runEvaluation } from "@/lib/eval-service";
 
 const createEvalRunSchema = z.object({
+  organizationId: z.string().min(1).max(120).optional(),
   reviewStatus: reviewStatusSchema.default("approved"),
   sampleLimit: z.number().int().positive().max(500).default(100),
 });
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const organizationId = url.searchParams.get("organizationId") || undefined;
   const reviewStatusParam = url.searchParams.get("reviewStatus");
   const limitParam = url.searchParams.get("limit");
   const limit = limitParam ? Number(limitParam) : undefined;
@@ -22,6 +24,7 @@ export async function GET(request: Request) {
   }
 
   const runs = await getEvaluationRuns({
+    organizationId,
     reviewStatus: parsedReviewStatus?.success ? parsedReviewStatus.data : undefined,
     limit: Number.isFinite(limit) && typeof limit === "number" ? Math.min(limit, 200) : undefined,
   });
@@ -38,6 +41,7 @@ export async function POST(request: Request) {
   }
 
   const result = await runEvaluation({
+    organizationId: parsed.data.organizationId,
     reviewStatus: parsed.data.reviewStatus,
     sampleLimit: parsed.data.sampleLimit,
   });

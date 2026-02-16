@@ -44,6 +44,7 @@ export async function createEdgeDeploymentBundle(input: {
 
   const file = await writeEdgeBundleFile({ fileName, contents });
   const bundle = await createEdgeDeploymentBundleRecord({
+    organizationId: workflow.organization_id,
     workflowId: workflow.id,
     workflowName: workflow.name,
     adapter: adapter.id,
@@ -58,6 +59,7 @@ export async function createEdgeDeploymentBundle(input: {
 }
 
 export async function listBundles(input?: {
+  organizationId?: string;
   workflowId?: string;
   limit?: number;
 }) {

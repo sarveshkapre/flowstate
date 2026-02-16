@@ -28,4 +28,4 @@
 - [x] Active learning loop foundation (candidates + snapshots)
 - [x] Edge deployment adapters
 - [x] Evaluation runs foundation (quality baseline metrics)
-- [ ] Multi-tenant org controls
+- [x] Multi-tenant org controls foundation (organizations + scoped modules)

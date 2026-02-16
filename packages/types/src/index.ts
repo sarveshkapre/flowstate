@@ -75,6 +75,17 @@ export const artifactRecordSchema = z.object({
 
 export type ArtifactRecord = z.infer<typeof artifactRecordSchema>;
 
+export const organizationRecordSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  is_active: z.boolean(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type OrganizationRecord = z.infer<typeof organizationRecordSchema>;
+
 export const extractionJobRecordSchema = z.object({
   id: z.string(),
   artifact_id: z.string(),
@@ -143,6 +154,7 @@ export type DatasetSnapshotRecord = z.infer<typeof datasetSnapshotRecordSchema>;
 
 export const workflowRecordSchema = z.object({
   id: z.string(),
+  organization_id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
   document_type: documentTypeSchema,
@@ -160,6 +172,7 @@ export type WorkflowRunStatus = z.infer<typeof workflowRunStatusSchema>;
 
 export const workflowRunRecordSchema = z.object({
   id: z.string(),
+  organization_id: z.string(),
   workflow_id: z.string(),
   artifact_id: z.string(),
   extraction_job_id: z.string().nullable(),
@@ -180,6 +193,7 @@ export type EdgeRuntime = z.infer<typeof edgeRuntimeSchema>;
 
 export const edgeDeploymentBundleRecordSchema = z.object({
   id: z.string(),
+  organization_id: z.string(),
   workflow_id: z.string(),
   workflow_name: z.string(),
   adapter: edgeAdapterSchema,
@@ -195,6 +209,7 @@ export type EdgeDeploymentBundleRecord = z.infer<typeof edgeDeploymentBundleReco
 
 export const evalRunRecordSchema = z.object({
   id: z.string(),
+  organization_id: z.string(),
   review_status: reviewStatusSchema,
   sample_limit: z.number().int().positive(),
   sample_count: z.number().int().nonnegative(),

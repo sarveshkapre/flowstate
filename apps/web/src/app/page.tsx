@@ -10,6 +10,7 @@ const capabilities = [
   "CSV export and webhook delivery",
   "Edge adapter bundle generation for deployment runtimes",
   "Evaluation runs for extraction quality baselines",
+  "Organization-level tenancy controls across workflow modules",
 ];
 
 export default function HomePage() {
@@ -27,6 +28,7 @@ export default function HomePage() {
           <Link href="/workflows">Workflow Builder</Link>
           <Link href="/edge">Edge Adapters</Link>
           <Link href="/evals">Evals</Link>
+          <Link href="/organizations">Organizations</Link>
           <a href="/api/v1/exports/csv?reviewStatus=approved">Export Approved CSV</a>
           <a href="/api/v1/drift">Drift API</a>
           <a href="/api/v1/active-learning/candidates">Active Learning Candidates</a>

@@ -23,6 +23,7 @@ export async function runWorkflow(input: {
   }
 
   const run = await createWorkflowRun({
+    organizationId: workflow.organization_id,
     workflowId: workflow.id,
     artifactId: input.artifactId,
   });

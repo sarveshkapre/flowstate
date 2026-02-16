@@ -15,6 +15,8 @@ import {
   evalRunRecordSchema,
   type ExtractionJobRecord,
   extractionJobRecordSchema,
+  type OrganizationRecord,
+  organizationRecordSchema,
   reviewStatusSchema,
   type ReviewStatus,
   type ValidationResult,
@@ -29,6 +31,7 @@ import {
 } from "@flowstate/types";
 
 type DbState = {
+  organizations: OrganizationRecord[];
   artifacts: ArtifactRecord[];
   extraction_jobs: ExtractionJobRecord[];
   webhook_deliveries: WebhookDeliveryRecord[];
@@ -41,6 +44,7 @@ type DbState = {
 };
 
 const DEFAULT_DB_STATE: DbState = {
+  organizations: [],
   artifacts: [],
   extraction_jobs: [],
   webhook_deliveries: [],
@@ -63,6 +67,44 @@ const DB_FILE = path.join(DATA_DIR, "db.json");
 
 let writeChain = Promise.resolve();
 
+const DEFAULT_ORG_ID = "org_default";
+const DEFAULT_ORG_SLUG = "default";
+const DEFAULT_ORG_NAME = "Default Organization";
+
+function createDefaultOrganizationRecord() {
+  const timestamp = new Date().toISOString();
+  return organizationRecordSchema.parse({
+    id: DEFAULT_ORG_ID,
+    slug: DEFAULT_ORG_SLUG,
+    name: DEFAULT_ORG_NAME,
+    is_active: true,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+}
+
+function ensureDefaultOrganization(state: DbState): OrganizationRecord {
+  const existing =
+    state.organizations.find((organization) => organization.id === DEFAULT_ORG_ID) ??
+    state.organizations.find((organization) => organization.slug === DEFAULT_ORG_SLUG);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created = createDefaultOrganizationRecord();
+  state.organizations.unshift(created);
+  return created;
+}
+
+function normalizeSlug(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
 async function ensureDataInfrastructure() {
   await fs.mkdir(UPLOADS_DIR, { recursive: true });
   await fs.mkdir(SNAPSHOTS_DIR, { recursive: true });
@@ -80,19 +122,50 @@ async function readDbState(): Promise<DbState> {
   const raw = await fs.readFile(DB_FILE, "utf8");
   const parsed = JSON.parse(raw) as Partial<DbState>;
 
-  return {
+  const state: DbState = {
+    organizations: (parsed.organizations ?? []).map((item) => organizationRecordSchema.parse(item)),
     artifacts: (parsed.artifacts ?? []).map((item) => artifactRecordSchema.parse(item)),
     extraction_jobs: (parsed.extraction_jobs ?? []).map((item) => extractionJobRecordSchema.parse(item)),
     webhook_deliveries: (parsed.webhook_deliveries ?? []).map((item) => webhookDeliveryRecordSchema.parse(item)),
     audit_events: (parsed.audit_events ?? []).map((item) => auditEventRecordSchema.parse(item)),
     dataset_snapshots: (parsed.dataset_snapshots ?? []).map((item) => datasetSnapshotRecordSchema.parse(item)),
-    workflows: (parsed.workflows ?? []).map((item) => workflowRecordSchema.parse(item)),
-    workflow_runs: (parsed.workflow_runs ?? []).map((item) => workflowRunRecordSchema.parse(item)),
-    edge_deployment_bundles: (parsed.edge_deployment_bundles ?? []).map((item) =>
-      edgeDeploymentBundleRecordSchema.parse(item),
-    ),
-    eval_runs: (parsed.eval_runs ?? []).map((item) => evalRunRecordSchema.parse(item)),
+    workflows: [],
+    workflow_runs: [],
+    edge_deployment_bundles: [],
+    eval_runs: [],
   };
+
+  const defaultOrganization = ensureDefaultOrganization(state);
+
+  state.workflows = (parsed.workflows ?? []).map((item) =>
+    workflowRecordSchema.parse({
+      ...item,
+      organization_id: item.organization_id ?? defaultOrganization.id,
+    }),
+  );
+
+  state.workflow_runs = (parsed.workflow_runs ?? []).map((item) =>
+    workflowRunRecordSchema.parse({
+      ...item,
+      organization_id: item.organization_id ?? defaultOrganization.id,
+    }),
+  );
+
+  state.edge_deployment_bundles = (parsed.edge_deployment_bundles ?? []).map((item) =>
+    edgeDeploymentBundleRecordSchema.parse({
+      ...item,
+      organization_id: item.organization_id ?? defaultOrganization.id,
+    }),
+  );
+
+  state.eval_runs = (parsed.eval_runs ?? []).map((item) =>
+    evalRunRecordSchema.parse({
+      ...item,
+      organization_id: item.organization_id ?? defaultOrganization.id,
+    }),
+  );
+
+  return state;
 }
 
 async function writeDbState(state: DbState) {
@@ -160,6 +233,50 @@ function appendAuditEvent(state: DbState, input: {
 
   state.audit_events.unshift(event);
   return event;
+}
+
+export async function listOrganizations(): Promise<OrganizationRecord[]> {
+  const state = await readDbState();
+  return state.organizations;
+}
+
+export async function getOrganization(organizationId: string): Promise<OrganizationRecord | null> {
+  const state = await readDbState();
+  return state.organizations.find((organization) => organization.id === organizationId) ?? null;
+}
+
+export async function createOrganization(input: {
+  name: string;
+  slug?: string;
+  isActive?: boolean;
+}): Promise<OrganizationRecord> {
+  return withWriteLock(async (state) => {
+    ensureDefaultOrganization(state);
+
+    const timestamp = new Date().toISOString();
+    const baseSlug = normalizeSlug(input.slug?.trim() || input.name);
+    const safeBaseSlug = baseSlug || `org-${randomUUID().slice(0, 8)}`;
+
+    let slug = safeBaseSlug;
+    let counter = 1;
+
+    while (state.organizations.some((organization) => organization.slug === slug)) {
+      counter += 1;
+      slug = `${safeBaseSlug}-${counter}`;
+    }
+
+    const organization = organizationRecordSchema.parse({
+      id: randomUUID(),
+      slug,
+      name: input.name.trim(),
+      is_active: input.isActive ?? true,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    state.organizations.unshift(organization);
+    return organization;
+  });
 }
 
 export async function createArtifact(input: {
@@ -476,6 +593,7 @@ export async function listDatasetSnapshots(): Promise<DatasetSnapshotRecord[]> {
 }
 
 export async function createEvalRunRecord(input: {
+  organizationId?: string;
   reviewStatus: EvalRunRecord["review_status"];
   sampleLimit: number;
   sampleCount: number;
@@ -485,8 +603,14 @@ export async function createEvalRunRecord(input: {
   warningRate: number;
 }): Promise<EvalRunRecord> {
   return withWriteLock(async (state) => {
+    const defaultOrganization = ensureDefaultOrganization(state);
+    const organizationId = state.organizations.some((organization) => organization.id === input.organizationId)
+      ? input.organizationId
+      : defaultOrganization.id;
+
     const run = evalRunRecordSchema.parse({
       id: randomUUID(),
+      organization_id: organizationId,
       review_status: input.reviewStatus,
       sample_limit: input.sampleLimit,
       sample_count: input.sampleCount,
@@ -514,11 +638,16 @@ export async function createEvalRunRecord(input: {
 }
 
 export async function listEvalRuns(filters?: {
+  organizationId?: string;
   reviewStatus?: EvalRunRecord["review_status"];
   limit?: number;
 }): Promise<EvalRunRecord[]> {
   const state = await readDbState();
   const runs = state.eval_runs.filter((run) => {
+    if (filters?.organizationId && run.organization_id !== filters.organizationId) {
+      return false;
+    }
+
     if (filters?.reviewStatus && run.review_status !== filters.reviewStatus) {
       return false;
     }
@@ -534,6 +663,7 @@ export async function listEvalRuns(filters?: {
 }
 
 export async function createWorkflow(input: {
+  organizationId?: string;
   name: string;
   description?: string;
   documentType: DocumentType;
@@ -542,10 +672,15 @@ export async function createWorkflow(input: {
   isActive?: boolean;
 }): Promise<WorkflowRecord> {
   return withWriteLock(async (state) => {
+    const defaultOrganization = ensureDefaultOrganization(state);
+    const organizationId = state.organizations.some((organization) => organization.id === input.organizationId)
+      ? (input.organizationId as string)
+      : defaultOrganization.id;
     const timestamp = new Date().toISOString();
 
     const workflow = workflowRecordSchema.parse({
       id: randomUUID(),
+      organization_id: organizationId,
       name: input.name.trim(),
       description: input.description?.trim() || null,
       document_type: input.documentType,
@@ -567,9 +702,18 @@ export async function createWorkflow(input: {
   });
 }
 
-export async function listWorkflows(): Promise<WorkflowRecord[]> {
+export async function listWorkflows(filters?: {
+  organizationId?: string;
+}): Promise<WorkflowRecord[]> {
   const state = await readDbState();
-  return state.workflows;
+
+  return state.workflows.filter((workflow) => {
+    if (filters?.organizationId && workflow.organization_id !== filters.organizationId) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 export async function getWorkflow(workflowId: string): Promise<WorkflowRecord | null> {
@@ -578,6 +722,7 @@ export async function getWorkflow(workflowId: string): Promise<WorkflowRecord | 
 }
 
 export async function createWorkflowRun(input: {
+  organizationId: string;
   workflowId: string;
   artifactId: string;
 }): Promise<WorkflowRunRecord> {
@@ -585,6 +730,7 @@ export async function createWorkflowRun(input: {
     const timestamp = new Date().toISOString();
     const run = workflowRunRecordSchema.parse({
       id: randomUUID(),
+      organization_id: input.organizationId,
       workflow_id: input.workflowId,
       artifact_id: input.artifactId,
       extraction_job_id: null,
@@ -601,6 +747,7 @@ export async function createWorkflowRun(input: {
 }
 
 export async function listWorkflowRuns(filters?: {
+  organizationId?: string;
   workflowId?: string;
   status?: WorkflowRunRecord["status"];
   limit?: number;
@@ -608,6 +755,10 @@ export async function listWorkflowRuns(filters?: {
   const state = await readDbState();
 
   const runs = state.workflow_runs.filter((run) => {
+    if (filters?.organizationId && run.organization_id !== filters.organizationId) {
+      return false;
+    }
+
     if (filters?.workflowId && run.workflow_id !== filters.workflowId) {
       return false;
     }
@@ -750,6 +901,7 @@ export async function writeEdgeBundleFile(input: {
 }
 
 export async function createEdgeDeploymentBundleRecord(input: {
+  organizationId: string;
   workflowId: string;
   workflowName: string;
   adapter: EdgeDeploymentBundleRecord["adapter"];
@@ -762,6 +914,7 @@ export async function createEdgeDeploymentBundleRecord(input: {
   return withWriteLock(async (state) => {
     const record = edgeDeploymentBundleRecordSchema.parse({
       id: randomUUID(),
+      organization_id: input.organizationId,
       workflow_id: input.workflowId,
       workflow_name: input.workflowName,
       adapter: input.adapter,
@@ -792,11 +945,16 @@ export async function createEdgeDeploymentBundleRecord(input: {
 }
 
 export async function listEdgeDeploymentBundles(filters?: {
+  organizationId?: string;
   workflowId?: string;
   limit?: number;
 }): Promise<EdgeDeploymentBundleRecord[]> {
   const state = await readDbState();
   const bundles = state.edge_deployment_bundles.filter((bundle) => {
+    if (filters?.organizationId && bundle.organization_id !== filters.organizationId) {
+      return false;
+    }
+
     if (filters?.workflowId && bundle.workflow_id !== filters.workflowId) {
       return false;
     }

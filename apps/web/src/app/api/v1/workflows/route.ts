@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createWorkflow, listWorkflows } from "@/lib/data-store";
 
 const createWorkflowSchema = z.object({
+  organizationId: z.string().min(1).max(120).optional(),
   name: z.string().min(1).max(160),
   description: z.string().max(2000).optional(),
   documentType: documentTypeSchema,
@@ -13,8 +14,13 @@ const createWorkflowSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-export async function GET() {
-  const workflows = await listWorkflows();
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const organizationId = url.searchParams.get("organizationId") || undefined;
+
+  const workflows = await listWorkflows({
+    organizationId,
+  });
   return NextResponse.json({ workflows });
 }
 
@@ -27,6 +33,7 @@ export async function POST(request: Request) {
   }
 
   const workflow = await createWorkflow({
+    organizationId: parsed.data.organizationId,
     name: parsed.data.name,
     description: parsed.data.description,
     documentType: parsed.data.documentType,

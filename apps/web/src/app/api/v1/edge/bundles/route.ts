@@ -12,11 +12,13 @@ const createBundleSchema = z.object({
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const organizationId = url.searchParams.get("organizationId") || undefined;
   const workflowId = url.searchParams.get("workflowId") || undefined;
   const limitParam = url.searchParams.get("limit");
   const limit = limitParam ? Number(limitParam) : undefined;
 
   const bundles = await listBundles({
+    organizationId,
     workflowId,
     limit: Number.isFinite(limit) && typeof limit === "number" ? Math.min(limit, 200) : undefined,
   });

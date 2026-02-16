@@ -54,6 +54,20 @@
   - `POST /api/v1/evals/runs`
 - Added `/evals` UI for creating runs and reviewing run history.
 
+## 2026-02-16 (Multi-Tenant Foundations)
+
+- Added organization data model and management endpoints:
+  - `GET /api/v1/organizations`
+  - `POST /api/v1/organizations`
+- Added migration-safe default organization assignment for existing persisted records.
+- Added organization scoping fields to:
+  - workflows
+  - workflow runs
+  - edge deployment bundles
+  - eval runs
+- Updated workflow, edge, and eval UIs to select organization context.
+- Added `/organizations` UI for tenant creation and visibility.
+
 ## Decisions
 
 - OpenAI APIs only for model capabilities.

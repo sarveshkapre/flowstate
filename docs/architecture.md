@@ -19,6 +19,7 @@
 8. Optional workflows orchestrate extraction + auto-review + webhook dispatch with run history.
 9. Edge adapters package workflows as runtime-specific JSON bundles for external deployment systems.
 10. Eval runs compute aggregate quality metrics across reviewed samples and persist benchmark history.
+11. Organization records provide tenant scoping for workflows, edge bundles, and eval runs.
 
 ## Boundaries
 

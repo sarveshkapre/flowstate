@@ -32,6 +32,16 @@
 - Added active learning candidate endpoint and active learning snapshot endpoint.
 - Added drift insights endpoint and surfaced drift summary in dashboard metrics.
 
+## 2026-02-16 (Edge Adapter Bundles)
+
+- Added edge adapter catalog for:
+  - cloudflare_worker
+  - vercel_edge_function
+  - browser_wasm
+- Added edge bundle generation endpoint that compiles workflow + extraction manifest JSON.
+- Added persistent edge bundle records and download endpoint for generated bundle files.
+- Added `/edge` UI for bundle creation, manifest preview, and file download.
+
 ## Decisions
 
 - OpenAI APIs only for model capabilities.

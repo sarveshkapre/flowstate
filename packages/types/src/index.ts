@@ -103,6 +103,7 @@ export const auditEventTypeSchema = z.enum([
   "workflow_created",
   "workflow_run_completed",
   "workflow_run_failed",
+  "edge_bundle_created",
 ]);
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>;
 
@@ -169,3 +170,24 @@ export const workflowRunRecordSchema = z.object({
 });
 
 export type WorkflowRunRecord = z.infer<typeof workflowRunRecordSchema>;
+
+export const edgeAdapterSchema = z.enum(["cloudflare_worker", "vercel_edge_function", "browser_wasm"]);
+export type EdgeAdapter = z.infer<typeof edgeAdapterSchema>;
+
+export const edgeRuntimeSchema = z.enum(["workerd", "v8_isolate", "wasm_browser"]);
+export type EdgeRuntime = z.infer<typeof edgeRuntimeSchema>;
+
+export const edgeDeploymentBundleRecordSchema = z.object({
+  id: z.string(),
+  workflow_id: z.string(),
+  workflow_name: z.string(),
+  adapter: edgeAdapterSchema,
+  runtime: edgeRuntimeSchema,
+  model: z.string(),
+  file_name: z.string(),
+  file_size_bytes: z.number().int().nonnegative(),
+  checksum_sha256: z.string(),
+  created_at: z.string(),
+});
+
+export type EdgeDeploymentBundleRecord = z.infer<typeof edgeDeploymentBundleRecordSchema>;

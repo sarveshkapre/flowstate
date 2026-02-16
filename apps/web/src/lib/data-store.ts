@@ -17,6 +17,8 @@ import {
   type ReviewStatus,
   type ValidationResult,
   type WebhookDeliveryRecord,
+  edgeDeploymentBundleRecordSchema,
+  type EdgeDeploymentBundleRecord,
   type WorkflowRecord,
   workflowRecordSchema,
   type WorkflowRunRecord,
@@ -32,6 +34,7 @@ type DbState = {
   dataset_snapshots: DatasetSnapshotRecord[];
   workflows: WorkflowRecord[];
   workflow_runs: WorkflowRunRecord[];
+  edge_deployment_bundles: EdgeDeploymentBundleRecord[];
 };
 
 const DEFAULT_DB_STATE: DbState = {
@@ -42,6 +45,7 @@ const DEFAULT_DB_STATE: DbState = {
   dataset_snapshots: [],
   workflows: [],
   workflow_runs: [],
+  edge_deployment_bundles: [],
 };
 
 const WORKSPACE_ROOT = path.resolve(process.cwd(), "../..");
@@ -50,6 +54,7 @@ const DATA_DIR = process.env.FLOWSTATE_DATA_DIR
   : path.join(WORKSPACE_ROOT, ".flowstate-data");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const SNAPSHOTS_DIR = path.join(DATA_DIR, "snapshots");
+const EDGE_BUNDLES_DIR = path.join(DATA_DIR, "edge-bundles");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
 let writeChain = Promise.resolve();
@@ -57,6 +62,7 @@ let writeChain = Promise.resolve();
 async function ensureDataInfrastructure() {
   await fs.mkdir(UPLOADS_DIR, { recursive: true });
   await fs.mkdir(SNAPSHOTS_DIR, { recursive: true });
+  await fs.mkdir(EDGE_BUNDLES_DIR, { recursive: true });
 
   try {
     await fs.access(DB_FILE);
@@ -78,6 +84,9 @@ async function readDbState(): Promise<DbState> {
     dataset_snapshots: (parsed.dataset_snapshots ?? []).map((item) => datasetSnapshotRecordSchema.parse(item)),
     workflows: (parsed.workflows ?? []).map((item) => workflowRecordSchema.parse(item)),
     workflow_runs: (parsed.workflow_runs ?? []).map((item) => workflowRunRecordSchema.parse(item)),
+    edge_deployment_bundles: (parsed.edge_deployment_bundles ?? []).map((item) =>
+      edgeDeploymentBundleRecordSchema.parse(item),
+    ),
   };
 }
 
@@ -664,4 +673,92 @@ export async function recordWebhookDelivery(input: {
 
     return delivery;
   });
+}
+
+export async function writeEdgeBundleFile(input: {
+  fileName: string;
+  contents: string;
+}): Promise<{ filePath: string; fileSizeBytes: number }> {
+  await ensureDataInfrastructure();
+  const filePath = path.join(EDGE_BUNDLES_DIR, input.fileName);
+  await fs.writeFile(filePath, input.contents, "utf8");
+  const stats = await fs.stat(filePath);
+  return { filePath, fileSizeBytes: stats.size };
+}
+
+export async function createEdgeDeploymentBundleRecord(input: {
+  workflowId: string;
+  workflowName: string;
+  adapter: EdgeDeploymentBundleRecord["adapter"];
+  runtime: EdgeDeploymentBundleRecord["runtime"];
+  model: string;
+  fileName: string;
+  fileSizeBytes: number;
+  checksumSha256: string;
+}): Promise<EdgeDeploymentBundleRecord> {
+  return withWriteLock(async (state) => {
+    const record = edgeDeploymentBundleRecordSchema.parse({
+      id: randomUUID(),
+      workflow_id: input.workflowId,
+      workflow_name: input.workflowName,
+      adapter: input.adapter,
+      runtime: input.runtime,
+      model: input.model,
+      file_name: input.fileName,
+      file_size_bytes: input.fileSizeBytes,
+      checksum_sha256: input.checksumSha256,
+      created_at: new Date().toISOString(),
+    });
+
+    state.edge_deployment_bundles.unshift(record);
+
+    appendAuditEvent(state, {
+      eventType: "edge_bundle_created",
+      actor: "system",
+      metadata: {
+        bundle_id: record.id,
+        workflow_id: record.workflow_id,
+        adapter: record.adapter,
+        runtime: record.runtime,
+        file_name: record.file_name,
+      },
+    });
+
+    return record;
+  });
+}
+
+export async function listEdgeDeploymentBundles(filters?: {
+  workflowId?: string;
+  limit?: number;
+}): Promise<EdgeDeploymentBundleRecord[]> {
+  const state = await readDbState();
+  const bundles = state.edge_deployment_bundles.filter((bundle) => {
+    if (filters?.workflowId && bundle.workflow_id !== filters.workflowId) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (filters?.limit) {
+    return bundles.slice(0, filters.limit);
+  }
+
+  return bundles;
+}
+
+export async function getEdgeDeploymentBundle(bundleId: string): Promise<EdgeDeploymentBundleRecord | null> {
+  const state = await readDbState();
+  return state.edge_deployment_bundles.find((bundle) => bundle.id === bundleId) ?? null;
+}
+
+export async function readEdgeBundleContents(fileName: string): Promise<string | null> {
+  await ensureDataInfrastructure();
+
+  try {
+    return await fs.readFile(path.join(EDGE_BUNDLES_DIR, fileName), "utf8");
+  } catch {
+    return null;
+  }
 }

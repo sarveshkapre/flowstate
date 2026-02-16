@@ -19,6 +19,7 @@ Phase 2 foundations are now in progress:
 - workflow builder API/UI + workflow run history
 - active learning candidate and snapshot endpoints
 - drift insights endpoint (confidence trend + issue frequency)
+- edge adapter bundle generation (Cloudflare Worker / Vercel Edge / Browser WASM)
 
 ## Core Principles
 
@@ -45,6 +46,8 @@ Web app:
 - http://localhost:3000
 - Upload UI: http://localhost:3000/upload
 - Review UI: http://localhost:3000/review
+- Workflow UI: http://localhost:3000/workflows
+- Edge Adapter UI: http://localhost:3000/edge
 
 ## Environment Variables
 
@@ -78,6 +81,10 @@ docs/         # architecture notes
 - `POST /api/v1/exports/webhook`
 - `GET /api/v1/metrics`
 - `GET /api/v1/drift`
+- `GET /api/v1/edge/adapters`
+- `GET /api/v1/edge/bundles`
+- `POST /api/v1/edge/bundles`
+- `GET /api/v1/edge/bundles/:bundleId/download`
 - `GET /api/v1/audit-events`
 - `GET /api/v1/datasets/snapshots`
 - `POST /api/v1/datasets/snapshots`

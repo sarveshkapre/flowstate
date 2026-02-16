@@ -26,5 +26,5 @@
 
 - [x] Workflow builder foundation (API + UI)
 - [x] Active learning loop foundation (candidates + snapshots)
-- [ ] Edge deployment adapters
+- [x] Edge deployment adapters
 - [ ] Multi-tenant org controls

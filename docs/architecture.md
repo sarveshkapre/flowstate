@@ -17,6 +17,7 @@
 6. Approved jobs export to CSV and/or outbound webhook.
 7. Audit events and dataset snapshots are persisted for traceability and retraining.
 8. Optional workflows orchestrate extraction + auto-review + webhook dispatch with run history.
+9. Edge adapters package workflows as runtime-specific JSON bundles for external deployment systems.
 
 ## Boundaries
 

@@ -18,6 +18,7 @@
 7. Audit events and dataset snapshots are persisted for traceability and retraining.
 8. Optional workflows orchestrate extraction + auto-review + webhook dispatch with run history.
 9. Edge adapters package workflows as runtime-specific JSON bundles for external deployment systems.
+10. Eval runs compute aggregate quality metrics across reviewed samples and persist benchmark history.
 
 ## Boundaries
 

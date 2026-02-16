@@ -42,6 +42,18 @@
 - Added persistent edge bundle records and download endpoint for generated bundle files.
 - Added `/edge` UI for bundle creation, manifest preview, and file download.
 
+## 2026-02-16 (Evaluation Runs Foundations)
+
+- Added eval run records with aggregate quality metrics:
+  - avg confidence
+  - avg field coverage
+  - error/warning rates
+- Added evaluation service for benchmark-style runs over reviewed extraction jobs.
+- Added eval run API endpoints:
+  - `GET /api/v1/evals/runs`
+  - `POST /api/v1/evals/runs`
+- Added `/evals` UI for creating runs and reviewing run history.
+
 ## Decisions
 
 - OpenAI APIs only for model capabilities.

@@ -9,6 +9,7 @@ const capabilities = [
   "Human review queue with approve/reject",
   "CSV export and webhook delivery",
   "Edge adapter bundle generation for deployment runtimes",
+  "Evaluation runs for extraction quality baselines",
 ];
 
 export default function HomePage() {
@@ -25,6 +26,7 @@ export default function HomePage() {
           <Link href="/review">Open Review Queue</Link>
           <Link href="/workflows">Workflow Builder</Link>
           <Link href="/edge">Edge Adapters</Link>
+          <Link href="/evals">Evals</Link>
           <a href="/api/v1/exports/csv?reviewStatus=approved">Export Approved CSV</a>
           <a href="/api/v1/drift">Drift API</a>
           <a href="/api/v1/active-learning/candidates">Active Learning Candidates</a>

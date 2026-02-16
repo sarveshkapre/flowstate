@@ -11,6 +11,8 @@ import {
   type DatasetSnapshotRecord,
   datasetSnapshotRecordSchema,
   type DocumentType,
+  type EvalRunRecord,
+  evalRunRecordSchema,
   type ExtractionJobRecord,
   extractionJobRecordSchema,
   reviewStatusSchema,
@@ -35,6 +37,7 @@ type DbState = {
   workflows: WorkflowRecord[];
   workflow_runs: WorkflowRunRecord[];
   edge_deployment_bundles: EdgeDeploymentBundleRecord[];
+  eval_runs: EvalRunRecord[];
 };
 
 const DEFAULT_DB_STATE: DbState = {
@@ -46,6 +49,7 @@ const DEFAULT_DB_STATE: DbState = {
   workflows: [],
   workflow_runs: [],
   edge_deployment_bundles: [],
+  eval_runs: [],
 };
 
 const WORKSPACE_ROOT = path.resolve(process.cwd(), "../..");
@@ -87,6 +91,7 @@ async function readDbState(): Promise<DbState> {
     edge_deployment_bundles: (parsed.edge_deployment_bundles ?? []).map((item) =>
       edgeDeploymentBundleRecordSchema.parse(item),
     ),
+    eval_runs: (parsed.eval_runs ?? []).map((item) => evalRunRecordSchema.parse(item)),
   };
 }
 
@@ -468,6 +473,64 @@ export async function createDatasetSnapshotRecord(input: {
 export async function listDatasetSnapshots(): Promise<DatasetSnapshotRecord[]> {
   const state = await readDbState();
   return state.dataset_snapshots;
+}
+
+export async function createEvalRunRecord(input: {
+  reviewStatus: EvalRunRecord["review_status"];
+  sampleLimit: number;
+  sampleCount: number;
+  avgConfidence: number;
+  avgFieldCoverage: number;
+  errorRate: number;
+  warningRate: number;
+}): Promise<EvalRunRecord> {
+  return withWriteLock(async (state) => {
+    const run = evalRunRecordSchema.parse({
+      id: randomUUID(),
+      review_status: input.reviewStatus,
+      sample_limit: input.sampleLimit,
+      sample_count: input.sampleCount,
+      avg_confidence: input.avgConfidence,
+      avg_field_coverage: input.avgFieldCoverage,
+      error_rate: input.errorRate,
+      warning_rate: input.warningRate,
+      created_at: new Date().toISOString(),
+    });
+
+    state.eval_runs.unshift(run);
+
+    appendAuditEvent(state, {
+      eventType: "eval_run_created",
+      actor: "system",
+      metadata: {
+        eval_run_id: run.id,
+        review_status: run.review_status,
+        sample_count: run.sample_count,
+      },
+    });
+
+    return run;
+  });
+}
+
+export async function listEvalRuns(filters?: {
+  reviewStatus?: EvalRunRecord["review_status"];
+  limit?: number;
+}): Promise<EvalRunRecord[]> {
+  const state = await readDbState();
+  const runs = state.eval_runs.filter((run) => {
+    if (filters?.reviewStatus && run.review_status !== filters.reviewStatus) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (filters?.limit) {
+    return runs.slice(0, filters.limit);
+  }
+
+  return runs;
 }
 
 export async function createWorkflow(input: {

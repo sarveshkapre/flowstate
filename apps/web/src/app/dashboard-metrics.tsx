@@ -24,6 +24,16 @@ type DriftPayload = {
   };
 };
 
+type EvalRunsPayload = {
+  runs: Array<{
+    id: string;
+    avg_confidence: number;
+    avg_field_coverage: number;
+    sample_count: number;
+    review_status: "pending" | "approved" | "rejected";
+  }>;
+};
+
 const defaultSummary: Summary = {
   jobs: 0,
   completed: 0,
@@ -43,18 +53,23 @@ export function DashboardMetrics() {
   const [summary, setSummary] = useState<Summary>(defaultSummary);
   const [topIssues, setTopIssues] = useState<Array<{ code: string; count: number }>>([]);
   const [latestTrend, setLatestTrend] = useState<{ day: string; avg_confidence: number } | null>(null);
+  const [latestEval, setLatestEval] = useState<EvalRunsPayload["runs"][number] | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
 
     async function load() {
       try {
-        const [metricsResponse, driftResponse] = await Promise.all([
+        const [metricsResponse, driftResponse, evalResponse] = await Promise.all([
           fetch("/api/v1/metrics", {
             signal: controller.signal,
             cache: "no-store",
           }),
           fetch("/api/v1/drift", {
+            signal: controller.signal,
+            cache: "no-store",
+          }),
+          fetch("/api/v1/evals/runs?limit=1", {
             signal: controller.signal,
             cache: "no-store",
           }),
@@ -71,6 +86,11 @@ export function DashboardMetrics() {
           const trend = payload.drift.confidence_trend;
           const latest = trend.length ? trend[trend.length - 1] ?? null : null;
           setLatestTrend(latest ? { day: latest.day, avg_confidence: latest.avg_confidence } : null);
+        }
+
+        if (evalResponse.ok) {
+          const payload = (await evalResponse.json()) as EvalRunsPayload;
+          setLatestEval(payload.runs[0] ?? null);
         }
       } catch {
         // Ignore transient errors for dashboard metrics.
@@ -119,6 +139,15 @@ export function DashboardMetrics() {
           <h3>Top Issue Codes</h3>
           <p className="muted">
             {topIssues.length ? topIssues.map((issue) => `${issue.code} (${issue.count})`).join(", ") : "none"}
+          </p>
+        </article>
+        <article className="card">
+          <h3>Latest Eval Coverage</h3>
+          <p className="metric">{latestEval ? latestEval.avg_field_coverage : "-"}</p>
+          <p className="muted">
+            {latestEval
+              ? `${latestEval.review_status} (${latestEval.sample_count} samples)`
+              : "run an eval to populate"}
           </p>
         </article>
       </div>

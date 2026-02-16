@@ -27,4 +27,5 @@
 - [x] Workflow builder foundation (API + UI)
 - [x] Active learning loop foundation (candidates + snapshots)
 - [x] Edge deployment adapters
+- [x] Evaluation runs foundation (quality baseline metrics)
 - [ ] Multi-tenant org controls

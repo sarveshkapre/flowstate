@@ -104,6 +104,7 @@ export const auditEventTypeSchema = z.enum([
   "workflow_run_completed",
   "workflow_run_failed",
   "edge_bundle_created",
+  "eval_run_created",
 ]);
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>;
 
@@ -191,3 +192,17 @@ export const edgeDeploymentBundleRecordSchema = z.object({
 });
 
 export type EdgeDeploymentBundleRecord = z.infer<typeof edgeDeploymentBundleRecordSchema>;
+
+export const evalRunRecordSchema = z.object({
+  id: z.string(),
+  review_status: reviewStatusSchema,
+  sample_limit: z.number().int().positive(),
+  sample_count: z.number().int().nonnegative(),
+  avg_confidence: z.number().min(0).max(1),
+  avg_field_coverage: z.number().min(0).max(1),
+  error_rate: z.number().min(0).max(1),
+  warning_rate: z.number().min(0).max(1),
+  created_at: z.string(),
+});
+
+export type EvalRunRecord = z.infer<typeof evalRunRecordSchema>;

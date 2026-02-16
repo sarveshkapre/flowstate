@@ -1,11 +1,24 @@
 import { NextResponse } from "next/server";
 
-import { createArtifact } from "@/lib/data-store";
+import { createArtifact, listArtifacts } from "@/lib/data-store";
 
 const MAX_UPLOAD_BYTES = Number(process.env.FLOWSTATE_MAX_UPLOAD_BYTES || 20 * 1024 * 1024);
 
 function isSupportedMimeType(mimeType: string) {
   return mimeType.startsWith("image/") || mimeType === "application/pdf";
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const limitParam = url.searchParams.get("limit");
+  const limit = limitParam ? Number(limitParam) : undefined;
+
+  if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
+    return NextResponse.json({ error: "Invalid limit" }, { status: 400 });
+  }
+
+  const artifacts = await listArtifacts(limit);
+  return NextResponse.json({ artifacts });
 }
 
 export async function POST(request: Request) {

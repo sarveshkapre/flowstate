@@ -114,6 +114,10 @@ h3 {
   margin-top: 1rem;
 }
 
+.grid.two-col {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
 .card {
   border: 1px solid var(--stroke);
   background: var(--surface-2);

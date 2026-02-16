@@ -16,6 +16,9 @@ Phase 2 foundations are now in progress:
 - reviewer assignment action + audit event log
 - dataset snapshot creation from reviewed jobs
 - live operations metrics endpoint + dashboard cards
+- workflow builder API/UI + workflow run history
+- active learning candidate and snapshot endpoints
+- drift insights endpoint (confidence trend + issue frequency)
 
 ## Core Principles
 
@@ -74,9 +77,16 @@ docs/         # architecture notes
 - `GET /api/v1/exports/csv`
 - `POST /api/v1/exports/webhook`
 - `GET /api/v1/metrics`
+- `GET /api/v1/drift`
 - `GET /api/v1/audit-events`
 - `GET /api/v1/datasets/snapshots`
 - `POST /api/v1/datasets/snapshots`
+- `GET /api/v1/workflows`
+- `POST /api/v1/workflows`
+- `GET /api/v1/workflows/:workflowId/runs`
+- `POST /api/v1/workflows/:workflowId/runs`
+- `GET /api/v1/active-learning/candidates`
+- `POST /api/v1/active-learning/snapshots`
 
 ## Commands
 

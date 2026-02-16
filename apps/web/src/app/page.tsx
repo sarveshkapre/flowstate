@@ -22,7 +22,10 @@ export default function HomePage() {
         <div className="link-row">
           <Link href="/upload">Start Uploading</Link>
           <Link href="/review">Open Review Queue</Link>
+          <Link href="/workflows">Workflow Builder</Link>
           <a href="/api/v1/exports/csv?reviewStatus=approved">Export Approved CSV</a>
+          <a href="/api/v1/drift">Drift API</a>
+          <a href="/api/v1/active-learning/candidates">Active Learning Candidates</a>
         </div>
       </section>
 

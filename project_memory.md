@@ -24,6 +24,14 @@
 - Added dataset snapshot endpoint that writes reviewed-job JSONL files.
 - Added live metrics endpoint and dashboard cards for queue/quality visibility.
 
+## 2026-02-16 (Workflow + Active Learning Foundations)
+
+- Added workflow records + run records in persistent datastore.
+- Added workflow APIs and workflow builder UI (`/workflows`).
+- Implemented workflow execution orchestration (extract + optional auto-review + optional webhook).
+- Added active learning candidate endpoint and active learning snapshot endpoint.
+- Added drift insights endpoint and surfaced drift summary in dashboard metrics.
+
 ## Decisions
 
 - OpenAI APIs only for model capabilities.

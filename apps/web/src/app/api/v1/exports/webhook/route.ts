@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { reviewStatusSchema } from "@flowstate/types";
 import { z } from "zod";
 
-import { listExtractionJobs, recordWebhookDelivery } from "@/lib/data-store";
+import { listExtractionJobs } from "@/lib/data-store";
+import { dispatchWebhookForJobs } from "@/lib/webhook-dispatch";
 
 const requestSchema = z.object({
   targetUrl: z.url(),
@@ -28,40 +29,10 @@ export async function POST(request: Request) {
     jobs = jobs.filter((job) => idSet.has(job.id));
   }
 
-  const body = JSON.stringify({
-    sent_at: new Date().toISOString(),
-    count: jobs.length,
-    jobs,
-  });
-
-  let statusCode: number | null = null;
-  let success = false;
-  let responseBody: string | null = null;
-
-  try {
-    const response = await fetch(parsed.data.targetUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body,
-    });
-
-    statusCode = response.status;
-    responseBody = await response.text();
-    success = response.ok;
-  } catch (error) {
-    responseBody = error instanceof Error ? error.message : "Unknown webhook error";
-  }
-
-  await recordWebhookDelivery({
+  const { success, statusCode, responseBody } = await dispatchWebhookForJobs({
     targetUrl: parsed.data.targetUrl,
-    payloadSizeBytes: Buffer.byteLength(body),
-    success,
-    statusCode,
-    responseBody,
+    jobs,
     actor: "system",
-    jobIds: jobs.map((job) => job.id),
   });
 
   if (!success) {

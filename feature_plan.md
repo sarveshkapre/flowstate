@@ -24,7 +24,7 @@
 
 ## Phase 3: Flowstate Parity Layer
 
-- [ ] No-code workflow builder
-- [ ] Active learning loop
+- [x] Workflow builder foundation (API + UI)
+- [x] Active learning loop foundation (candidates + snapshots)
 - [ ] Edge deployment adapters
 - [ ] Multi-tenant org controls

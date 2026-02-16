@@ -17,6 +17,10 @@ import {
   type ReviewStatus,
   type ValidationResult,
   type WebhookDeliveryRecord,
+  type WorkflowRecord,
+  workflowRecordSchema,
+  type WorkflowRunRecord,
+  workflowRunRecordSchema,
   webhookDeliveryRecordSchema,
 } from "@flowstate/types";
 
@@ -26,6 +30,8 @@ type DbState = {
   webhook_deliveries: WebhookDeliveryRecord[];
   audit_events: AuditEventRecord[];
   dataset_snapshots: DatasetSnapshotRecord[];
+  workflows: WorkflowRecord[];
+  workflow_runs: WorkflowRunRecord[];
 };
 
 const DEFAULT_DB_STATE: DbState = {
@@ -34,6 +40,8 @@ const DEFAULT_DB_STATE: DbState = {
   webhook_deliveries: [],
   audit_events: [],
   dataset_snapshots: [],
+  workflows: [],
+  workflow_runs: [],
 };
 
 const WORKSPACE_ROOT = path.resolve(process.cwd(), "../..");
@@ -68,6 +76,8 @@ async function readDbState(): Promise<DbState> {
     webhook_deliveries: (parsed.webhook_deliveries ?? []).map((item) => webhookDeliveryRecordSchema.parse(item)),
     audit_events: (parsed.audit_events ?? []).map((item) => auditEventRecordSchema.parse(item)),
     dataset_snapshots: (parsed.dataset_snapshots ?? []).map((item) => datasetSnapshotRecordSchema.parse(item)),
+    workflows: (parsed.workflows ?? []).map((item) => workflowRecordSchema.parse(item)),
+    workflow_runs: (parsed.workflow_runs ?? []).map((item) => workflowRunRecordSchema.parse(item)),
   };
 }
 
@@ -168,6 +178,11 @@ export async function createArtifact(input: {
 export async function getArtifact(artifactId: string): Promise<ArtifactRecord | null> {
   const state = await readDbState();
   return state.artifacts.find((item) => item.id === artifactId) ?? null;
+}
+
+export async function listArtifacts(limit?: number): Promise<ArtifactRecord[]> {
+  const state = await readDbState();
+  return typeof limit === "number" ? state.artifacts.slice(0, limit) : state.artifacts;
 }
 
 export async function readArtifactBytes(artifactId: string): Promise<{ artifact: ArtifactRecord; bytes: Buffer } | null> {
@@ -444,6 +459,174 @@ export async function createDatasetSnapshotRecord(input: {
 export async function listDatasetSnapshots(): Promise<DatasetSnapshotRecord[]> {
   const state = await readDbState();
   return state.dataset_snapshots;
+}
+
+export async function createWorkflow(input: {
+  name: string;
+  description?: string;
+  documentType: DocumentType;
+  minConfidenceAutoApprove: number;
+  webhookUrl?: string;
+  isActive?: boolean;
+}): Promise<WorkflowRecord> {
+  return withWriteLock(async (state) => {
+    const timestamp = new Date().toISOString();
+
+    const workflow = workflowRecordSchema.parse({
+      id: randomUUID(),
+      name: input.name.trim(),
+      description: input.description?.trim() || null,
+      document_type: input.documentType,
+      is_active: input.isActive ?? true,
+      min_confidence_auto_approve: input.minConfidenceAutoApprove,
+      webhook_url: input.webhookUrl?.trim() || null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    state.workflows.unshift(workflow);
+    appendAuditEvent(state, {
+      eventType: "workflow_created",
+      actor: "system",
+      metadata: { workflow_id: workflow.id, name: workflow.name },
+    });
+
+    return workflow;
+  });
+}
+
+export async function listWorkflows(): Promise<WorkflowRecord[]> {
+  const state = await readDbState();
+  return state.workflows;
+}
+
+export async function getWorkflow(workflowId: string): Promise<WorkflowRecord | null> {
+  const state = await readDbState();
+  return state.workflows.find((item) => item.id === workflowId) ?? null;
+}
+
+export async function createWorkflowRun(input: {
+  workflowId: string;
+  artifactId: string;
+}): Promise<WorkflowRunRecord> {
+  return withWriteLock(async (state) => {
+    const timestamp = new Date().toISOString();
+    const run = workflowRunRecordSchema.parse({
+      id: randomUUID(),
+      workflow_id: input.workflowId,
+      artifact_id: input.artifactId,
+      extraction_job_id: null,
+      status: "queued",
+      auto_review_applied: false,
+      error_message: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    state.workflow_runs.unshift(run);
+    return run;
+  });
+}
+
+export async function listWorkflowRuns(filters?: {
+  workflowId?: string;
+  status?: WorkflowRunRecord["status"];
+  limit?: number;
+}): Promise<WorkflowRunRecord[]> {
+  const state = await readDbState();
+
+  const runs = state.workflow_runs.filter((run) => {
+    if (filters?.workflowId && run.workflow_id !== filters.workflowId) {
+      return false;
+    }
+
+    if (filters?.status && run.status !== filters.status) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (filters?.limit) {
+    return runs.slice(0, filters.limit);
+  }
+
+  return runs;
+}
+
+export async function getWorkflowRun(runId: string): Promise<WorkflowRunRecord | null> {
+  const state = await readDbState();
+  return state.workflow_runs.find((item) => item.id === runId) ?? null;
+}
+
+export async function setWorkflowRunRunning(runId: string): Promise<WorkflowRunRecord | null> {
+  return withWriteLock(async (state) => {
+    const run = state.workflow_runs.find((item) => item.id === runId);
+    if (!run) {
+      return null;
+    }
+
+    run.status = "running";
+    run.error_message = null;
+    run.updated_at = new Date().toISOString();
+
+    return workflowRunRecordSchema.parse(run);
+  });
+}
+
+export async function setWorkflowRunCompleted(input: {
+  runId: string;
+  extractionJobId: string;
+  autoReviewApplied: boolean;
+}): Promise<WorkflowRunRecord | null> {
+  return withWriteLock(async (state) => {
+    const run = state.workflow_runs.find((item) => item.id === input.runId);
+    if (!run) {
+      return null;
+    }
+
+    run.status = "completed";
+    run.extraction_job_id = input.extractionJobId;
+    run.auto_review_applied = input.autoReviewApplied;
+    run.error_message = null;
+    run.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "workflow_run_completed",
+      jobId: input.extractionJobId,
+      actor: "system",
+      metadata: { workflow_id: run.workflow_id, run_id: run.id, auto_review_applied: input.autoReviewApplied },
+    });
+
+    return workflowRunRecordSchema.parse(run);
+  });
+}
+
+export async function setWorkflowRunFailed(input: {
+  runId: string;
+  extractionJobId?: string | null;
+  errorMessage: string;
+}): Promise<WorkflowRunRecord | null> {
+  return withWriteLock(async (state) => {
+    const run = state.workflow_runs.find((item) => item.id === input.runId);
+    if (!run) {
+      return null;
+    }
+
+    run.status = "failed";
+    run.extraction_job_id = input.extractionJobId ?? null;
+    run.error_message = input.errorMessage;
+    run.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "workflow_run_failed",
+      jobId: input.extractionJobId ?? null,
+      actor: "system",
+      metadata: { workflow_id: run.workflow_id, run_id: run.id, error: input.errorMessage },
+    });
+
+    return workflowRunRecordSchema.parse(run);
+  });
 }
 
 export async function recordWebhookDelivery(input: {

@@ -100,6 +100,9 @@ export const auditEventTypeSchema = z.enum([
   "review_assigned",
   "review_decision",
   "webhook_dispatched",
+  "workflow_created",
+  "workflow_run_completed",
+  "workflow_run_failed",
 ]);
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>;
 
@@ -135,3 +138,34 @@ export const datasetSnapshotRecordSchema = z.object({
 });
 
 export type DatasetSnapshotRecord = z.infer<typeof datasetSnapshotRecordSchema>;
+
+export const workflowRecordSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  document_type: documentTypeSchema,
+  is_active: z.boolean(),
+  min_confidence_auto_approve: z.number().min(0).max(1),
+  webhook_url: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type WorkflowRecord = z.infer<typeof workflowRecordSchema>;
+
+export const workflowRunStatusSchema = z.enum(["queued", "running", "completed", "failed"]);
+export type WorkflowRunStatus = z.infer<typeof workflowRunStatusSchema>;
+
+export const workflowRunRecordSchema = z.object({
+  id: z.string(),
+  workflow_id: z.string(),
+  artifact_id: z.string(),
+  extraction_job_id: z.string().nullable(),
+  status: workflowRunStatusSchema,
+  auto_review_applied: z.boolean(),
+  error_message: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type WorkflowRunRecord = z.infer<typeof workflowRunRecordSchema>;

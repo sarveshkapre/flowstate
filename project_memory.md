@@ -68,6 +68,22 @@
 - Updated workflow, edge, and eval UIs to select organization context.
 - Added `/organizations` UI for tenant creation and visibility.
 
+## 2026-02-16 (Local-First Mac Runtime)
+
+- Added `scripts/setup-mac.sh` for macOS bootstrap:
+  - checks Node/npm prerequisites
+  - validates `.env` + `OPENAI_API_KEY`
+  - installs dependencies
+  - initializes runtime/data directories
+- Added `scripts/dev-up.sh` and `scripts/dev-down.sh`:
+  - starts/stops web + worker as background services
+  - stores PID files and logs under `.flowstate-runtime/`
+- Added root npm scripts:
+  - `setup:mac`
+  - `dev:up`
+  - `dev:down`
+- Updated README with local macOS deployment workflow.
+
 ## Decisions
 
 - OpenAI APIs only for model capabilities.

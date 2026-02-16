@@ -44,6 +44,27 @@ cp .env.example .env
 npm run dev
 ```
 
+## Mac Local Mode (Recommended)
+
+For local single-operator deployments on macOS:
+
+```bash
+# set OPENAI_API_KEY in .env first
+npm run setup:mac
+npm run dev:up
+```
+
+Stop services:
+
+```bash
+npm run dev:down
+```
+
+Runtime artifacts:
+- logs: `.flowstate-runtime/logs/`
+- pids: `.flowstate-runtime/pids/`
+- data: `.flowstate-data/` (or `FLOWSTATE_DATA_DIR`)
+
 Web app:
 - http://localhost:3000
 - Upload UI: http://localhost:3000/upload
@@ -106,6 +127,9 @@ docs/         # architecture notes
 ## Commands
 
 ```bash
+npm run setup:mac
+npm run dev:up
+npm run dev:down
 npm run dev
 npm run build
 npm run lint

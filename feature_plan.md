@@ -29,3 +29,11 @@
 - [x] Edge deployment adapters
 - [x] Evaluation runs foundation (quality baseline metrics)
 - [x] Multi-tenant org controls foundation (organizations + scoped modules)
+
+## Phase 4: Local-First Mac Ops
+
+- [x] One-command macOS setup script
+- [x] Local dev service manager (up/down with logs + PID files)
+- [ ] Folder watcher ingestion (`~/Flowstate/inbox`)
+- [ ] `launchd` service install/uninstall scripts
+- [ ] Local backup/restore tooling

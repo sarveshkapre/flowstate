@@ -6,6 +6,7 @@
 - `apps/worker`: async job processor (queue-driven)
 - `packages/types`: shared contracts and schemas
 - `packages/ui`: shared UI primitives
+- `scripts/dev-up.sh` + `scripts/dev-down.sh`: local process manager for macOS runtime
 
 ## Data Flow (v1)
 

@@ -22,6 +22,8 @@ Phase 2 foundations are now in progress:
 - edge adapter bundle generation (Cloudflare Worker / Vercel Edge / Browser WASM)
 - eval run API/UI for benchmark-style extraction quality tracking
 - organization management + tenant scoping for workflow/edge/eval modules
+- v2 SaaS control-plane API foundations (projects/auth/flows/runs/datasets/review/edge)
+- v2 Flow Builder UI (`/flow-builder`) with graph authoring, version/deploy, and webhook test-run
 
 ## Core Principles
 
@@ -92,6 +94,7 @@ Web app:
 - Upload UI: http://localhost:3000/upload
 - Review UI: http://localhost:3000/review
 - Workflow UI: http://localhost:3000/workflows
+- Flow Builder v2 UI: http://localhost:3000/flow-builder
 - Edge Adapter UI: http://localhost:3000/edge
 - Eval UI: http://localhost:3000/evals
 - Organizations UI: http://localhost:3000/organizations
@@ -100,6 +103,9 @@ Web app:
 
 - `OPENAI_API_KEY` (required)
 - `OPENAI_MODEL` (default: `gpt-4.1-mini`)
+- `FLOWSTATE_ENV_PROFILE` (`local` | `staging` | `prod`, default: `local`)
+- `FLOWSTATE_AUTH_MODE` (`optional` | `strict`, default: `optional`)
+- `FLOWSTATE_MAGIC_LINK_EXPOSE_TOKEN` (default: `true` for local development)
 - `FLOWSTATE_DATA_DIR` (optional override for storage directory)
 - `FLOWSTATE_MAX_UPLOAD_BYTES` (default: `20971520`)
 
@@ -145,6 +151,46 @@ docs/         # architecture notes
 - `POST /api/v1/workflows/:workflowId/runs`
 - `GET /api/v1/active-learning/candidates`
 - `POST /api/v1/active-learning/snapshots`
+
+## API Endpoints (v2 Foundations)
+
+- `POST /api/v2/auth/magic-links/request`
+- `POST /api/v2/auth/magic-links/verify`
+- `GET /api/v2/projects`
+- `POST /api/v2/projects`
+- `GET /api/v2/projects/:projectId`
+- `GET /api/v2/projects/:projectId/members`
+- `POST /api/v2/projects/:projectId/members`
+- `GET /api/v2/projects/:projectId/keys`
+- `POST /api/v2/projects/:projectId/keys`
+- `GET /api/v2/flows?projectId=...`
+- `POST /api/v2/flows`
+- `GET /api/v2/flows/:flowId/versions`
+- `POST /api/v2/flows/:flowId/versions`
+- `GET /api/v2/flows/:flowId/deploy`
+- `POST /api/v2/flows/:flowId/deploy`
+- `POST /api/v2/sources/webhook/:deploymentId`
+- `GET /api/v2/runs?projectId=...`
+- `GET /api/v2/runs/:runId`
+- `GET /api/v2/runs/:runId/trace`
+- `GET /api/v2/datasets?projectId=...`
+- `POST /api/v2/datasets`
+- `GET /api/v2/datasets/:datasetId/versions`
+- `POST /api/v2/datasets/:datasetId/versions`
+- `POST /api/v2/replay`
+- `POST /api/v2/replay` supports optional `baselineFlowVersionId` and returns diff/accuracy summary
+- `GET /api/v2/reviews/:queueId/decisions`
+- `POST /api/v2/reviews/:queueId/decisions`
+- `GET /api/v2/reviews/:queueId/evidence`
+- `POST /api/v2/reviews/:queueId/evidence`
+- `GET /api/v2/active-learning/candidates?projectId=...`
+- `GET /api/v2/active-learning/eval-packs?projectId=...`
+- `POST /api/v2/active-learning/eval-packs`
+- `POST /api/v2/connectors/:type/test`
+- `POST /api/v2/connectors/:type/deliver`
+- `POST /api/v2/edge/agents/register`
+- `POST /api/v2/edge/agents/:agentId/heartbeat`
+- `POST /api/v2/edge/agents/:agentId/events`
 
 ## Commands
 

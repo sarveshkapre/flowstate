@@ -64,3 +64,21 @@ Acceptance signal: top 1-5% routed samples drive measurable quality lift on eval
 Context: support near-camera/local processing for Mac mini, Jetson, and VM operators.
 Initial scope: lightweight runtime that ingests RTSP/webcam streams, samples frames/documents, executes selected flow locally, buffers events when offline, syncs outputs when reconnected.
 Acceptance signal: sustained local processing from RTSP input with recoverable buffering and no data loss across temporary disconnects.
+
+## Milestone 1 Execution Log (Current)
+
+- [x] Introduced v2 project boundary with project/member/key records and APIs.
+- [x] Added auth foundation for SaaS path:
+Context: magic-link request/verify + API key auth mode (`optional` or `strict`).
+- [x] Added role/permission primitives and permission checks on v2 write endpoints.
+- [x] Extended audit coverage for project/admin/flow/deploy/run/review/eval-pack operations.
+- [x] Added environment profile + migration discipline docs (`docs/environment-profiles.md`, `docs/migrations.md`).
+- [x] Added first v2 control-plane UI (`/flow-builder`) for project/flow/version/deploy runtime operations.
+
+## Milestone 2 Execution Log (Started)
+
+- [x] Added no-code graph editor shell with node palette + editable edges.
+- [x] Added graph validation checks (source/sink presence, edge integrity, acyclic constraint, JSON config parse).
+- [x] Added version save + deployment controls directly from Flow Builder UI.
+- [x] Added webhook runtime test harness from deployed version key.
+- [x] Extended replay endpoint with optional baseline version diff summary and field-level expected accuracy reporting.

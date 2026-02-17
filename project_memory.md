@@ -97,6 +97,38 @@
   - `watch:inbox`
 - Updated README with local macOS deployment workflow.
 
+## 2026-02-17 (Milestone 1 SaaS Control-Plane Foundations)
+
+- Added v2 data contracts for projects, memberships, API keys, flow graph/version/deploy, datasets, run traces, review decisions/evidence, eval packs, and edge agent state.
+- Added v2 persistence store (`db.v2.json`) and APIs for:
+  - auth magic-link request/verify
+  - project/member/API key management
+  - flow create/version/deploy
+  - webhook deployment execution + run traces
+  - dataset versions + replay endpoint
+  - review decisions/evidence capture
+  - active-learning candidates + eval-pack creation
+  - connector test/deliver scaffolding
+  - edge agent register/heartbeat/events ingress
+- Added role/permission enforcement for v2 endpoints with local-friendly optional auth mode and strict SaaS mode.
+- Added profile and migration docs:
+  - `docs/environment-profiles.md`
+  - `docs/migrations.md`
+
+## 2026-02-17 (Milestone 2 Kickoff: Flow Builder v2)
+
+- Added new Flow Builder page at `/flow-builder` with:
+  - local/strict auth headers support (API key or local actor identity)
+  - organization/project/flow selection + creation actions
+  - node/edge graph editor and template loader
+  - graph validation rules before flow-version persistence
+  - flow version save + deployment controls
+  - webhook runtime test harness against deployment keys
+- Enhanced replay endpoint (`POST /api/v2/replay`) with:
+  - optional baseline flow-version comparison
+  - changed-field summaries versus baseline
+  - expected-value field accuracy metrics when dataset lines include `expected` or `ground_truth`
+
 ## Decisions
 
 - OpenAI APIs only for model capabilities.

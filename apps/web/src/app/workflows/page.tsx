@@ -13,6 +13,7 @@ export default function WorkflowsPage() {
         </p>
         <div className="link-row">
           <Link href="/">Dashboard</Link>
+          <Link href="/flow-builder">Flow Builder v2</Link>
           <Link href="/upload">Upload</Link>
           <Link href="/review">Review Queue</Link>
         </div>

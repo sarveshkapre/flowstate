@@ -9,6 +9,16 @@
 - `packages/ui`: shared UI primitives
 - `scripts/dev-up.sh` + `scripts/dev-down.sh`: local process manager for macOS runtime
 
+## Control Plane Split
+
+- v1 APIs (`/api/v1/*`) support current wedge workflow and backward compatibility.
+- v2 APIs (`/api/v2/*`) introduce SaaS control-plane primitives:
+  - projects/members/API keys
+  - flow graph version/deploy surfaces
+  - run traces, dataset versions, replay
+  - structured review decisions and evidence
+  - edge agent ingress and connector scaffolding
+
 ## Data Flow (v1)
 
 1. Client uploads artifact (`image/*` or `application/pdf`) to web app.

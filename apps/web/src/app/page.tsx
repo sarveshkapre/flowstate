@@ -26,6 +26,7 @@ export default function HomePage() {
           <Link href="/upload">Start Uploading</Link>
           <Link href="/review">Open Review Queue</Link>
           <Link href="/workflows">Workflow Builder</Link>
+          <Link href="/flow-builder">Flow Builder v2</Link>
           <Link href="/edge">Edge Adapters</Link>
           <Link href="/evals">Evals</Link>
           <Link href="/organizations">Organizations</Link>

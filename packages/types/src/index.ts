@@ -86,6 +86,81 @@ export const organizationRecordSchema = z.object({
 
 export type OrganizationRecord = z.infer<typeof organizationRecordSchema>;
 
+export const projectMemberRoleSchema = z.enum(["owner", "admin", "builder", "reviewer", "viewer"]);
+export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
+
+export const permissionSchema = z.enum([
+  "manage_project",
+  "manage_members",
+  "manage_keys",
+  "create_flow",
+  "deploy_flow",
+  "run_flow",
+  "review_queue",
+  "read_project",
+]);
+export type Permission = z.infer<typeof permissionSchema>;
+
+export const projectRecordSchema = z.object({
+  id: z.string(),
+  organization_id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  is_active: z.boolean(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ProjectRecord = z.infer<typeof projectRecordSchema>;
+
+export const projectMembershipRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  user_email: z.string(),
+  role: projectMemberRoleSchema,
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ProjectMembershipRecord = z.infer<typeof projectMembershipRecordSchema>;
+
+export const apiKeyScopeSchema = z.enum([
+  "manage_projects",
+  "manage_members",
+  "manage_keys",
+  "create_flow",
+  "deploy_flow",
+  "run_flow",
+  "review_queue",
+  "read_project",
+]);
+export type ApiKeyScope = z.infer<typeof apiKeyScopeSchema>;
+
+export const apiKeyRecordSchema = z.object({
+  id: z.string(),
+  organization_id: z.string(),
+  project_id: z.string().nullable(),
+  name: z.string(),
+  key_prefix: z.string(),
+  key_hash: z.string(),
+  role: projectMemberRoleSchema,
+  scopes: z.array(apiKeyScopeSchema),
+  is_active: z.boolean(),
+  last_used_at: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  created_at: z.string(),
+});
+export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
+
+export const magicLinkRecordSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  token_hash: z.string(),
+  expires_at: z.string(),
+  consumed_at: z.string().nullable(),
+  created_at: z.string(),
+});
+export type MagicLinkRecord = z.infer<typeof magicLinkRecordSchema>;
+
 export const extractionJobRecordSchema = z.object({
   id: z.string(),
   artifact_id: z.string(),
@@ -116,6 +191,22 @@ export const auditEventTypeSchema = z.enum([
   "workflow_run_failed",
   "edge_bundle_created",
   "eval_run_created",
+  "project_created",
+  "project_member_assigned",
+  "api_key_created",
+  "api_key_used",
+  "magic_link_requested",
+  "magic_link_verified",
+  "flow_created_v2",
+  "flow_version_created",
+  "flow_deployed_v2",
+  "run_created_v2",
+  "run_completed_v2",
+  "dataset_created_v2",
+  "dataset_version_created_v2",
+  "review_decision_v2",
+  "evidence_attached_v2",
+  "eval_pack_created_v2",
 ]);
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>;
 
@@ -221,3 +312,208 @@ export const evalRunRecordSchema = z.object({
 });
 
 export type EvalRunRecord = z.infer<typeof evalRunRecordSchema>;
+
+export const flowNodeTypeSchema = z.enum([
+  "source_upload",
+  "source_webhook",
+  "source_folder",
+  "source_rtsp",
+  "extract",
+  "validate",
+  "dedupe",
+  "redact",
+  "classify",
+  "route",
+  "human_review",
+  "sink_webhook",
+  "sink_slack",
+  "sink_jira",
+  "sink_sqs",
+  "sink_db",
+]);
+export type FlowNodeType = z.infer<typeof flowNodeTypeSchema>;
+
+export const flowNodeSchema = z.object({
+  id: z.string(),
+  type: flowNodeTypeSchema,
+  label: z.string(),
+  config: z.unknown(),
+});
+export type FlowNode = z.infer<typeof flowNodeSchema>;
+
+export const flowEdgeSchema = z.object({
+  id: z.string(),
+  source: z.string(),
+  target: z.string(),
+  condition: z.string().nullable(),
+});
+export type FlowEdge = z.infer<typeof flowEdgeSchema>;
+
+export const flowGraphSchema = z.object({
+  nodes: z.array(flowNodeSchema),
+  edges: z.array(flowEdgeSchema),
+});
+export type FlowGraph = z.infer<typeof flowGraphSchema>;
+
+export const flowRecordV2Schema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  is_active: z.boolean(),
+  current_version_id: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type FlowRecordV2 = z.infer<typeof flowRecordV2Schema>;
+
+export const flowVersionRecordSchema = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  version_number: z.number().int().positive(),
+  graph: flowGraphSchema,
+  created_by: z.string().nullable(),
+  created_at: z.string(),
+});
+export type FlowVersionRecord = z.infer<typeof flowVersionRecordSchema>;
+
+export const flowDeploymentRecordSchema = z.object({
+  id: z.string(),
+  flow_id: z.string(),
+  flow_version_id: z.string(),
+  deployment_key: z.string(),
+  is_active: z.boolean(),
+  created_at: z.string(),
+});
+export type FlowDeploymentRecord = z.infer<typeof flowDeploymentRecordSchema>;
+
+export const runStatusV2Schema = z.enum(["queued", "running", "completed", "failed"]);
+export type RunStatusV2 = z.infer<typeof runStatusV2Schema>;
+
+export const runRecordV2Schema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  flow_id: z.string(),
+  flow_version_id: z.string(),
+  deployment_id: z.string().nullable(),
+  status: runStatusV2Schema,
+  input_ref: z.string().nullable(),
+  output_ref: z.string().nullable(),
+  error_message: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type RunRecordV2 = z.infer<typeof runRecordV2Schema>;
+
+export const runTraceRecordSchema = z.object({
+  id: z.string(),
+  run_id: z.string(),
+  model: z.string().nullable(),
+  input_tokens: z.number().int().nonnegative(),
+  output_tokens: z.number().int().nonnegative(),
+  cost_usd: z.number().nonnegative(),
+  latency_ms: z.number().int().nonnegative(),
+  metadata: z.unknown().nullable(),
+  created_at: z.string(),
+});
+export type RunTraceRecord = z.infer<typeof runTraceRecordSchema>;
+
+export const datasetRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type DatasetRecord = z.infer<typeof datasetRecordSchema>;
+
+export const datasetVersionRecordSchema = z.object({
+  id: z.string(),
+  dataset_id: z.string(),
+  version_number: z.number().int().positive(),
+  item_count: z.number().int().nonnegative(),
+  file_name: z.string(),
+  created_at: z.string(),
+});
+export type DatasetVersionRecord = z.infer<typeof datasetVersionRecordSchema>;
+
+export const reviewDecisionValueSchema = z.enum(["correct", "incorrect", "missing", "uncertain"]);
+export type ReviewDecisionValue = z.infer<typeof reviewDecisionValueSchema>;
+
+export const failureReasonCodeSchema = z.enum([
+  "missing_field",
+  "math_mismatch",
+  "hallucinated_entity",
+  "wrong_currency",
+  "wrong_date",
+  "wrong_class",
+  "other",
+]);
+export type FailureReasonCode = z.infer<typeof failureReasonCodeSchema>;
+
+export const reviewDecisionRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  run_id: z.string(),
+  field_name: z.string(),
+  decision: reviewDecisionValueSchema,
+  failure_reason: failureReasonCodeSchema.nullable(),
+  reviewer: z.string().nullable(),
+  notes: z.string().nullable(),
+  created_at: z.string(),
+});
+export type ReviewDecisionRecord = z.infer<typeof reviewDecisionRecordSchema>;
+
+export const evidenceRegionRecordSchema = z.object({
+  id: z.string(),
+  review_decision_id: z.string(),
+  page: z.number().int().nonnegative(),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1),
+  height: z.number().min(0).max(1),
+  created_at: z.string(),
+});
+export type EvidenceRegionRecord = z.infer<typeof evidenceRegionRecordSchema>;
+
+export const evalPackRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  name: z.string(),
+  candidate_run_ids: z.array(z.string()),
+  created_at: z.string(),
+});
+export type EvalPackRecord = z.infer<typeof evalPackRecordSchema>;
+
+export const environmentProfileSchema = z.enum(["local", "staging", "prod"]);
+export type EnvironmentProfile = z.infer<typeof environmentProfileSchema>;
+
+export const edgeAgentRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  name: z.string(),
+  platform: z.string(),
+  status: z.enum(["online", "offline"]),
+  last_heartbeat_at: z.string().nullable(),
+  created_at: z.string(),
+});
+export type EdgeAgentRecord = z.infer<typeof edgeAgentRecordSchema>;
+
+export const edgeAgentEventRecordSchema = z.object({
+  id: z.string(),
+  agent_id: z.string(),
+  event_type: z.string(),
+  payload: z.unknown(),
+  created_at: z.string(),
+});
+export type EdgeAgentEventRecord = z.infer<typeof edgeAgentEventRecordSchema>;
+
+export const syncCheckpointRecordSchema = z.object({
+  id: z.string(),
+  agent_id: z.string(),
+  checkpoint_key: z.string(),
+  checkpoint_value: z.string(),
+  updated_at: z.string(),
+});
+export type SyncCheckpointRecord = z.infer<typeof syncCheckpointRecordSchema>;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { acknowledgeEdgeAgentCommand, getEdgeAgent } from "@/lib/data-store-v2";
+import { assertJsonBodySize, invalidRequestResponse, sanitizeForStorage } from "@/lib/v2/request-security";
 import { requirePermission } from "@/lib/v2/auth";
 
 type Params = {
@@ -38,11 +39,17 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  try {
+    assertJsonBodySize(parsed.data.result ?? {});
+  } catch (error) {
+    return invalidRequestResponse(error);
+  }
+
   const command = await acknowledgeEdgeAgentCommand({
     agentId,
     commandId,
     status: parsed.data.status,
-    result: parsed.data.result,
+    result: sanitizeForStorage(parsed.data.result),
     actor: auth.actor.email ?? "api-key",
   });
 

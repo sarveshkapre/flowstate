@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { listConnectorDeliveries, listConnectorDeliveryAttempts, processConnectorDelivery } from "@/lib/data-store-v2";
+import {
+  assertJsonBodySize,
+  connectorTypeSchema,
+  invalidRequestResponse,
+  sanitizeForStorage,
+} from "@/lib/v2/request-security";
 import { requirePermission } from "@/lib/v2/auth";
 
 type Params = {
@@ -17,7 +23,12 @@ const deliverConnectorSchema = z.object({
 });
 
 export async function GET(request: Request, { params }: Params) {
-  const { type } = await params;
+  const parsedType = connectorTypeSchema.safeParse((await params).type);
+
+  if (!parsedType.success) {
+    return NextResponse.json({ error: "Invalid connector type" }, { status: 400 });
+  }
+  const type = parsedType.data;
   const url = new URL(request.url);
   const projectId = url.searchParams.get("projectId");
 
@@ -62,7 +73,12 @@ export async function GET(request: Request, { params }: Params) {
 }
 
 export async function POST(request: Request, { params }: Params) {
-  const { type } = await params;
+  const parsedType = connectorTypeSchema.safeParse((await params).type);
+
+  if (!parsedType.success) {
+    return NextResponse.json({ error: "Invalid connector type" }, { status: 400 });
+  }
+  const type = parsedType.data;
   const body = await request.json().catch(() => null);
   const parsed = deliverConnectorSchema.safeParse(body);
 
@@ -80,10 +96,16 @@ export async function POST(request: Request, { params }: Params) {
     return auth.response;
   }
 
+  try {
+    assertJsonBodySize(parsed.data.payload);
+  } catch (error) {
+    return invalidRequestResponse(error);
+  }
+
   const result = await processConnectorDelivery({
     projectId: parsed.data.projectId,
     connectorType: type,
-    payload: parsed.data.payload,
+    payload: sanitizeForStorage(parsed.data.payload),
     idempotencyKey: parsed.data.idempotencyKey,
     maxAttempts: parsed.data.maxAttempts,
     initialBackoffMs: parsed.data.initialBackoffMs,

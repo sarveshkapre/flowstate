@@ -28,6 +28,7 @@ Phase 2 foundations are now in progress:
 - v2 connector reliability foundation (idempotency keys, retry attempts, dead-letter records)
 - v2 edge control channel foundation (agent config versions + command queue/ack flow)
 - edge control UI (`/edge-control`) for agent registration, config, and command lifecycle operations
+- security hardening baseline: secure response headers + payload size guards + secret-redacted storage for v2 control-plane writes
 
 ## Core Principles
 

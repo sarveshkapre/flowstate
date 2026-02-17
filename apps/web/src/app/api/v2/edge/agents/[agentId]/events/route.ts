@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { appendEdgeAgentEvent, getEdgeAgent, listEdgeAgentEvents } from "@/lib/data-store-v2";
+import { assertJsonBodySize, invalidRequestResponse, sanitizeForStorage } from "@/lib/v2/request-security";
 import { requirePermission } from "@/lib/v2/auth";
 
 const eventSchema = z.object({
@@ -70,10 +71,16 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  try {
+    assertJsonBodySize(parsed.data.payload);
+  } catch (error) {
+    return invalidRequestResponse(error);
+  }
+
   const event = await appendEdgeAgentEvent({
     agentId,
     eventType: parsed.data.eventType,
-    payload: parsed.data.payload,
+    payload: sanitizeForStorage(parsed.data.payload),
   });
 
   if (!event) {

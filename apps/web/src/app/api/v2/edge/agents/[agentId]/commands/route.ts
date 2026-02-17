@@ -3,6 +3,12 @@ import { edgeAgentCommandStatusSchema } from "@flowstate/types";
 import { z } from "zod";
 
 import { enqueueEdgeAgentCommand, getEdgeAgent, listEdgeAgentCommands } from "@/lib/data-store-v2";
+import {
+  assertJsonBodySize,
+  edgeCommandTypeSchema,
+  invalidRequestResponse,
+  sanitizeForStorage,
+} from "@/lib/v2/request-security";
 import { requirePermission } from "@/lib/v2/auth";
 
 type Params = {
@@ -10,7 +16,7 @@ type Params = {
 };
 
 const enqueueCommandSchema = z.object({
-  commandType: z.string().min(1).max(120),
+  commandType: edgeCommandTypeSchema,
   payload: z.unknown(),
   expiresAt: z.iso.datetime().optional(),
 });
@@ -74,10 +80,16 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  try {
+    assertJsonBodySize(parsed.data.payload);
+  } catch (error) {
+    return invalidRequestResponse(error);
+  }
+
   const command = await enqueueEdgeAgentCommand({
     agentId,
     commandType: parsed.data.commandType,
-    payload: parsed.data.payload,
+    payload: sanitizeForStorage(parsed.data.payload),
     expiresAt: parsed.data.expiresAt,
     actor: auth.actor.email ?? "api-key",
   });

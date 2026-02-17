@@ -39,3 +39,4 @@
 - Web handles request/response and user interaction.
 - Worker is reserved for asynchronous job execution as volume grows.
 - Shared packages enforce type-safe contracts.
+- v2 request security helpers enforce payload-size limits and redact sensitive keys before persistence.

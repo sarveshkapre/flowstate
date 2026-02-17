@@ -45,6 +45,23 @@ type FlowDeployment = {
   created_at: string;
 };
 
+type Dataset = {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+};
+
+type DatasetVersion = {
+  id: string;
+  dataset_id: string;
+  version_number: number;
+  item_count: number;
+  file_name: string;
+  created_at: string;
+};
+
 type GraphNodeDraft = {
   id: string;
   type: FlowNodeType;
@@ -280,17 +297,24 @@ export function FlowBuilderClient() {
   const [flows, setFlows] = useState<Flow[]>([]);
   const [versions, setVersions] = useState<FlowVersion[]>([]);
   const [deployments, setDeployments] = useState<FlowDeployment[]>([]);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [datasetVersions, setDatasetVersions] = useState<DatasetVersion[]>([]);
 
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [selectedFlowId, setSelectedFlowId] = useState("");
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [selectedDeploymentKey, setSelectedDeploymentKey] = useState("");
+  const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [selectedDatasetVersionId, setSelectedDatasetVersionId] = useState("");
+  const [baselineVersionId, setBaselineVersionId] = useState("");
 
   const [newProjectName, setNewProjectName] = useState("Ops Project");
   const [newProjectDescription, setNewProjectDescription] = useState("Flowstate v2 control plane project");
   const [newFlowName, setNewFlowName] = useState("Document Intake Flow");
   const [newFlowDescription, setNewFlowDescription] = useState("Extract, validate, and route documents.");
+  const [newDatasetName, setNewDatasetName] = useState("Intake Dataset");
+  const [newDatasetDescription, setNewDatasetDescription] = useState("Versioned replay/eval source data.");
 
   const [nodes, setNodes] = useState<GraphNodeDraft[]>([]);
   const [edges, setEdges] = useState<GraphEdgeDraft[]>([]);
@@ -298,6 +322,11 @@ export function FlowBuilderClient() {
 
   const [testPayloadText, setTestPayloadText] = useState('{"vendor":"Acme","date":"2026-02-17","total":42.12}');
   const [testResult, setTestResult] = useState<string>("");
+  const [datasetLinesText, setDatasetLinesText] = useState(
+    '{"vendor":"Acme","total":42.12,"expected":{"vendor":"Acme","total":42.12}}\n{"vendor":"Globex","total":18.5,"expected":{"vendor":"Globex","total":18.5}}',
+  );
+  const [replayLimit, setReplayLimit] = useState("20");
+  const [replayResult, setReplayResult] = useState<string>("");
 
   const authHeaders = useCallback(
     (withJson: boolean) => {
@@ -395,6 +424,66 @@ export function FlowBuilderClient() {
     [authHeaders, selectedFlowId],
   );
 
+  const loadDatasets = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setDatasets([]);
+        setSelectedDatasetId("");
+        return;
+      }
+
+      const response = await fetch(`/api/v2/datasets?projectId=${encodeURIComponent(projectId)}`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { datasets?: Dataset[]; error?: string };
+
+      if (!response.ok) {
+        setStatusMessage(payload.error || "Unable to load datasets.");
+        setDatasets([]);
+        return;
+      }
+
+      const nextDatasets = payload.datasets ?? [];
+      setDatasets(nextDatasets);
+
+      if (!nextDatasets.some((dataset) => dataset.id === selectedDatasetId)) {
+        setSelectedDatasetId(nextDatasets[0]?.id ?? "");
+      }
+    },
+    [authHeaders, selectedDatasetId],
+  );
+
+  const loadDatasetVersions = useCallback(
+    async (datasetId: string) => {
+      if (!datasetId) {
+        setDatasetVersions([]);
+        setSelectedDatasetVersionId("");
+        return;
+      }
+
+      const response = await fetch(`/api/v2/datasets/${datasetId}/versions`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { versions?: DatasetVersion[]; error?: string };
+
+      if (!response.ok) {
+        setStatusMessage(payload.error || "Unable to load dataset versions.");
+        setDatasetVersions([]);
+        return;
+      }
+
+      const nextVersions = payload.versions ?? [];
+      setDatasetVersions(nextVersions);
+
+      if (!nextVersions.some((version) => version.id === selectedDatasetVersionId)) {
+        setSelectedDatasetVersionId(nextVersions[0]?.id ?? "");
+      }
+    },
+    [authHeaders, selectedDatasetVersionId],
+  );
+
   const loadVersionsAndDeployments = useCallback(
     async (flowId: string) => {
       if (!flowId) {
@@ -464,10 +553,23 @@ export function FlowBuilderClient() {
     if (!selectedProjectId) {
       setFlows([]);
       setSelectedFlowId("");
+      setDatasets([]);
+      setSelectedDatasetId("");
       return;
     }
     void loadFlows(selectedProjectId);
-  }, [loadFlows, selectedProjectId]);
+    void loadDatasets(selectedProjectId);
+  }, [loadDatasets, loadFlows, selectedProjectId]);
+
+  useEffect(() => {
+    void loadDatasetVersions(selectedDatasetId);
+  }, [loadDatasetVersions, selectedDatasetId]);
+
+  useEffect(() => {
+    if (!versions.some((version) => version.id === baselineVersionId)) {
+      setBaselineVersionId("");
+    }
+  }, [baselineVersionId, versions]);
 
   useEffect(() => {
     void loadVersionsAndDeployments(selectedFlowId);
@@ -586,6 +688,77 @@ export function FlowBuilderClient() {
     setSelectedFlowId(payload.flow.id);
   }
 
+  async function createDataset() {
+    if (!selectedProjectId || !newDatasetName.trim()) {
+      setStatusMessage("Pick a project and enter a dataset name.");
+      return;
+    }
+
+    const response = await fetch("/api/v2/datasets", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        name: newDatasetName.trim(),
+        description: newDatasetDescription.trim() || undefined,
+      }),
+    });
+    const payload = (await response.json()) as { dataset?: Dataset; error?: string };
+
+    if (!response.ok || !payload.dataset) {
+      setStatusMessage(payload.error || "Failed to create dataset.");
+      return;
+    }
+
+    setStatusMessage(`Dataset created: ${payload.dataset.name}`);
+    await loadDatasets(selectedProjectId);
+    setSelectedDatasetId(payload.dataset.id);
+  }
+
+  async function createDatasetVersion() {
+    if (!selectedDatasetId) {
+      setStatusMessage("Select a dataset first.");
+      return;
+    }
+
+    const lines = datasetLinesText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      setStatusMessage("Add at least one JSONL line.");
+      return;
+    }
+
+    for (const [index, line] of lines.entries()) {
+      try {
+        JSON.parse(line);
+      } catch {
+        setStatusMessage(`Dataset line ${index + 1} is not valid JSON.`);
+        return;
+      }
+    }
+
+    const response = await fetch(`/api/v2/datasets/${selectedDatasetId}/versions`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        lines,
+      }),
+    });
+    const payload = (await response.json()) as { version?: DatasetVersion; error?: string };
+
+    if (!response.ok || !payload.version) {
+      setStatusMessage(payload.error || "Failed to create dataset version.");
+      return;
+    }
+
+    setStatusMessage(`Dataset version created: v${payload.version.version_number}`);
+    await loadDatasetVersions(selectedDatasetId);
+    setSelectedDatasetVersionId(payload.version.id);
+  }
+
   async function saveFlowVersion() {
     if (!selectedFlowId) {
       setStatusMessage("Select a flow first.");
@@ -674,6 +847,39 @@ export function FlowBuilderClient() {
 
     setStatusMessage("Webhook test run succeeded.");
     setTestResult(JSON.stringify(payload, null, 2));
+  }
+
+  async function runReplay() {
+    if (!selectedProjectId || !selectedFlowId || !selectedVersionId || !selectedDatasetVersionId) {
+      setStatusMessage("Select project, flow, candidate version, and dataset version.");
+      return;
+    }
+
+    const parsedLimit = Number(replayLimit);
+    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : undefined;
+
+    const response = await fetch("/api/v2/replay", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        flowId: selectedFlowId,
+        flowVersionId: selectedVersionId,
+        baselineFlowVersionId: baselineVersionId || undefined,
+        datasetVersionId: selectedDatasetVersionId,
+        limit: safeLimit,
+      }),
+    });
+    const payload = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setStatusMessage(typeof payload.error === "string" ? payload.error : "Replay failed.");
+      setReplayResult(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    setStatusMessage("Replay completed.");
+    setReplayResult(JSON.stringify(payload, null, 2));
   }
 
   return (
@@ -1040,6 +1246,103 @@ export function FlowBuilderClient() {
           </button>
 
           {testResult ? <pre className="json small">{testResult}</pre> : <p className="muted">No test run yet.</p>}
+        </article>
+      </div>
+
+      <div className="grid two-col">
+        <article className="card stack">
+          <h3>Datasets + Versions</h3>
+
+          <label className="field">
+            <span>Create Dataset Name</span>
+            <input value={newDatasetName} onChange={(event) => setNewDatasetName(event.target.value)} />
+          </label>
+
+          <label className="field">
+            <span>Description</span>
+            <input value={newDatasetDescription} onChange={(event) => setNewDatasetDescription(event.target.value)} />
+          </label>
+
+          <div className="row wrap">
+            <button className="button" onClick={() => void createDataset()}>
+              Create Dataset
+            </button>
+            <button className="button secondary" onClick={() => void loadDatasets(selectedProjectId)}>
+              Refresh Datasets
+            </button>
+          </div>
+
+          <label className="field">
+            <span>Dataset</span>
+            <select value={selectedDatasetId} onChange={(event) => setSelectedDatasetId(event.target.value)}>
+              <option value="">Select dataset</option>
+              {datasets.map((dataset) => (
+                <option key={dataset.id} value={dataset.id}>
+                  {dataset.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Dataset Version JSONL (one JSON per line)</span>
+            <textarea rows={7} value={datasetLinesText} onChange={(event) => setDatasetLinesText(event.target.value)} />
+          </label>
+
+          <button className="button secondary" onClick={() => void createDatasetVersion()}>
+            Create Dataset Version
+          </button>
+
+          <label className="field">
+            <span>Selected Dataset Version</span>
+            <select value={selectedDatasetVersionId} onChange={(event) => setSelectedDatasetVersionId(event.target.value)}>
+              <option value="">Select dataset version</option>
+              {datasetVersions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  v{version.version_number} ({version.item_count} items)
+                </option>
+              ))}
+            </select>
+          </label>
+        </article>
+
+        <article className="card stack">
+          <h3>Replay + Diff</h3>
+
+          <label className="field">
+            <span>Candidate Version</span>
+            <select value={selectedVersionId} onChange={(event) => setSelectedVersionId(event.target.value)}>
+              <option value="">Select candidate version</option>
+              {versions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  v{version.version_number}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Baseline Version (optional)</span>
+            <select value={baselineVersionId} onChange={(event) => setBaselineVersionId(event.target.value)}>
+              <option value="">None</option>
+              {versions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  v{version.version_number}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field small">
+            <span>Replay Limit</span>
+            <input value={replayLimit} onChange={(event) => setReplayLimit(event.target.value)} />
+          </label>
+
+          <button className="button" onClick={() => void runReplay()}>
+            Run Replay
+          </button>
+
+          {replayResult ? <pre className="json small">{replayResult}</pre> : <p className="muted">No replay result yet.</p>}
         </article>
       </div>
 

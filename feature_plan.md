@@ -82,3 +82,4 @@ Context: magic-link request/verify + API key auth mode (`optional` or `strict`).
 - [x] Added version save + deployment controls directly from Flow Builder UI.
 - [x] Added webhook runtime test harness from deployed version key.
 - [x] Extended replay endpoint with optional baseline version diff summary and field-level expected accuracy reporting.
+- [x] Added dataset/dataset-version management and replay trigger UI in `/flow-builder`.

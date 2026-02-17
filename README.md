@@ -114,6 +114,8 @@ Web app:
 - `FLOWSTATE_MAGIC_LINK_EXPOSE_TOKEN` (default: `true` for local development)
 - `FLOWSTATE_DATA_DIR` (optional override for storage directory)
 - `FLOWSTATE_MAX_UPLOAD_BYTES` (default: `20971520`)
+- `FLOWSTATE_EDGE_HEARTBEAT_STALE_MS` (default: `60000`)
+- `FLOWSTATE_EDGE_COMMAND_LEASE_MS` (default: `30000`)
 
 ## Workspace Layout
 
@@ -203,6 +205,7 @@ docs/         # architecture notes
 - `POST /api/v2/edge/agents/:agentId/commands`
 - `POST /api/v2/edge/agents/:agentId/commands/pull`
 - `POST /api/v2/edge/agents/:agentId/commands/:commandId/ack`
+- `GET /api/v2/edge/agents/:agentId/health`
 - `POST /api/v2/edge/agents/:agentId/heartbeat`
 - `GET /api/v2/edge/agents/:agentId/events`
 - `POST /api/v2/edge/agents/:agentId/events`

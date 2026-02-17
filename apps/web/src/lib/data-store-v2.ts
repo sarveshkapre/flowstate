@@ -114,6 +114,8 @@ const DATA_DIR = process.env.FLOWSTATE_DATA_DIR
   : path.join(WORKSPACE_ROOT, ".flowstate-data");
 const DB_FILE = path.join(DATA_DIR, "db.v2.json");
 const DATASETS_DIR = path.join(DATA_DIR, "datasets-v2");
+const EDGE_HEARTBEAT_STALE_MS = Number(process.env.FLOWSTATE_EDGE_HEARTBEAT_STALE_MS || 60_000);
+const EDGE_COMMAND_LEASE_MS = Number(process.env.FLOWSTATE_EDGE_COMMAND_LEASE_MS || 30_000);
 
 let writeChain = Promise.resolve();
 
@@ -161,6 +163,16 @@ function connectorSimulationFromPayload(payload: unknown) {
         : 503,
     errorMessage: typeof errorValue === "string" && errorValue.trim().length > 0 ? errorValue.trim() : "Connector delivery failed",
   };
+}
+
+function withDerivedAgentStatus(agent: EdgeAgentRecord, nowMs = Date.now()): EdgeAgentRecord {
+  const heartbeatMs = agent.last_heartbeat_at ? Date.parse(agent.last_heartbeat_at) : null;
+  const stale = heartbeatMs === null || nowMs - heartbeatMs > EDGE_HEARTBEAT_STALE_MS;
+
+  return edgeAgentRecordSchema.parse({
+    ...agent,
+    status: stale ? "offline" : "online",
+  });
 }
 
 async function ensureInfrastructure() {
@@ -1395,17 +1407,26 @@ export async function registerEdgeAgent(input: {
 
 export async function listEdgeAgents(projectId?: string) {
   const state = await readState();
+  const nowMs = Date.now();
 
   if (!projectId) {
-    return state.edge_agents;
+    return state.edge_agents.map((agent) => withDerivedAgentStatus(agent, nowMs));
   }
 
-  return state.edge_agents.filter((agent) => agent.project_id === projectId);
+  return state.edge_agents
+    .filter((agent) => agent.project_id === projectId)
+    .map((agent) => withDerivedAgentStatus(agent, nowMs));
 }
 
 export async function getEdgeAgent(agentId: string) {
   const state = await readState();
-  return state.edge_agents.find((agent) => agent.id === agentId) ?? null;
+  const agent = state.edge_agents.find((item) => item.id === agentId) ?? null;
+
+  if (!agent) {
+    return null;
+  }
+
+  return withDerivedAgentStatus(agent);
 }
 
 export async function touchEdgeAgentHeartbeat(input: {
@@ -1491,6 +1512,48 @@ export async function listEdgeAgentEvents(input: {
       return true;
     })
     .slice(0, limit);
+}
+
+export async function getEdgeAgentHealth(agentId: string) {
+  const state = await readState();
+  const nowMs = Date.now();
+  const agent = state.edge_agents.find((item) => item.id === agentId) ?? null;
+
+  if (!agent) {
+    return null;
+  }
+
+  const heartbeatMs = agent.last_heartbeat_at ? Date.parse(agent.last_heartbeat_at) : null;
+  const heartbeatLagMs = heartbeatMs === null ? null : Math.max(0, nowMs - heartbeatMs);
+  const isStale = heartbeatLagMs === null || heartbeatLagMs > EDGE_HEARTBEAT_STALE_MS;
+  const commands = state.edge_agent_commands.filter((command) => command.agent_id === agentId);
+  const pendingCount = commands.filter((command) => command.status === "pending").length;
+  const claimedCount = commands.filter((command) => command.status === "claimed").length;
+  const failedCount = commands.filter((command) => command.status === "failed").length;
+  const acknowledgedCount = commands.filter((command) => command.status === "acknowledged").length;
+  const checkpoints = state.sync_checkpoints
+    .filter((checkpoint) => checkpoint.agent_id === agentId)
+    .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))
+    .slice(0, 5);
+  const recentEvents = state.edge_agent_events
+    .filter((event) => event.agent_id === agentId)
+    .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+    .slice(0, 10);
+
+  return {
+    agent: withDerivedAgentStatus(agent, nowMs),
+    heartbeat_lag_ms: heartbeatLagMs,
+    stale_threshold_ms: EDGE_HEARTBEAT_STALE_MS,
+    is_stale: isStale,
+    commands: {
+      pending: pendingCount,
+      claimed: claimedCount,
+      failed: failedCount,
+      acknowledged: acknowledgedCount,
+    },
+    checkpoints,
+    recent_events: recentEvents,
+  };
 }
 
 export async function createEdgeAgentConfig(input: {
@@ -1627,7 +1690,13 @@ export async function claimEdgeAgentCommands(input: {
         if (command.agent_id !== input.agentId) {
           return false;
         }
-        if (command.status !== "pending") {
+        const isPending = command.status === "pending";
+        const isClaimedAndExpired =
+          command.status === "claimed" &&
+          command.claimed_at !== null &&
+          nowMs - Date.parse(command.claimed_at) > EDGE_COMMAND_LEASE_MS;
+
+        if (!isPending && !isClaimedAndExpired) {
           return false;
         }
         if (command.expires_at && Date.parse(command.expires_at) <= nowMs) {
@@ -1660,6 +1729,10 @@ export async function acknowledgeEdgeAgentCommand(input: {
 
     if (!command) {
       return null;
+    }
+
+    if (command.status === "acknowledged" || command.status === "failed") {
+      return edgeAgentCommandRecordSchema.parse(command);
     }
 
     const now = new Date().toISOString();

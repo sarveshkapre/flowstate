@@ -88,3 +88,4 @@ Context: magic-link request/verify + API key auth mode (`optional` or `strict`).
 - [x] Added edge agent control channel foundations (config versioning + command enqueue/pull/ack APIs).
 - [x] Added connector reliability lab UI in `/flow-builder` for simulation and history inspection.
 - [x] Added dedicated `/edge-control` UI for edge agent registration, config updates, and command queue operations.
+- [x] Added edge reliability protections: stale-heartbeat detection, command lease recovery, and `GET /api/v2/edge/agents/:agentId/health`.

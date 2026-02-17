@@ -62,6 +62,38 @@ type DatasetVersion = {
   created_at: string;
 };
 
+type ProjectMemberRole = "owner" | "admin" | "builder" | "reviewer" | "viewer";
+
+type ApiKeyScope =
+  | "manage_projects"
+  | "manage_members"
+  | "manage_keys"
+  | "create_flow"
+  | "deploy_flow"
+  | "run_flow"
+  | "review_queue"
+  | "read_project";
+
+type ProjectMember = {
+  id: string;
+  project_id: string;
+  user_email: string;
+  role: ProjectMemberRole;
+  updated_at: string;
+};
+
+type ApiKeyRecord = {
+  id: string;
+  project_id: string;
+  name: string;
+  role: ProjectMemberRole;
+  scopes: ApiKeyScope[];
+  is_active: boolean;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+};
+
 type GraphNodeDraft = {
   id: string;
   type: FlowNodeType;
@@ -93,6 +125,19 @@ const NODE_TYPES: FlowNodeType[] = [
   "sink_jira",
   "sink_sqs",
   "sink_db",
+];
+
+const ROLE_OPTIONS: ProjectMemberRole[] = ["owner", "admin", "builder", "reviewer", "viewer"];
+
+const API_KEY_SCOPES: ApiKeyScope[] = [
+  "manage_projects",
+  "manage_members",
+  "manage_keys",
+  "create_flow",
+  "deploy_flow",
+  "run_flow",
+  "review_queue",
+  "read_project",
 ];
 
 const TEMPLATE_GRAPH: { name: string; graph: FlowGraph } = {
@@ -289,7 +334,7 @@ function validateGraph(nodes: GraphNodeDraft[], edges: GraphEdgeDraft[]) {
 export function FlowBuilderClient() {
   const [apiKey, setApiKey] = useState("");
   const [actorEmail, setActorEmail] = useState("local@flowstate.dev");
-  const [actorRole, setActorRole] = useState("owner");
+  const [actorRole, setActorRole] = useState<ProjectMemberRole>("owner");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -299,6 +344,8 @@ export function FlowBuilderClient() {
   const [deployments, setDeployments] = useState<FlowDeployment[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [datasetVersions, setDatasetVersions] = useState<DatasetVersion[]>([]);
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
 
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
@@ -315,6 +362,12 @@ export function FlowBuilderClient() {
   const [newFlowDescription, setNewFlowDescription] = useState("Extract, validate, and route documents.");
   const [newDatasetName, setNewDatasetName] = useState("Intake Dataset");
   const [newDatasetDescription, setNewDatasetDescription] = useState("Versioned replay/eval source data.");
+  const [newMemberEmail, setNewMemberEmail] = useState("reviewer@flowstate.dev");
+  const [newMemberRole, setNewMemberRole] = useState<ProjectMemberRole>("reviewer");
+  const [newKeyName, setNewKeyName] = useState("builder-key");
+  const [newKeyRole, setNewKeyRole] = useState<ProjectMemberRole>("builder");
+  const [newKeyScopes, setNewKeyScopes] = useState<ApiKeyScope[]>(["read_project", "create_flow", "deploy_flow", "run_flow"]);
+  const [issuedApiToken, setIssuedApiToken] = useState("");
 
   const [nodes, setNodes] = useState<GraphNodeDraft[]>([]);
   const [edges, setEdges] = useState<GraphEdgeDraft[]>([]);
@@ -484,6 +537,45 @@ export function FlowBuilderClient() {
     [authHeaders, selectedDatasetVersionId],
   );
 
+  const loadMembersAndKeys = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setMembers([]);
+        setApiKeys([]);
+        return;
+      }
+
+      const [membersResponse, keysResponse] = await Promise.all([
+        fetch(`/api/v2/projects/${projectId}/members`, {
+          cache: "no-store",
+          headers: authHeaders(false),
+        }),
+        fetch(`/api/v2/projects/${projectId}/keys`, {
+          cache: "no-store",
+          headers: authHeaders(false),
+        }),
+      ]);
+
+      const membersPayload = (await membersResponse.json()) as { members?: ProjectMember[]; error?: string };
+      const keysPayload = (await keysResponse.json()) as { keys?: ApiKeyRecord[]; error?: string };
+
+      if (!membersResponse.ok) {
+        setStatusMessage(membersPayload.error || "Unable to load project members.");
+        setMembers([]);
+      } else {
+        setMembers(membersPayload.members ?? []);
+      }
+
+      if (!keysResponse.ok) {
+        setStatusMessage(keysPayload.error || "Unable to load API keys.");
+        setApiKeys([]);
+      } else {
+        setApiKeys(keysPayload.keys ?? []);
+      }
+    },
+    [authHeaders],
+  );
+
   const loadVersionsAndDeployments = useCallback(
     async (flowId: string) => {
       if (!flowId) {
@@ -555,11 +647,14 @@ export function FlowBuilderClient() {
       setSelectedFlowId("");
       setDatasets([]);
       setSelectedDatasetId("");
+      setMembers([]);
+      setApiKeys([]);
       return;
     }
     void loadFlows(selectedProjectId);
     void loadDatasets(selectedProjectId);
-  }, [loadDatasets, loadFlows, selectedProjectId]);
+    void loadMembersAndKeys(selectedProjectId);
+  }, [loadDatasets, loadFlows, loadMembersAndKeys, selectedProjectId]);
 
   useEffect(() => {
     void loadDatasetVersions(selectedDatasetId);
@@ -759,6 +854,71 @@ export function FlowBuilderClient() {
     setSelectedDatasetVersionId(payload.version.id);
   }
 
+  async function assignMember() {
+    if (!selectedProjectId || !newMemberEmail.trim()) {
+      setStatusMessage("Select a project and enter member email.");
+      return;
+    }
+
+    const response = await fetch(`/api/v2/projects/${selectedProjectId}/members`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        userEmail: newMemberEmail.trim(),
+        role: newMemberRole,
+      }),
+    });
+    const payload = (await response.json()) as { member?: ProjectMember; error?: string };
+
+    if (!response.ok || !payload.member) {
+      setStatusMessage(payload.error || "Failed to assign member.");
+      return;
+    }
+
+    setStatusMessage(`Member assigned: ${payload.member.user_email} (${payload.member.role})`);
+    await loadMembersAndKeys(selectedProjectId);
+  }
+
+  function toggleKeyScope(scope: ApiKeyScope) {
+    setNewKeyScopes((current) => {
+      if (current.includes(scope)) {
+        return current.filter((item) => item !== scope);
+      }
+      return [...current, scope];
+    });
+  }
+
+  async function createProjectKey() {
+    if (!selectedProjectId || !newKeyName.trim() || newKeyScopes.length === 0) {
+      setStatusMessage("Select project, key name, and at least one scope.");
+      return;
+    }
+
+    const response = await fetch(`/api/v2/projects/${selectedProjectId}/keys`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        name: newKeyName.trim(),
+        role: newKeyRole,
+        scopes: newKeyScopes,
+      }),
+    });
+    const payload = (await response.json()) as {
+      apiKey?: ApiKeyRecord;
+      token?: string;
+      error?: string;
+    };
+
+    if (!response.ok || !payload.apiKey) {
+      setStatusMessage(payload.error || "Failed to create API key.");
+      return;
+    }
+
+    setStatusMessage(`API key created: ${payload.apiKey.name}`);
+    setIssuedApiToken(payload.token ?? "");
+    await loadMembersAndKeys(selectedProjectId);
+  }
+
   async function saveFlowVersion() {
     if (!selectedFlowId) {
       setStatusMessage("Select a flow first.");
@@ -908,12 +1068,12 @@ export function FlowBuilderClient() {
 
         <label className="field small">
           <span>Local Actor Role</span>
-          <select value={actorRole} onChange={(event) => setActorRole(event.target.value)}>
-            <option value="owner">owner</option>
-            <option value="admin">admin</option>
-            <option value="builder">builder</option>
-            <option value="reviewer">reviewer</option>
-            <option value="viewer">viewer</option>
+          <select value={actorRole} onChange={(event) => setActorRole(event.target.value as ProjectMemberRole)}>
+            {ROLE_OPTIONS.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
           </select>
         </label>
       </article>
@@ -1005,6 +1165,108 @@ export function FlowBuilderClient() {
               Current version: <span className="mono">{selectedFlow.current_version_id ?? "none"}</span>
             </p>
           ) : null}
+        </article>
+      </div>
+
+      <div className="grid two-col">
+        <article className="card stack">
+          <h3>Members</h3>
+
+          <label className="field">
+            <span>Member Email</span>
+            <input value={newMemberEmail} onChange={(event) => setNewMemberEmail(event.target.value)} />
+          </label>
+
+          <label className="field small">
+            <span>Role</span>
+            <select value={newMemberRole} onChange={(event) => setNewMemberRole(event.target.value as ProjectMemberRole)}>
+              {ROLE_OPTIONS.map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="row wrap">
+            <button className="button" onClick={() => void assignMember()}>
+              Assign Member
+            </button>
+            <button className="button secondary" onClick={() => void loadMembersAndKeys(selectedProjectId)}>
+              Refresh Members/Keys
+            </button>
+          </div>
+
+          {members.length === 0 ? (
+            <p className="muted">No members yet.</p>
+          ) : (
+            <ul className="list">
+              {members.map((member) => (
+                <li key={member.id}>
+                  <span className="mono">{member.user_email}</span> - {member.role}
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+
+        <article className="card stack">
+          <h3>API Keys</h3>
+
+          <label className="field">
+            <span>Key Name</span>
+            <input value={newKeyName} onChange={(event) => setNewKeyName(event.target.value)} />
+          </label>
+
+          <label className="field small">
+            <span>Key Role</span>
+            <select value={newKeyRole} onChange={(event) => setNewKeyRole(event.target.value as ProjectMemberRole)}>
+              {ROLE_OPTIONS.map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="stack">
+            <p className="muted">Scopes</p>
+            <div className="row wrap">
+              {API_KEY_SCOPES.map((scope) => (
+                <label key={scope} className="row">
+                  <input
+                    type="checkbox"
+                    checked={newKeyScopes.includes(scope)}
+                    onChange={() => toggleKeyScope(scope)}
+                  />
+                  <span className="mono">{scope}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <button className="button" onClick={() => void createProjectKey()}>
+            Create API Key
+          </button>
+
+          {issuedApiToken ? (
+            <div className="stack">
+              <p className="muted">New key token (shown once)</p>
+              <pre className="json small">{issuedApiToken}</pre>
+            </div>
+          ) : null}
+
+          {apiKeys.length === 0 ? (
+            <p className="muted">No API keys yet.</p>
+          ) : (
+            <ul className="list">
+              {apiKeys.map((key) => (
+                <li key={key.id}>
+                  <span className="mono">{key.name}</span> - {key.role} ({key.is_active ? "active" : "inactive"})
+                </li>
+              ))}
+            </ul>
+          )}
         </article>
       </div>
 

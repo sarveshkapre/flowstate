@@ -23,7 +23,7 @@ Phase 2 foundations are now in progress:
 - eval run API/UI for benchmark-style extraction quality tracking
 - organization management + tenant scoping for workflow/edge/eval modules
 - v2 SaaS control-plane API foundations (projects/auth/flows/runs/datasets/review/edge)
-- v2 Flow Builder UI (`/flow-builder`) with graph authoring, version/deploy, and webhook test-run
+- v2 Flow Builder UI (`/flow-builder`) with project members/API keys, graph authoring, version/deploy, and webhook test-run
 - v2 Flow Builder replay controls (dataset versioning + baseline diff runs)
 
 ## Core Principles

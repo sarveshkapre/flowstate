@@ -120,6 +120,7 @@
 - Added new Flow Builder page at `/flow-builder` with:
   - local/strict auth headers support (API key or local actor identity)
   - organization/project/flow selection + creation actions
+  - project member assignment and API key issuance actions
   - node/edge graph editor and template loader
   - graph validation rules before flow-version persistence
   - flow version save + deployment controls

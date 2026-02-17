@@ -17,7 +17,8 @@
   - flow graph version/deploy surfaces
   - run traces, dataset versions, replay
   - structured review decisions and evidence
-  - edge agent ingress and connector scaffolding
+  - connector delivery reliability (idempotency, retries, dead-letter)
+  - edge agent ingress + control channel (config versions, command queue)
 
 ## Data Flow (v1)
 

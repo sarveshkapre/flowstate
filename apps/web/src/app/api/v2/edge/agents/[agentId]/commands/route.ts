@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
+import { edgeAgentCommandStatusSchema } from "@flowstate/types";
 import { z } from "zod";
 
-import { appendEdgeAgentEvent, getEdgeAgent, listEdgeAgentEvents } from "@/lib/data-store-v2";
+import { enqueueEdgeAgentCommand, getEdgeAgent, listEdgeAgentCommands } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
-
-const eventSchema = z.object({
-  eventType: z.string().min(1).max(120),
-  payload: z.unknown(),
-});
 
 type Params = {
   params: Promise<{ agentId: string }>;
 };
+
+const enqueueCommandSchema = z.object({
+  commandType: z.string().min(1).max(120),
+  payload: z.unknown(),
+  expiresAt: z.iso.datetime().optional(),
+});
 
 export async function GET(request: Request, { params }: Params) {
   const { agentId } = await params;
@@ -32,17 +34,19 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   const url = new URL(request.url);
-  const eventType = url.searchParams.get("eventType") || undefined;
+  const statusValue = url.searchParams.get("status");
+  const statusParsed = statusValue ? edgeAgentCommandStatusSchema.safeParse(statusValue) : null;
+  const status = statusParsed?.success ? statusParsed.data : undefined;
   const limitParam = Number(url.searchParams.get("limit") || "");
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.floor(limitParam) : undefined;
 
-  const events = await listEdgeAgentEvents({
+  const commands = await listEdgeAgentCommands({
     agentId,
-    eventType,
+    status,
     limit,
   });
 
-  return NextResponse.json({ events });
+  return NextResponse.json({ commands });
 }
 
 export async function POST(request: Request, { params }: Params) {
@@ -55,7 +59,7 @@ export async function POST(request: Request, { params }: Params) {
 
   const auth = await requirePermission({
     request,
-    permission: "run_flow",
+    permission: "deploy_flow",
     projectId: agent.project_id,
   });
 
@@ -64,21 +68,23 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const body = await request.json().catch(() => null);
-  const parsed = eventSchema.safeParse(body);
+  const parsed = enqueueCommandSchema.safeParse(body);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const event = await appendEdgeAgentEvent({
+  const command = await enqueueEdgeAgentCommand({
     agentId,
-    eventType: parsed.data.eventType,
+    commandType: parsed.data.commandType,
     payload: parsed.data.payload,
+    expiresAt: parsed.data.expiresAt,
+    actor: auth.actor.email ?? "api-key",
   });
 
-  if (!event) {
+  if (!command) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ event }, { status: 201 });
+  return NextResponse.json({ command }, { status: 201 });
 }

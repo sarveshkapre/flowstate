@@ -1,34 +1,29 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getEdgeAgent, touchEdgeAgentHeartbeat } from "@/lib/data-store-v2";
+import { claimEdgeAgentCommands, getEdgeAgent } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
-
-const heartbeatSchema = z.object({
-  checkpoint: z
-    .object({
-      key: z.string().min(1),
-      value: z.string().min(1),
-    })
-    .optional(),
-});
 
 type Params = {
   params: Promise<{ agentId: string }>;
 };
 
+const pullSchema = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+});
+
 export async function POST(request: Request, { params }: Params) {
   const { agentId } = await params;
-  const existingAgent = await getEdgeAgent(agentId);
+  const agent = await getEdgeAgent(agentId);
 
-  if (!existingAgent) {
+  if (!agent) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
   const auth = await requirePermission({
     request,
     permission: "run_flow",
-    projectId: existingAgent.project_id,
+    projectId: agent.project_id,
   });
 
   if (!auth.ok) {
@@ -36,20 +31,20 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const payload = await request.json().catch(() => null);
-  const parsed = heartbeatSchema.safeParse(payload ?? {});
+  const parsed = pullSchema.safeParse(payload ?? {});
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const updatedAgent = await touchEdgeAgentHeartbeat({
+  const commands = await claimEdgeAgentCommands({
     agentId,
-    checkpoint: parsed.data.checkpoint,
+    limit: parsed.data.limit,
   });
 
-  if (!updatedAgent) {
+  if (!commands) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ agent: updatedAgent });
+  return NextResponse.json({ commands });
 }

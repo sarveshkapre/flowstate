@@ -9,10 +9,19 @@ import {
   type DatasetRecord,
   datasetVersionRecordSchema,
   type DatasetVersionRecord,
+  connectorDeliveryAttemptRecordSchema,
+  type ConnectorDeliveryAttemptRecord,
+  connectorDeliveryRecordSchema,
+  type ConnectorDeliveryRecord,
   edgeAgentEventRecordSchema,
   type EdgeAgentEventRecord,
   edgeAgentRecordSchema,
   type EdgeAgentRecord,
+  edgeAgentConfigRecordSchema,
+  type EdgeAgentConfigRecord,
+  edgeAgentCommandRecordSchema,
+  type EdgeAgentCommandRecord,
+  type EdgeAgentCommandStatus,
   evidenceRegionRecordSchema,
   type EvidenceRegionRecord,
   evalPackRecordSchema,
@@ -64,8 +73,12 @@ type DbStateV2 = {
   review_decisions: ReviewDecisionRecord[];
   evidence_regions: EvidenceRegionRecord[];
   eval_packs: EvalPackRecord[];
+  connector_deliveries: ConnectorDeliveryRecord[];
+  connector_delivery_attempts: ConnectorDeliveryAttemptRecord[];
   edge_agents: EdgeAgentRecord[];
   edge_agent_events: EdgeAgentEventRecord[];
+  edge_agent_configs: EdgeAgentConfigRecord[];
+  edge_agent_commands: EdgeAgentCommandRecord[];
   sync_checkpoints: SyncCheckpointRecord[];
   audit_events: AuditEventRecord[];
 };
@@ -85,8 +98,12 @@ const DEFAULT_STATE: DbStateV2 = {
   review_decisions: [],
   evidence_regions: [],
   eval_packs: [],
+  connector_deliveries: [],
+  connector_delivery_attempts: [],
   edge_agents: [],
   edge_agent_events: [],
+  edge_agent_configs: [],
+  edge_agent_commands: [],
   sync_checkpoints: [],
   audit_events: [],
 };
@@ -110,6 +127,40 @@ function normalizeSlug(input: string): string {
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function hashPayload(payload: unknown): string {
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload);
+  return createHash("sha256").update(text).digest("hex");
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function connectorSimulationFromPayload(payload: unknown) {
+  const record = asRecord(payload);
+  const failureCountValue = record.__simulateFailureCount;
+  const alwaysFailValue = record.__simulateAlwaysFail;
+  const statusCodeValue = record.__simulateStatusCode;
+  const errorValue = record.__simulateErrorMessage;
+
+  return {
+    failureCount:
+      typeof failureCountValue === "number" && Number.isFinite(failureCountValue) && failureCountValue > 0
+        ? Math.floor(failureCountValue)
+        : 0,
+    alwaysFail: alwaysFailValue === true,
+    statusCode:
+      typeof statusCodeValue === "number" && Number.isFinite(statusCodeValue) && statusCodeValue >= 100
+        ? Math.floor(statusCodeValue)
+        : 503,
+    errorMessage: typeof errorValue === "string" && errorValue.trim().length > 0 ? errorValue.trim() : "Connector delivery failed",
+  };
 }
 
 async function ensureInfrastructure() {
@@ -143,8 +194,14 @@ async function readState(): Promise<DbStateV2> {
     review_decisions: (parsed.review_decisions ?? []).map((item) => reviewDecisionRecordSchema.parse(item)),
     evidence_regions: (parsed.evidence_regions ?? []).map((item) => evidenceRegionRecordSchema.parse(item)),
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
+    connector_deliveries: (parsed.connector_deliveries ?? []).map((item) => connectorDeliveryRecordSchema.parse(item)),
+    connector_delivery_attempts: (parsed.connector_delivery_attempts ?? []).map((item) =>
+      connectorDeliveryAttemptRecordSchema.parse(item),
+    ),
     edge_agents: (parsed.edge_agents ?? []).map((item) => edgeAgentRecordSchema.parse(item)),
     edge_agent_events: (parsed.edge_agent_events ?? []).map((item) => edgeAgentEventRecordSchema.parse(item)),
+    edge_agent_configs: (parsed.edge_agent_configs ?? []).map((item) => edgeAgentConfigRecordSchema.parse(item)),
+    edge_agent_commands: (parsed.edge_agent_commands ?? []).map((item) => edgeAgentCommandRecordSchema.parse(item)),
     sync_checkpoints: (parsed.sync_checkpoints ?? []).map((item) => syncCheckpointRecordSchema.parse(item)),
     audit_events: (parsed.audit_events ?? []).map((item) => auditEventRecordSchema.parse(item)),
   };
@@ -1124,25 +1181,231 @@ export async function listActiveLearningCandidatesV2(input: {
   return scored;
 }
 
+export async function processConnectorDelivery(input: {
+  projectId: string;
+  connectorType: string;
+  payload: unknown;
+  idempotencyKey?: string;
+  maxAttempts?: number;
+  initialBackoffMs?: number;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const now = new Date().toISOString();
+    const normalizedType = input.connectorType.trim().toLowerCase();
+    const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
+    const maxAttempts = Math.max(1, Math.min(input.maxAttempts ?? 3, 10));
+    const initialBackoffMs = Math.max(100, Math.min(input.initialBackoffMs ?? 500, 60_000));
+    const payloadHash = hashPayload(input.payload);
+
+    const existing =
+      normalizedIdempotencyKey === null
+        ? null
+        : state.connector_deliveries.find(
+            (delivery) =>
+              delivery.project_id === input.projectId &&
+              delivery.connector_type === normalizedType &&
+              delivery.idempotency_key === normalizedIdempotencyKey,
+          ) ?? null;
+
+    if (existing) {
+      const attempts = state.connector_delivery_attempts
+        .filter((attempt) => attempt.delivery_id === existing.id)
+        .sort((left, right) => left.attempt_number - right.attempt_number);
+
+      return {
+        delivery: connectorDeliveryRecordSchema.parse(existing),
+        attempts: attempts.map((attempt) => connectorDeliveryAttemptRecordSchema.parse(attempt)),
+        duplicate: true,
+      };
+    }
+
+    const delivery = connectorDeliveryRecordSchema.parse({
+      id: randomUUID(),
+      project_id: input.projectId,
+      connector_type: normalizedType,
+      idempotency_key: normalizedIdempotencyKey,
+      payload_hash: payloadHash,
+      status: "queued",
+      attempt_count: 0,
+      max_attempts: maxAttempts,
+      last_status_code: null,
+      last_error: null,
+      next_attempt_at: null,
+      dead_letter_reason: null,
+      delivered_at: null,
+      created_at: now,
+      updated_at: now,
+    });
+
+    state.connector_deliveries.unshift(delivery);
+    appendAuditEvent(state, {
+      eventType: "connector_delivery_queued_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        delivery_id: delivery.id,
+        connector_type: delivery.connector_type,
+        project_id: delivery.project_id,
+      },
+    });
+
+    const simulation = connectorSimulationFromPayload(input.payload);
+
+    for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber += 1) {
+      const attemptNow = new Date().toISOString();
+      const failThisAttempt = simulation.alwaysFail || attemptNumber <= simulation.failureCount;
+      const statusCode = failThisAttempt ? simulation.statusCode : 200;
+      const errorMessage = failThisAttempt ? simulation.errorMessage : null;
+
+      const attempt = connectorDeliveryAttemptRecordSchema.parse({
+        id: randomUUID(),
+        delivery_id: delivery.id,
+        attempt_number: attemptNumber,
+        success: !failThisAttempt,
+        status_code: statusCode,
+        error_message: errorMessage,
+        response_body: failThisAttempt ? null : JSON.stringify({ accepted: true }),
+        created_at: attemptNow,
+      });
+      state.connector_delivery_attempts.unshift(attempt);
+
+      delivery.attempt_count = attemptNumber;
+      delivery.last_status_code = statusCode;
+      delivery.last_error = errorMessage;
+      delivery.updated_at = attemptNow;
+
+      appendAuditEvent(state, {
+        eventType: "connector_delivery_attempted_v2",
+        actor: input.actor ?? "system",
+        metadata: {
+          delivery_id: delivery.id,
+          attempt_number: attempt.attempt_number,
+          success: attempt.success,
+          status_code: attempt.status_code,
+        },
+      });
+
+      if (!failThisAttempt) {
+        delivery.status = "delivered";
+        delivery.next_attempt_at = null;
+        delivery.dead_letter_reason = null;
+        delivery.delivered_at = attemptNow;
+
+        appendAuditEvent(state, {
+          eventType: "connector_delivered_v2",
+          actor: input.actor ?? "system",
+          metadata: {
+            delivery_id: delivery.id,
+            attempts: attempt.attempt_number,
+            connector_type: delivery.connector_type,
+          },
+        });
+        break;
+      }
+
+      if (attemptNumber >= maxAttempts) {
+        delivery.status = "dead_lettered";
+        delivery.next_attempt_at = null;
+        delivery.dead_letter_reason = errorMessage ?? "Connector delivery exhausted retries";
+
+        appendAuditEvent(state, {
+          eventType: "connector_dead_lettered_v2",
+          actor: input.actor ?? "system",
+          metadata: {
+            delivery_id: delivery.id,
+            attempts: attempt.attempt_number,
+            connector_type: delivery.connector_type,
+            reason: delivery.dead_letter_reason,
+          },
+        });
+        break;
+      }
+
+      delivery.status = "retrying";
+      const backoffMs = initialBackoffMs * 2 ** (attemptNumber - 1);
+      delivery.next_attempt_at = new Date(Date.now() + backoffMs).toISOString();
+    }
+
+    const attempts = state.connector_delivery_attempts
+      .filter((attempt) => attempt.delivery_id === delivery.id)
+      .sort((left, right) => left.attempt_number - right.attempt_number);
+
+    return {
+      delivery: connectorDeliveryRecordSchema.parse(delivery),
+      attempts: attempts.map((attempt) => connectorDeliveryAttemptRecordSchema.parse(attempt)),
+      duplicate: false,
+    };
+  });
+}
+
+export async function listConnectorDeliveries(filters: {
+  projectId: string;
+  connectorType?: string;
+  status?: "queued" | "retrying" | "delivered" | "dead_lettered";
+  limit?: number;
+}) {
+  const state = await readState();
+  const normalizedType = filters.connectorType?.trim().toLowerCase();
+  const limit = Math.max(1, Math.min(filters.limit ?? 100, 500));
+
+  return state.connector_deliveries
+    .filter((delivery) => {
+      if (delivery.project_id !== filters.projectId) {
+        return false;
+      }
+      if (normalizedType && delivery.connector_type !== normalizedType) {
+        return false;
+      }
+      if (filters.status && delivery.status !== filters.status) {
+        return false;
+      }
+      return true;
+    })
+    .slice(0, limit);
+}
+
+export async function listConnectorDeliveryAttempts(deliveryId: string) {
+  const state = await readState();
+  return state.connector_delivery_attempts
+    .filter((attempt) => attempt.delivery_id === deliveryId)
+    .sort((left, right) => left.attempt_number - right.attempt_number);
+}
+
 export async function registerEdgeAgent(input: {
   projectId: string;
   name: string;
   platform: string;
 }) {
   return withWriteLock(async (state) => {
+    const now = new Date().toISOString();
     const agent = edgeAgentRecordSchema.parse({
       id: randomUUID(),
       project_id: input.projectId,
       name: input.name.trim(),
       platform: input.platform.trim(),
       status: "online",
-      last_heartbeat_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
+      last_heartbeat_at: now,
+      created_at: now,
     });
 
     state.edge_agents.unshift(agent);
     return agent;
   });
+}
+
+export async function listEdgeAgents(projectId?: string) {
+  const state = await readState();
+
+  if (!projectId) {
+    return state.edge_agents;
+  }
+
+  return state.edge_agents.filter((agent) => agent.project_id === projectId);
+}
+
+export async function getEdgeAgent(agentId: string) {
+  const state = await readState();
+  return state.edge_agents.find((agent) => agent.id === agentId) ?? null;
 }
 
 export async function touchEdgeAgentHeartbeat(input: {
@@ -1205,5 +1468,216 @@ export async function appendEdgeAgentEvent(input: {
 
     state.edge_agent_events.unshift(event);
     return event;
+  });
+}
+
+export async function listEdgeAgentEvents(input: {
+  agentId: string;
+  eventType?: string;
+  limit?: number;
+}) {
+  const state = await readState();
+  const normalizedType = input.eventType?.trim();
+  const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
+
+  return state.edge_agent_events
+    .filter((event) => {
+      if (event.agent_id !== input.agentId) {
+        return false;
+      }
+      if (normalizedType && event.event_type !== normalizedType) {
+        return false;
+      }
+      return true;
+    })
+    .slice(0, limit);
+}
+
+export async function createEdgeAgentConfig(input: {
+  agentId: string;
+  config: unknown;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const agent = state.edge_agents.find((item) => item.id === input.agentId);
+
+    if (!agent) {
+      return null;
+    }
+
+    const latestVersion = state.edge_agent_configs
+      .filter((config) => config.agent_id === input.agentId)
+      .reduce((max, config) => Math.max(max, config.version_number), 0);
+
+    const record = edgeAgentConfigRecordSchema.parse({
+      id: randomUUID(),
+      agent_id: input.agentId,
+      version_number: latestVersion + 1,
+      config: input.config,
+      created_by: input.actor ?? null,
+      created_at: new Date().toISOString(),
+    });
+
+    state.edge_agent_configs.unshift(record);
+    appendAuditEvent(state, {
+      eventType: "edge_agent_config_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        agent_id: input.agentId,
+        version_number: record.version_number,
+      },
+    });
+
+    return record;
+  });
+}
+
+export async function getLatestEdgeAgentConfig(agentId: string) {
+  const state = await readState();
+  return (
+    state.edge_agent_configs
+      .filter((config) => config.agent_id === agentId)
+      .sort((left, right) => right.version_number - left.version_number)[0] ?? null
+  );
+}
+
+export async function enqueueEdgeAgentCommand(input: {
+  agentId: string;
+  commandType: string;
+  payload: unknown;
+  expiresAt?: string;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const agent = state.edge_agents.find((item) => item.id === input.agentId);
+
+    if (!agent) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const command = edgeAgentCommandRecordSchema.parse({
+      id: randomUUID(),
+      agent_id: input.agentId,
+      command_type: input.commandType.trim(),
+      payload: input.payload,
+      status: "pending",
+      claimed_at: null,
+      acknowledged_at: null,
+      result: null,
+      created_by: input.actor ?? null,
+      expires_at: input.expiresAt ?? null,
+      created_at: now,
+      updated_at: now,
+    });
+
+    state.edge_agent_commands.unshift(command);
+    appendAuditEvent(state, {
+      eventType: "edge_agent_command_enqueued_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        agent_id: input.agentId,
+        command_id: command.id,
+        command_type: command.command_type,
+      },
+    });
+
+    return command;
+  });
+}
+
+export async function listEdgeAgentCommands(input: {
+  agentId: string;
+  status?: EdgeAgentCommandStatus;
+  limit?: number;
+}) {
+  const state = await readState();
+  const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
+
+  return state.edge_agent_commands
+    .filter((command) => {
+      if (command.agent_id !== input.agentId) {
+        return false;
+      }
+      if (input.status && command.status !== input.status) {
+        return false;
+      }
+      return true;
+    })
+    .slice(0, limit);
+}
+
+export async function claimEdgeAgentCommands(input: {
+  agentId: string;
+  limit?: number;
+}) {
+  return withWriteLock(async (state) => {
+    const agent = state.edge_agents.find((item) => item.id === input.agentId);
+
+    if (!agent) {
+      return null;
+    }
+
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
+
+    const candidates = state.edge_agent_commands
+      .filter((command) => {
+        if (command.agent_id !== input.agentId) {
+          return false;
+        }
+        if (command.status !== "pending") {
+          return false;
+        }
+        if (command.expires_at && Date.parse(command.expires_at) <= nowMs) {
+          return false;
+        }
+        return true;
+      })
+      .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
+      .slice(0, limit);
+
+    for (const command of candidates) {
+      command.status = "claimed";
+      command.claimed_at = nowIso;
+      command.updated_at = nowIso;
+    }
+
+    return candidates.map((command) => edgeAgentCommandRecordSchema.parse(command));
+  });
+}
+
+export async function acknowledgeEdgeAgentCommand(input: {
+  agentId: string;
+  commandId: string;
+  status: "acknowledged" | "failed";
+  result?: unknown;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const command = state.edge_agent_commands.find((item) => item.id === input.commandId && item.agent_id === input.agentId);
+
+    if (!command) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    command.status = input.status;
+    command.acknowledged_at = now;
+    command.updated_at = now;
+    command.result = input.result ?? null;
+
+    appendAuditEvent(state, {
+      eventType: "edge_agent_command_acknowledged_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        command_id: command.id,
+        agent_id: input.agentId,
+        status: command.status,
+      },
+    });
+
+    return edgeAgentCommandRecordSchema.parse(command);
   });
 }

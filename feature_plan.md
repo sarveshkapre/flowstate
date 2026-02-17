@@ -84,3 +84,6 @@ Context: magic-link request/verify + API key auth mode (`optional` or `strict`).
 - [x] Extended replay endpoint with optional baseline version diff summary and field-level expected accuracy reporting.
 - [x] Added dataset/dataset-version management and replay trigger UI in `/flow-builder`.
 - [x] Added project member assignment and API key issuance UI in `/flow-builder`.
+- [x] Added connector delivery reliability layer (`idempotency`, retry attempts, dead-letter records) with history endpoint.
+- [x] Added edge agent control channel foundations (config versioning + command enqueue/pull/ack APIs).
+- [x] Added connector reliability lab UI in `/flow-builder` for simulation and history inspection.

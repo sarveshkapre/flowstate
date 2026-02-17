@@ -6,11 +6,10 @@
 - Shared schemas in `packages/types/src/index.ts`
 
 ## Candidate Features To Do
-- v2 UI for projects/members/keys.
-- v2 flow graph editor with node palette and edge constraints.
 - v2 run trace visualizer and replay diff UX.
 - Structured evidence annotation canvas.
-- Connector delivery retry/idempotency hardening.
+- Connector adapter implementations beyond simulation mode.
+- Edge agent control-plane UI for config and command operations.
 
 ## Implemented
 - v2 project APIs: create/list/get + member assignment + API key issuance.
@@ -23,6 +22,15 @@
 - v2 connector and edge ingress scaffolding.
 - v2 Flow Builder UI for graph authoring, versioning, deployment, and runtime webhook testing.
 - v2 replay diff/accuracy summary with optional baseline flow-version comparison.
+- v2 Flow Builder control-plane actions for members, API keys, datasets, and replay execution.
+- v2 connector reliability APIs and records:
+  - idempotency-aware delivery lifecycle
+  - retry attempt records
+  - dead-letter terminal state
+- v2 edge control channel APIs:
+  - config version write/read
+  - command enqueue/list
+  - command pull/ack lifecycle
 
 ## Insights
 - Control-plane API scaffolding is now broad enough to support rapid UI work.

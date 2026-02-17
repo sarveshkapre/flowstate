@@ -62,6 +62,18 @@ type DatasetVersion = {
   created_at: string;
 };
 
+type ConnectorDelivery = {
+  id: string;
+  connector_type: string;
+  idempotency_key: string | null;
+  status: "queued" | "retrying" | "delivered" | "dead_lettered";
+  attempt_count: number;
+  max_attempts: number;
+  last_error: string | null;
+  dead_letter_reason: string | null;
+  updated_at: string;
+};
+
 type ProjectMemberRole = "owner" | "admin" | "builder" | "reviewer" | "viewer";
 
 type ApiKeyScope =
@@ -380,6 +392,12 @@ export function FlowBuilderClient() {
   );
   const [replayLimit, setReplayLimit] = useState("20");
   const [replayResult, setReplayResult] = useState<string>("");
+  const [connectorType, setConnectorType] = useState("webhook");
+  const [connectorPayloadText, setConnectorPayloadText] = useState('{"event":"ticket.created","severity":"high"}');
+  const [connectorIdempotencyKey, setConnectorIdempotencyKey] = useState("");
+  const [connectorMaxAttempts, setConnectorMaxAttempts] = useState("3");
+  const [connectorResult, setConnectorResult] = useState("");
+  const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
 
   const authHeaders = useCallback(
     (withJson: boolean) => {
@@ -1042,6 +1060,76 @@ export function FlowBuilderClient() {
     setReplayResult(JSON.stringify(payload, null, 2));
   }
 
+  const loadConnectorDeliveries = useCallback(async () => {
+    if (!selectedProjectId) {
+      setConnectorDeliveries([]);
+      return;
+    }
+
+    const query = `/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver?projectId=${encodeURIComponent(selectedProjectId)}&limit=20`;
+    const response = await fetch(query, {
+      cache: "no-store",
+      headers: authHeaders(false),
+    });
+    const payload = (await response.json()) as {
+      deliveries?: Array<{ id: string; status: ConnectorDelivery["status"]; attempts?: unknown[] } & ConnectorDelivery>;
+      error?: string;
+    };
+
+    if (!response.ok) {
+      setStatusMessage(payload.error || "Unable to load connector deliveries.");
+      setConnectorDeliveries([]);
+      return;
+    }
+
+    setConnectorDeliveries(payload.deliveries ?? []);
+  }, [authHeaders, connectorType, selectedProjectId]);
+
+  useEffect(() => {
+    void loadConnectorDeliveries();
+  }, [loadConnectorDeliveries]);
+
+  async function deliverConnector() {
+    if (!selectedProjectId) {
+      setStatusMessage("Select a project before connector delivery.");
+      return;
+    }
+
+    let payload: unknown = {};
+    try {
+      payload = JSON.parse(connectorPayloadText);
+    } catch {
+      setStatusMessage("Connector payload must be valid JSON.");
+      return;
+    }
+
+    const parsedMaxAttempts = Number(connectorMaxAttempts);
+    const maxAttempts =
+      Number.isFinite(parsedMaxAttempts) && parsedMaxAttempts > 0 ? Math.floor(parsedMaxAttempts) : undefined;
+
+    const response = await fetch(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        payload,
+        idempotencyKey: connectorIdempotencyKey.trim() || undefined,
+        maxAttempts,
+      }),
+    });
+
+    const result = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      setStatusMessage(typeof result.error === "string" ? result.error : "Connector delivery failed.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    setStatusMessage("Connector delivery processed.");
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+  }
+
   return (
     <section className="panel stack">
       <h2>Flow Builder v2</h2>
@@ -1605,6 +1693,66 @@ export function FlowBuilderClient() {
           </button>
 
           {replayResult ? <pre className="json small">{replayResult}</pre> : <p className="muted">No replay result yet.</p>}
+        </article>
+      </div>
+
+      <div className="grid two-col">
+        <article className="card stack">
+          <h3>Connector Delivery Lab</h3>
+          <p className="muted">Simulate retries and dead-lettering using `__simulateFailureCount` or `__simulateAlwaysFail` in payload.</p>
+
+          <label className="field small">
+            <span>Connector Type</span>
+            <input value={connectorType} onChange={(event) => setConnectorType(event.target.value)} />
+          </label>
+
+          <label className="field">
+            <span>Payload JSON</span>
+            <textarea
+              rows={7}
+              value={connectorPayloadText}
+              onChange={(event) => setConnectorPayloadText(event.target.value)}
+            />
+          </label>
+
+          <div className="grid two-col">
+            <label className="field">
+              <span>Idempotency Key (optional)</span>
+              <input value={connectorIdempotencyKey} onChange={(event) => setConnectorIdempotencyKey(event.target.value)} />
+            </label>
+
+            <label className="field">
+              <span>Max Attempts</span>
+              <input value={connectorMaxAttempts} onChange={(event) => setConnectorMaxAttempts(event.target.value)} />
+            </label>
+          </div>
+
+          <div className="row wrap">
+            <button className="button" onClick={() => void deliverConnector()}>
+              Deliver Event
+            </button>
+            <button className="button secondary" onClick={() => void loadConnectorDeliveries()}>
+              Refresh History
+            </button>
+          </div>
+
+          {connectorResult ? <pre className="json small">{connectorResult}</pre> : <p className="muted">No connector result yet.</p>}
+        </article>
+
+        <article className="card stack">
+          <h3>Connector History</h3>
+          {connectorDeliveries.length === 0 ? (
+            <p className="muted">No deliveries yet.</p>
+          ) : (
+            <ul className="list">
+              {connectorDeliveries.map((delivery) => (
+                <li key={delivery.id}>
+                  <span className="mono">{delivery.id}</span> - {delivery.status} ({delivery.attempt_count}/{delivery.max_attempts})
+                  {delivery.last_error ? ` - ${delivery.last_error}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
         </article>
       </div>
 

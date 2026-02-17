@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { appendEdgeAgentEvent, getEdgeAgent, listEdgeAgentEvents } from "@/lib/data-store-v2";
+import { createEdgeAgentConfig, getEdgeAgent, getLatestEdgeAgentConfig } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
-
-const eventSchema = z.object({
-  eventType: z.string().min(1).max(120),
-  payload: z.unknown(),
-});
 
 type Params = {
   params: Promise<{ agentId: string }>;
 };
+
+const updateConfigSchema = z.object({
+  config: z.unknown(),
+});
 
 export async function GET(request: Request, { params }: Params) {
   const { agentId } = await params;
@@ -31,18 +30,8 @@ export async function GET(request: Request, { params }: Params) {
     return auth.response;
   }
 
-  const url = new URL(request.url);
-  const eventType = url.searchParams.get("eventType") || undefined;
-  const limitParam = Number(url.searchParams.get("limit") || "");
-  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.floor(limitParam) : undefined;
-
-  const events = await listEdgeAgentEvents({
-    agentId,
-    eventType,
-    limit,
-  });
-
-  return NextResponse.json({ events });
+  const config = await getLatestEdgeAgentConfig(agentId);
+  return NextResponse.json({ config });
 }
 
 export async function POST(request: Request, { params }: Params) {
@@ -55,7 +44,7 @@ export async function POST(request: Request, { params }: Params) {
 
   const auth = await requirePermission({
     request,
-    permission: "run_flow",
+    permission: "deploy_flow",
     projectId: agent.project_id,
   });
 
@@ -63,22 +52,22 @@ export async function POST(request: Request, { params }: Params) {
     return auth.response;
   }
 
-  const body = await request.json().catch(() => null);
-  const parsed = eventSchema.safeParse(body);
+  const payload = await request.json().catch(() => null);
+  const parsed = updateConfigSchema.safeParse(payload);
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const event = await appendEdgeAgentEvent({
+  const config = await createEdgeAgentConfig({
     agentId,
-    eventType: parsed.data.eventType,
-    payload: parsed.data.payload,
+    config: parsed.data.config,
+    actor: auth.actor.email ?? "api-key",
   });
 
-  if (!event) {
+  if (!config) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ event }, { status: 201 });
+  return NextResponse.json({ config }, { status: 201 });
 }

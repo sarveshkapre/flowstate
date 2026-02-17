@@ -25,6 +25,8 @@ Phase 2 foundations are now in progress:
 - v2 SaaS control-plane API foundations (projects/auth/flows/runs/datasets/review/edge)
 - v2 Flow Builder UI (`/flow-builder`) with project members/API keys, graph authoring, version/deploy, and webhook test-run
 - v2 Flow Builder replay controls (dataset versioning + baseline diff runs)
+- v2 connector reliability foundation (idempotency keys, retry attempts, dead-letter records)
+- v2 edge control channel foundation (agent config versions + command queue/ack flow)
 
 ## Core Principles
 
@@ -188,9 +190,18 @@ docs/         # architecture notes
 - `GET /api/v2/active-learning/eval-packs?projectId=...`
 - `POST /api/v2/active-learning/eval-packs`
 - `POST /api/v2/connectors/:type/test`
+- `GET /api/v2/connectors/:type/deliver?projectId=...`
 - `POST /api/v2/connectors/:type/deliver`
+- `GET /api/v2/edge/agents?projectId=...`
 - `POST /api/v2/edge/agents/register`
+- `GET /api/v2/edge/agents/:agentId/config`
+- `POST /api/v2/edge/agents/:agentId/config`
+- `GET /api/v2/edge/agents/:agentId/commands`
+- `POST /api/v2/edge/agents/:agentId/commands`
+- `POST /api/v2/edge/agents/:agentId/commands/pull`
+- `POST /api/v2/edge/agents/:agentId/commands/:commandId/ack`
 - `POST /api/v2/edge/agents/:agentId/heartbeat`
+- `GET /api/v2/edge/agents/:agentId/events`
 - `POST /api/v2/edge/agents/:agentId/events`
 
 ## Commands

@@ -16,10 +16,10 @@ Use this file as the first read in every new session for this repository.
 - Blockers or risks: broad scope can outpace reliability hardening without milestone gates.
 
 ## Immediate Next Actions
-- [ ] Extend Flow Builder UI with membership/key management and connector setup screens.
+- [ ] Add edge agent control-plane UI for config edits and command dispatch/ack history.
 - [ ] Add deterministic replay diff visualization UI (table + regressions).
-- [ ] Add stricter connector delivery contracts and dead-letter flow.
-- [ ] Add persistent edge agent command/config channel.
+- [ ] Add connector adapter implementations beyond simulated delivery mode.
+- [ ] Add release gates that block deploys on replay regression thresholds.
 
 ## Constraints
 - Guardrails: OpenAI-native runtime focus, additive migration strategy, v1 compatibility preserved.
@@ -32,6 +32,6 @@ Use this file as the first read in every new session for this repository.
 - Agent contract: AGENTS.md
 
 ## Session Handoff
-- Last updated: 2026-02-17T00:00:00Z
+- Last updated: 2026-02-17T23:59:00Z
 - Updated by: codex
-- Notes for next session: continue Milestone 2 with v2 flow graph UI and deployment UX.
+- Notes for next session: continue Milestone 2 UI depth and start Milestone 3 diff visualization.

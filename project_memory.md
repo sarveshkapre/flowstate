@@ -126,10 +126,20 @@
   - flow version save + deployment controls
   - webhook runtime test harness against deployment keys
   - dataset + dataset-version creation and replay execution controls
+  - connector reliability lab (retry/dead-letter simulation + delivery history)
 - Enhanced replay endpoint (`POST /api/v2/replay`) with:
   - optional baseline flow-version comparison
   - changed-field summaries versus baseline
   - expected-value field accuracy metrics when dataset lines include `expected` or `ground_truth`
+- Added v2 connector delivery state model and APIs:
+  - idempotency-aware delivery records
+  - retry attempt records
+  - dead-letter terminal status with reason tracking
+- Added v2 edge control channel APIs:
+  - agent config version records (`GET/POST /api/v2/edge/agents/:agentId/config`)
+  - command queue (`GET/POST /api/v2/edge/agents/:agentId/commands`)
+  - agent pull/ack loop (`POST /commands/pull`, `POST /commands/:commandId/ack`)
+  - secured heartbeat/events with project permission checks
 
 ## Decisions
 

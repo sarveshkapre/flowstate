@@ -19,21 +19,23 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - M7 Codex-Native Differentiation
 
 ## Current Milestone
-- M1 SaaS Control Plane Foundations (in progress)
+- M2 Flow Builder v1 + Deploy (in progress)
 
 ## Pending Features
 - Role/permission hardening across all legacy v1 endpoints.
-- UI for v2 project/member/key management.
-- Flow graph editor and reusable templates.
-- Replay diff reports and promotion gates.
+- Replay diff reports and promotion gates with explicit release thresholds.
 - Evidence-region visual annotation UX.
+- Edge runner runtime health dashboard and remote diagnostics UX.
 
 ## Delivered Features
 - 2026-02-17: v2 control-plane API foundations added for projects, auth, flows, runs, datasets, replay, reviews, active-learning eval packs, connectors, and edge agent ingress.
 - 2026-02-17: Flow Builder v2 UI shipped with graph editing, version/deploy controls, and webhook runtime testing.
 - 2026-02-17: Replay v2 enhanced with optional baseline version diff summaries and field-level expected accuracy.
+- 2026-02-17: Flow Builder v2 expanded with members/API keys, dataset versioning controls, and replay trigger UX.
+- 2026-02-17: Connector delivery reliability shipped (idempotency, retry attempts, dead-letter records).
+- 2026-02-17: Edge control channel APIs shipped (config versioning + command enqueue/pull/ack).
 
 ## Risks And Blockers
 - Scope growth across "general-purpose CV" surfaces.
 - Need to keep v1 compatibility while accelerating v2 rollout.
-- Connector reliability and idempotency strategy requires deeper production hardening.
+- Need production transport integrations for connectors beyond current simulation mode.

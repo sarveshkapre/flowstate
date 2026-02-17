@@ -207,6 +207,13 @@ export const auditEventTypeSchema = z.enum([
   "review_decision_v2",
   "evidence_attached_v2",
   "eval_pack_created_v2",
+  "connector_delivery_queued_v2",
+  "connector_delivery_attempted_v2",
+  "connector_delivered_v2",
+  "connector_dead_lettered_v2",
+  "edge_agent_config_updated_v2",
+  "edge_agent_command_enqueued_v2",
+  "edge_agent_command_acknowledged_v2",
 ]);
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>;
 
@@ -489,6 +496,40 @@ export type EvalPackRecord = z.infer<typeof evalPackRecordSchema>;
 export const environmentProfileSchema = z.enum(["local", "staging", "prod"]);
 export type EnvironmentProfile = z.infer<typeof environmentProfileSchema>;
 
+export const connectorDeliveryStatusSchema = z.enum(["queued", "retrying", "delivered", "dead_lettered"]);
+export type ConnectorDeliveryStatus = z.infer<typeof connectorDeliveryStatusSchema>;
+
+export const connectorDeliveryRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  connector_type: z.string(),
+  idempotency_key: z.string().nullable(),
+  payload_hash: z.string(),
+  status: connectorDeliveryStatusSchema,
+  attempt_count: z.number().int().nonnegative(),
+  max_attempts: z.number().int().positive(),
+  last_status_code: z.number().int().nullable(),
+  last_error: z.string().nullable(),
+  next_attempt_at: z.string().nullable(),
+  dead_letter_reason: z.string().nullable(),
+  delivered_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ConnectorDeliveryRecord = z.infer<typeof connectorDeliveryRecordSchema>;
+
+export const connectorDeliveryAttemptRecordSchema = z.object({
+  id: z.string(),
+  delivery_id: z.string(),
+  attempt_number: z.number().int().positive(),
+  success: z.boolean(),
+  status_code: z.number().int().nullable(),
+  error_message: z.string().nullable(),
+  response_body: z.string().nullable(),
+  created_at: z.string(),
+});
+export type ConnectorDeliveryAttemptRecord = z.infer<typeof connectorDeliveryAttemptRecordSchema>;
+
 export const edgeAgentRecordSchema = z.object({
   id: z.string(),
   project_id: z.string(),
@@ -508,6 +549,35 @@ export const edgeAgentEventRecordSchema = z.object({
   created_at: z.string(),
 });
 export type EdgeAgentEventRecord = z.infer<typeof edgeAgentEventRecordSchema>;
+
+export const edgeAgentConfigRecordSchema = z.object({
+  id: z.string(),
+  agent_id: z.string(),
+  version_number: z.number().int().positive(),
+  config: z.unknown(),
+  created_by: z.string().nullable(),
+  created_at: z.string(),
+});
+export type EdgeAgentConfigRecord = z.infer<typeof edgeAgentConfigRecordSchema>;
+
+export const edgeAgentCommandStatusSchema = z.enum(["pending", "claimed", "acknowledged", "failed"]);
+export type EdgeAgentCommandStatus = z.infer<typeof edgeAgentCommandStatusSchema>;
+
+export const edgeAgentCommandRecordSchema = z.object({
+  id: z.string(),
+  agent_id: z.string(),
+  command_type: z.string(),
+  payload: z.unknown(),
+  status: edgeAgentCommandStatusSchema,
+  claimed_at: z.string().nullable(),
+  acknowledged_at: z.string().nullable(),
+  result: z.unknown().nullable(),
+  created_by: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type EdgeAgentCommandRecord = z.infer<typeof edgeAgentCommandRecordSchema>;
 
 export const syncCheckpointRecordSchema = z.object({
   id: z.string(),

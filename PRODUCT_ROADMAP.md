@@ -34,6 +34,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - 2026-02-17: Flow Builder v2 expanded with members/API keys, dataset versioning controls, and replay trigger UX.
 - 2026-02-17: Connector delivery reliability shipped (idempotency, retry attempts, dead-letter records).
 - 2026-02-17: Edge control channel APIs shipped (config versioning + command enqueue/pull/ack).
+- 2026-02-17: Edge Control v2 UI shipped for agent registration, config updates, and command lifecycle operations.
 
 ## Risks And Blockers
 - Scope growth across "general-purpose CV" surfaces.

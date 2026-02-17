@@ -9,7 +9,7 @@
 - v2 run trace visualizer and replay diff UX.
 - Structured evidence annotation canvas.
 - Connector adapter implementations beyond simulation mode.
-- Edge agent control-plane UI for config and command operations.
+- Edge runtime health and incident timeline UI.
 
 ## Implemented
 - v2 project APIs: create/list/get + member assignment + API key issuance.
@@ -31,6 +31,7 @@
   - config version write/read
   - command enqueue/list
   - command pull/ack lifecycle
+- `/edge-control` UI for agent registration and control-channel workflows.
 
 ## Insights
 - Control-plane API scaffolding is now broad enough to support rapid UI work.

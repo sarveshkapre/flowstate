@@ -16,10 +16,10 @@ Use this file as the first read in every new session for this repository.
 - Blockers or risks: broad scope can outpace reliability hardening without milestone gates.
 
 ## Immediate Next Actions
-- [ ] Add edge agent control-plane UI for config edits and command dispatch/ack history.
 - [ ] Add deterministic replay diff visualization UI (table + regressions).
 - [ ] Add connector adapter implementations beyond simulated delivery mode.
 - [ ] Add release gates that block deploys on replay regression thresholds.
+- [ ] Add edge runner runtime health dashboard (agent uptime, heartbeat lag, delivery backlog).
 
 ## Constraints
 - Guardrails: OpenAI-native runtime focus, additive migration strategy, v1 compatibility preserved.

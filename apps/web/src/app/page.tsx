@@ -28,6 +28,7 @@ export default function HomePage() {
           <Link href="/workflows">Workflow Builder</Link>
           <Link href="/flow-builder">Flow Builder v2</Link>
           <Link href="/edge">Edge Adapters</Link>
+          <Link href="/edge-control">Edge Control v2</Link>
           <Link href="/evals">Evals</Link>
           <Link href="/organizations">Organizations</Link>
           <a href="/api/v1/exports/csv?reviewStatus=approved">Export Approved CSV</a>

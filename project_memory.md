@@ -140,6 +140,10 @@
   - command queue (`GET/POST /api/v2/edge/agents/:agentId/commands`)
   - agent pull/ack loop (`POST /commands/pull`, `POST /commands/:commandId/ack`)
   - secured heartbeat/events with project permission checks
+- Added `/edge-control` UI for:
+  - project-scoped edge agent registration
+  - config version write/read
+  - command enqueue/pull/ack workflows
 
 ## Decisions
 

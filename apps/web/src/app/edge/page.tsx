@@ -14,6 +14,7 @@ export default function EdgePage() {
         <div className="link-row">
           <Link href="/">Dashboard</Link>
           <Link href="/workflows">Workflow Builder</Link>
+          <Link href="/edge-control">Edge Control v2</Link>
           <Link href="/review">Review Queue</Link>
         </div>
       </header>

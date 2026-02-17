@@ -27,6 +27,7 @@ Phase 2 foundations are now in progress:
 - v2 Flow Builder replay controls (dataset versioning + baseline diff runs)
 - v2 connector reliability foundation (idempotency keys, retry attempts, dead-letter records)
 - v2 edge control channel foundation (agent config versions + command queue/ack flow)
+- edge control UI (`/edge-control`) for agent registration, config, and command lifecycle operations
 
 ## Core Principles
 
@@ -99,6 +100,7 @@ Web app:
 - Workflow UI: http://localhost:3000/workflows
 - Flow Builder v2 UI: http://localhost:3000/flow-builder
 - Edge Adapter UI: http://localhost:3000/edge
+- Edge Control UI: http://localhost:3000/edge-control
 - Eval UI: http://localhost:3000/evals
 - Organizations UI: http://localhost:3000/organizations
 

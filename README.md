@@ -116,6 +116,7 @@ Web app:
 - `FLOWSTATE_MAX_UPLOAD_BYTES` (default: `20971520`)
 - `FLOWSTATE_EDGE_HEARTBEAT_STALE_MS` (default: `60000`)
 - `FLOWSTATE_EDGE_COMMAND_LEASE_MS` (default: `30000`)
+- `FLOWSTATE_DB_READ_CACHE_MS` (default: `250`)
 
 ## Workspace Layout
 

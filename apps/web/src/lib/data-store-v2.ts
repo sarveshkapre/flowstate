@@ -116,8 +116,10 @@ const DB_FILE = path.join(DATA_DIR, "db.v2.json");
 const DATASETS_DIR = path.join(DATA_DIR, "datasets-v2");
 const EDGE_HEARTBEAT_STALE_MS = Number(process.env.FLOWSTATE_EDGE_HEARTBEAT_STALE_MS || 60_000);
 const EDGE_COMMAND_LEASE_MS = Number(process.env.FLOWSTATE_EDGE_COMMAND_LEASE_MS || 30_000);
+const DB_READ_CACHE_MS = Number(process.env.FLOWSTATE_DB_READ_CACHE_MS || 250);
 
 let writeChain = Promise.resolve();
+let readCache: { state: DbStateV2; expires_at_ms: number } | null = null;
 
 function normalizeSlug(input: string): string {
   return input
@@ -187,11 +189,16 @@ async function ensureInfrastructure() {
 }
 
 async function readState(): Promise<DbStateV2> {
+  const nowMs = Date.now();
+
+  if (readCache && readCache.expires_at_ms > nowMs) {
+    return structuredClone(readCache.state);
+  }
+
   await ensureInfrastructure();
   const raw = await fs.readFile(DB_FILE, "utf8");
   const parsed = JSON.parse(raw) as Partial<DbStateV2>;
-
-  return {
+  const state = {
     projects: (parsed.projects ?? []).map((item) => projectRecordSchema.parse(item)),
     project_memberships: (parsed.project_memberships ?? []).map((item) => projectMembershipRecordSchema.parse(item)),
     api_keys: (parsed.api_keys ?? []).map((item) => apiKeyRecordSchema.parse(item)),
@@ -217,6 +224,13 @@ async function readState(): Promise<DbStateV2> {
     sync_checkpoints: (parsed.sync_checkpoints ?? []).map((item) => syncCheckpointRecordSchema.parse(item)),
     audit_events: (parsed.audit_events ?? []).map((item) => auditEventRecordSchema.parse(item)),
   };
+
+  readCache = {
+    state: structuredClone(state),
+    expires_at_ms: nowMs + Math.max(0, DB_READ_CACHE_MS),
+  };
+
+  return state;
 }
 
 async function writeState(state: DbStateV2) {
@@ -230,6 +244,10 @@ async function withWriteLock<T>(fn: (state: DbStateV2) => Promise<T> | T): Promi
     const state = await readState();
     const result = await fn(state);
     await writeState(state);
+    readCache = {
+      state: structuredClone(state),
+      expires_at_ms: Date.now() + Math.max(0, DB_READ_CACHE_MS),
+    };
     return result;
   });
 

@@ -29,6 +29,7 @@ Phase 2 foundations are now in progress:
 - v2 edge control channel foundation (agent config versions + command queue/ack flow)
 - edge control UI (`/edge-control`) for agent registration, config, and command lifecycle operations
 - security hardening baseline: secure response headers + payload size guards + secret-redacted storage for v2 control-plane writes
+- global navigation command palette (`Cmd/Ctrl + K`) for fast page jumps
 
 ## Core Principles
 

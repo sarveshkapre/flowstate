@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
+
+import { AppShell } from "./app-shell";
 import "./globals.css";
 
 const sans = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans" });
@@ -13,7 +15,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${sans.variable} ${mono.variable}`}>{children}</body>
+      <body className={`${sans.variable} ${mono.variable}`}>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

@@ -239,6 +239,77 @@ textarea {
   margin: 0.6rem 0;
 }
 
+.cmdk-hint {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--stroke);
+  background: #ffffffee;
+  backdrop-filter: blur(6px);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+kbd {
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  padding: 0.05rem 0.35rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  background: #fff;
+}
+
+.cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(14, 23, 38, 0.45);
+  display: grid;
+  place-items: start center;
+  padding: 12vh 1rem 1rem;
+}
+
+.cmdk-modal {
+  width: min(720px, 96vw);
+  border: 1px solid var(--stroke);
+  background: #fff;
+  border-radius: 14px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.cmdk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.cmdk-item {
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+}
+
+.cmdk-item:hover {
+  background: var(--surface-2);
+  text-decoration: none;
+}
+
 @media (max-width: 720px) {
   .page {
     padding: 1.1rem 0.8rem 3rem;

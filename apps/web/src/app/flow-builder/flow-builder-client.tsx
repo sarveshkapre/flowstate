@@ -348,6 +348,8 @@ export function FlowBuilderClient() {
   const [actorEmail, setActorEmail] = useState("local@flowstate.dev");
   const [actorRole, setActorRole] = useState<ProjectMemberRole>("owner");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusTone, setStatusTone] = useState<"info" | "success" | "error">("info");
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -398,6 +400,21 @@ export function FlowBuilderClient() {
   const [connectorMaxAttempts, setConnectorMaxAttempts] = useState("3");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
+
+  function setInfo(message: string) {
+    setStatusTone("info");
+    setStatusMessage(message);
+  }
+
+  function setSuccess(message: string) {
+    setStatusTone("success");
+    setStatusMessage(message);
+  }
+
+  function setError(message: string) {
+    setStatusTone("error");
+    setStatusMessage(message);
+  }
 
   const authHeaders = useCallback(
     (withJson: boolean) => {
@@ -450,7 +467,7 @@ export function FlowBuilderClient() {
       const payload = (await response.json()) as { projects?: Project[]; error?: string };
 
       if (!response.ok) {
-        setStatusMessage(payload.error || "Unable to load projects.");
+        setError(payload.error || "Unable to load projects.");
         setProjects([]);
         return;
       }
@@ -480,7 +497,7 @@ export function FlowBuilderClient() {
       const payload = (await response.json()) as { flows?: Flow[]; error?: string };
 
       if (!response.ok) {
-        setStatusMessage(payload.error || "Unable to load flows.");
+        setError(payload.error || "Unable to load flows.");
         setFlows([]);
         return;
       }
@@ -510,7 +527,7 @@ export function FlowBuilderClient() {
       const payload = (await response.json()) as { datasets?: Dataset[]; error?: string };
 
       if (!response.ok) {
-        setStatusMessage(payload.error || "Unable to load datasets.");
+        setError(payload.error || "Unable to load datasets.");
         setDatasets([]);
         return;
       }
@@ -540,7 +557,7 @@ export function FlowBuilderClient() {
       const payload = (await response.json()) as { versions?: DatasetVersion[]; error?: string };
 
       if (!response.ok) {
-        setStatusMessage(payload.error || "Unable to load dataset versions.");
+        setError(payload.error || "Unable to load dataset versions.");
         setDatasetVersions([]);
         return;
       }
@@ -578,14 +595,14 @@ export function FlowBuilderClient() {
       const keysPayload = (await keysResponse.json()) as { keys?: ApiKeyRecord[]; error?: string };
 
       if (!membersResponse.ok) {
-        setStatusMessage(membersPayload.error || "Unable to load project members.");
+        setError(membersPayload.error || "Unable to load project members.");
         setMembers([]);
       } else {
         setMembers(membersPayload.members ?? []);
       }
 
       if (!keysResponse.ok) {
-        setStatusMessage(keysPayload.error || "Unable to load API keys.");
+        setError(keysPayload.error || "Unable to load API keys.");
         setApiKeys([]);
       } else {
         setApiKeys(keysPayload.keys ?? []);
@@ -622,7 +639,7 @@ export function FlowBuilderClient() {
       };
 
       if (!versionsResponse.ok) {
-        setStatusMessage(versionsPayload.error || "Unable to load versions.");
+        setError(versionsPayload.error || "Unable to load versions.");
         setVersions([]);
       } else {
         const nextVersions = versionsPayload.versions ?? [];
@@ -633,7 +650,7 @@ export function FlowBuilderClient() {
       }
 
       if (!deploymentsResponse.ok) {
-        setStatusMessage(deploymentsPayload.error || "Unable to load deployments.");
+        setError(deploymentsPayload.error || "Unable to load deployments.");
         setDeployments([]);
       } else {
         const nextDeployments = deploymentsPayload.deployments ?? [];
@@ -693,7 +710,7 @@ export function FlowBuilderClient() {
     setNodes(draft.nodes);
     setEdges(draft.edges);
     setGraphErrors([]);
-    setStatusMessage(`Loaded template: ${TEMPLATE_GRAPH.name}`);
+    setInfo(`Loaded template: ${TEMPLATE_GRAPH.name}`);
   }
 
   function addNode(type: FlowNodeType) {
@@ -719,7 +736,7 @@ export function FlowBuilderClient() {
     const secondNode = nodes[1];
 
     if (!firstNode || !secondNode) {
-      setStatusMessage("Add at least two nodes before connecting edges.");
+      setError("Add at least two nodes before connecting edges.");
       return;
     }
 
@@ -736,7 +753,7 @@ export function FlowBuilderClient() {
 
   function loadVersionIntoEditor() {
     if (!selectedVersion) {
-      setStatusMessage("Select a flow version to load.");
+      setError("Select a flow version to load.");
       return;
     }
 
@@ -744,15 +761,16 @@ export function FlowBuilderClient() {
     setNodes(draft.nodes);
     setEdges(draft.edges);
     setGraphErrors([]);
-    setStatusMessage(`Loaded flow version v${selectedVersion.version_number} into editor.`);
+    setInfo(`Loaded flow version v${selectedVersion.version_number} into editor.`);
   }
 
   async function createProject() {
     if (!selectedOrganizationId || !newProjectName.trim()) {
-      setStatusMessage("Pick an organization and enter a project name.");
+      setError("Pick an organization and enter a project name.");
       return;
     }
 
+    setBusyAction("create_project");
     const response = await fetch("/api/v2/projects", {
       method: "POST",
       headers: authHeaders(true),
@@ -765,21 +783,24 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as { project?: Project; error?: string };
 
     if (!response.ok || !payload.project) {
-      setStatusMessage(payload.error || "Failed to create project.");
+      setError(payload.error || "Failed to create project.");
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage(`Project created: ${payload.project.name}`);
+    setSuccess(`Project created: ${payload.project.name}`);
     await loadProjects(selectedOrganizationId);
     setSelectedProjectId(payload.project.id);
+    setBusyAction(null);
   }
 
   async function createFlow() {
     if (!selectedProjectId || !newFlowName.trim()) {
-      setStatusMessage("Pick a project and enter a flow name.");
+      setError("Pick a project and enter a flow name.");
       return;
     }
 
+    setBusyAction("create_flow");
     const response = await fetch("/api/v2/flows", {
       method: "POST",
       headers: authHeaders(true),
@@ -792,21 +813,24 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as { flow?: Flow; error?: string };
 
     if (!response.ok || !payload.flow) {
-      setStatusMessage(payload.error || "Failed to create flow.");
+      setError(payload.error || "Failed to create flow.");
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage(`Flow created: ${payload.flow.name}`);
+    setSuccess(`Flow created: ${payload.flow.name}`);
     await loadFlows(selectedProjectId);
     setSelectedFlowId(payload.flow.id);
+    setBusyAction(null);
   }
 
   async function createDataset() {
     if (!selectedProjectId || !newDatasetName.trim()) {
-      setStatusMessage("Pick a project and enter a dataset name.");
+      setError("Pick a project and enter a dataset name.");
       return;
     }
 
+    setBusyAction("create_dataset");
     const response = await fetch("/api/v2/datasets", {
       method: "POST",
       headers: authHeaders(true),
@@ -819,18 +843,20 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as { dataset?: Dataset; error?: string };
 
     if (!response.ok || !payload.dataset) {
-      setStatusMessage(payload.error || "Failed to create dataset.");
+      setError(payload.error || "Failed to create dataset.");
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage(`Dataset created: ${payload.dataset.name}`);
+    setSuccess(`Dataset created: ${payload.dataset.name}`);
     await loadDatasets(selectedProjectId);
     setSelectedDatasetId(payload.dataset.id);
+    setBusyAction(null);
   }
 
   async function createDatasetVersion() {
     if (!selectedDatasetId) {
-      setStatusMessage("Select a dataset first.");
+      setError("Select a dataset first.");
       return;
     }
 
@@ -840,7 +866,7 @@ export function FlowBuilderClient() {
       .filter(Boolean);
 
     if (lines.length === 0) {
-      setStatusMessage("Add at least one JSONL line.");
+      setError("Add at least one JSONL line.");
       return;
     }
 
@@ -848,11 +874,12 @@ export function FlowBuilderClient() {
       try {
         JSON.parse(line);
       } catch {
-        setStatusMessage(`Dataset line ${index + 1} is not valid JSON.`);
+        setError(`Dataset line ${index + 1} is not valid JSON.`);
         return;
       }
     }
 
+    setBusyAction("create_dataset_version");
     const response = await fetch(`/api/v2/datasets/${selectedDatasetId}/versions`, {
       method: "POST",
       headers: authHeaders(true),
@@ -863,18 +890,20 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as { version?: DatasetVersion; error?: string };
 
     if (!response.ok || !payload.version) {
-      setStatusMessage(payload.error || "Failed to create dataset version.");
+      setError(payload.error || "Failed to create dataset version.");
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage(`Dataset version created: v${payload.version.version_number}`);
+    setSuccess(`Dataset version created: v${payload.version.version_number}`);
     await loadDatasetVersions(selectedDatasetId);
     setSelectedDatasetVersionId(payload.version.id);
+    setBusyAction(null);
   }
 
   async function assignMember() {
     if (!selectedProjectId || !newMemberEmail.trim()) {
-      setStatusMessage("Select a project and enter member email.");
+      setError("Select a project and enter member email.");
       return;
     }
 
@@ -889,11 +918,11 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as { member?: ProjectMember; error?: string };
 
     if (!response.ok || !payload.member) {
-      setStatusMessage(payload.error || "Failed to assign member.");
+      setError(payload.error || "Failed to assign member.");
       return;
     }
 
-    setStatusMessage(`Member assigned: ${payload.member.user_email} (${payload.member.role})`);
+    setSuccess(`Member assigned: ${payload.member.user_email} (${payload.member.role})`);
     await loadMembersAndKeys(selectedProjectId);
   }
 
@@ -908,7 +937,7 @@ export function FlowBuilderClient() {
 
   async function createProjectKey() {
     if (!selectedProjectId || !newKeyName.trim() || newKeyScopes.length === 0) {
-      setStatusMessage("Select project, key name, and at least one scope.");
+      setError("Select project, key name, and at least one scope.");
       return;
     }
 
@@ -928,18 +957,18 @@ export function FlowBuilderClient() {
     };
 
     if (!response.ok || !payload.apiKey) {
-      setStatusMessage(payload.error || "Failed to create API key.");
+      setError(payload.error || "Failed to create API key.");
       return;
     }
 
-    setStatusMessage(`API key created: ${payload.apiKey.name}`);
+    setSuccess(`API key created: ${payload.apiKey.name}`);
     setIssuedApiToken(payload.token ?? "");
     await loadMembersAndKeys(selectedProjectId);
   }
 
   async function saveFlowVersion() {
     if (!selectedFlowId) {
-      setStatusMessage("Select a flow first.");
+      setError("Select a flow first.");
       return;
     }
 
@@ -947,10 +976,11 @@ export function FlowBuilderClient() {
     setGraphErrors(validated.errors);
 
     if (!validated.graph) {
-      setStatusMessage("Graph validation failed. Resolve errors and retry.");
+      setError("Graph validation failed. Resolve errors and retry.");
       return;
     }
 
+    setBusyAction("save_flow_version");
     const response = await fetch(`/api/v2/flows/${selectedFlowId}/versions`, {
       method: "POST",
       headers: authHeaders(true),
@@ -962,21 +992,24 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as { version?: FlowVersion; error?: string };
 
     if (!response.ok || !payload.version) {
-      setStatusMessage(payload.error || "Failed to save flow version.");
+      setError(payload.error || "Failed to save flow version.");
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage(`Saved flow version v${payload.version.version_number}.`);
+    setSuccess(`Saved flow version v${payload.version.version_number}.`);
     await loadVersionsAndDeployments(selectedFlowId);
     setSelectedVersionId(payload.version.id);
+    setBusyAction(null);
   }
 
   async function deploySelectedVersion() {
     if (!selectedFlowId || !selectedVersionId) {
-      setStatusMessage("Select a flow and version to deploy.");
+      setError("Select a flow and version to deploy.");
       return;
     }
 
+    setBusyAction("deploy_version");
     const response = await fetch(`/api/v2/flows/${selectedFlowId}/deploy`, {
       method: "POST",
       headers: authHeaders(true),
@@ -987,18 +1020,20 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as { deployment?: FlowDeployment; error?: string };
 
     if (!response.ok || !payload.deployment) {
-      setStatusMessage(payload.error || "Failed to deploy flow version.");
+      setError(payload.error || "Failed to deploy flow version.");
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage(`Deployed version. Endpoint key: ${payload.deployment.deployment_key}`);
+    setSuccess(`Deployed version. Endpoint key: ${payload.deployment.deployment_key}`);
     await loadVersionsAndDeployments(selectedFlowId);
     setSelectedDeploymentKey(payload.deployment.deployment_key);
+    setBusyAction(null);
   }
 
   async function sendWebhookTest() {
     if (!selectedDeploymentKey) {
-      setStatusMessage("Select or create a deployment first.");
+      setError("Select or create a deployment first.");
       return;
     }
 
@@ -1006,10 +1041,11 @@ export function FlowBuilderClient() {
     try {
       parsedBody = JSON.parse(testPayloadText);
     } catch {
-      setStatusMessage("Test payload must be valid JSON.");
+      setError("Test payload must be valid JSON.");
       return;
     }
 
+    setBusyAction("webhook_test");
     const response = await fetch(`/api/v2/sources/webhook/${encodeURIComponent(selectedDeploymentKey)}`, {
       method: "POST",
       headers: authHeaders(true),
@@ -1018,24 +1054,27 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as Record<string, unknown>;
 
     if (!response.ok) {
-      setStatusMessage(typeof payload.error === "string" ? payload.error : "Webhook execution failed.");
+      setError(typeof payload.error === "string" ? payload.error : "Webhook execution failed.");
       setTestResult(JSON.stringify(payload, null, 2));
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage("Webhook test run succeeded.");
+    setSuccess("Webhook test run succeeded.");
     setTestResult(JSON.stringify(payload, null, 2));
+    setBusyAction(null);
   }
 
   async function runReplay() {
     if (!selectedProjectId || !selectedFlowId || !selectedVersionId || !selectedDatasetVersionId) {
-      setStatusMessage("Select project, flow, candidate version, and dataset version.");
+      setError("Select project, flow, candidate version, and dataset version.");
       return;
     }
 
     const parsedLimit = Number(replayLimit);
     const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : undefined;
 
+    setBusyAction("replay");
     const response = await fetch("/api/v2/replay", {
       method: "POST",
       headers: authHeaders(true),
@@ -1051,13 +1090,15 @@ export function FlowBuilderClient() {
     const payload = (await response.json()) as Record<string, unknown>;
 
     if (!response.ok) {
-      setStatusMessage(typeof payload.error === "string" ? payload.error : "Replay failed.");
+      setError(typeof payload.error === "string" ? payload.error : "Replay failed.");
       setReplayResult(JSON.stringify(payload, null, 2));
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage("Replay completed.");
+    setSuccess("Replay completed.");
     setReplayResult(JSON.stringify(payload, null, 2));
+    setBusyAction(null);
   }
 
   const loadConnectorDeliveries = useCallback(async () => {
@@ -1077,7 +1118,7 @@ export function FlowBuilderClient() {
     };
 
     if (!response.ok) {
-      setStatusMessage(payload.error || "Unable to load connector deliveries.");
+      setError(payload.error || "Unable to load connector deliveries.");
       setConnectorDeliveries([]);
       return;
     }
@@ -1091,7 +1132,7 @@ export function FlowBuilderClient() {
 
   async function deliverConnector() {
     if (!selectedProjectId) {
-      setStatusMessage("Select a project before connector delivery.");
+      setError("Select a project before connector delivery.");
       return;
     }
 
@@ -1099,7 +1140,7 @@ export function FlowBuilderClient() {
     try {
       payload = JSON.parse(connectorPayloadText);
     } catch {
-      setStatusMessage("Connector payload must be valid JSON.");
+      setError("Connector payload must be valid JSON.");
       return;
     }
 
@@ -1107,6 +1148,7 @@ export function FlowBuilderClient() {
     const maxAttempts =
       Number.isFinite(parsedMaxAttempts) && parsedMaxAttempts > 0 ? Math.floor(parsedMaxAttempts) : undefined;
 
+    setBusyAction("connector_deliver");
     const response = await fetch(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver`, {
       method: "POST",
       headers: authHeaders(true),
@@ -1120,14 +1162,16 @@ export function FlowBuilderClient() {
 
     const result = (await response.json()) as Record<string, unknown>;
     if (!response.ok) {
-      setStatusMessage(typeof result.error === "string" ? result.error : "Connector delivery failed.");
+      setError(typeof result.error === "string" ? result.error : "Connector delivery failed.");
       setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
       return;
     }
 
-    setStatusMessage("Connector delivery processed.");
+    setSuccess("Connector delivery processed.");
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
+    setBusyAction(null);
   }
 
   return (
@@ -1193,8 +1237,8 @@ export function FlowBuilderClient() {
           </label>
 
           <div className="row wrap">
-            <button className="button" onClick={() => void createProject()}>
-              Create Project
+            <button className="button" disabled={busyAction !== null} onClick={() => void createProject()}>
+              {busyAction === "create_project" ? "Creating..." : "Create Project"}
             </button>
             <button className="button secondary" onClick={() => void loadProjects(selectedOrganizationId)}>
               Refresh Projects
@@ -1228,8 +1272,8 @@ export function FlowBuilderClient() {
           </label>
 
           <div className="row wrap">
-            <button className="button" onClick={() => void createFlow()}>
-              Create Flow
+            <button className="button" disabled={busyAction !== null} onClick={() => void createFlow()}>
+              {busyAction === "create_flow" ? "Creating..." : "Create Flow"}
             </button>
             <button className="button secondary" onClick={() => void loadFlows(selectedProjectId)}>
               Refresh Flows
@@ -1368,8 +1412,8 @@ export function FlowBuilderClient() {
             <button className="button secondary" onClick={addEdge}>
               Add Edge
             </button>
-            <button className="button" onClick={() => void saveFlowVersion()}>
-              Save Flow Version
+            <button className="button" disabled={busyAction !== null} onClick={() => void saveFlowVersion()}>
+              {busyAction === "save_flow_version" ? "Saving..." : "Save Flow Version"}
             </button>
           </div>
         </div>
@@ -1550,8 +1594,8 @@ export function FlowBuilderClient() {
             <button className="button secondary" onClick={loadVersionIntoEditor}>
               Load Version Into Editor
             </button>
-            <button className="button" onClick={() => void deploySelectedVersion()}>
-              Deploy Selected Version
+            <button className="button" disabled={busyAction !== null} onClick={() => void deploySelectedVersion()}>
+              {busyAction === "deploy_version" ? "Deploying..." : "Deploy Selected Version"}
             </button>
           </div>
 
@@ -1591,8 +1635,8 @@ export function FlowBuilderClient() {
             <textarea rows={7} value={testPayloadText} onChange={(event) => setTestPayloadText(event.target.value)} />
           </label>
 
-          <button className="button" onClick={() => void sendWebhookTest()}>
-            Run Test
+          <button className="button" disabled={busyAction !== null} onClick={() => void sendWebhookTest()}>
+            {busyAction === "webhook_test" ? "Running..." : "Run Test"}
           </button>
 
           {testResult ? <pre className="json small">{testResult}</pre> : <p className="muted">No test run yet.</p>}
@@ -1614,8 +1658,8 @@ export function FlowBuilderClient() {
           </label>
 
           <div className="row wrap">
-            <button className="button" onClick={() => void createDataset()}>
-              Create Dataset
+            <button className="button" disabled={busyAction !== null} onClick={() => void createDataset()}>
+              {busyAction === "create_dataset" ? "Creating..." : "Create Dataset"}
             </button>
             <button className="button secondary" onClick={() => void loadDatasets(selectedProjectId)}>
               Refresh Datasets
@@ -1639,8 +1683,8 @@ export function FlowBuilderClient() {
             <textarea rows={7} value={datasetLinesText} onChange={(event) => setDatasetLinesText(event.target.value)} />
           </label>
 
-          <button className="button secondary" onClick={() => void createDatasetVersion()}>
-            Create Dataset Version
+          <button className="button secondary" disabled={busyAction !== null} onClick={() => void createDatasetVersion()}>
+            {busyAction === "create_dataset_version" ? "Creating..." : "Create Dataset Version"}
           </button>
 
           <label className="field">
@@ -1688,8 +1732,8 @@ export function FlowBuilderClient() {
             <input value={replayLimit} onChange={(event) => setReplayLimit(event.target.value)} />
           </label>
 
-          <button className="button" onClick={() => void runReplay()}>
-            Run Replay
+          <button className="button" disabled={busyAction !== null} onClick={() => void runReplay()}>
+            {busyAction === "replay" ? "Running..." : "Run Replay"}
           </button>
 
           {replayResult ? <pre className="json small">{replayResult}</pre> : <p className="muted">No replay result yet.</p>}
@@ -1728,8 +1772,8 @@ export function FlowBuilderClient() {
           </div>
 
           <div className="row wrap">
-            <button className="button" onClick={() => void deliverConnector()}>
-              Deliver Event
+            <button className="button" disabled={busyAction !== null} onClick={() => void deliverConnector()}>
+              {busyAction === "connector_deliver" ? "Delivering..." : "Deliver Event"}
             </button>
             <button className="button secondary" onClick={() => void loadConnectorDeliveries()}>
               Refresh History
@@ -1756,7 +1800,7 @@ export function FlowBuilderClient() {
         </article>
       </div>
 
-      {statusMessage ? <p className="muted">{statusMessage}</p> : null}
+      {statusMessage ? <p className={`status ${statusTone}`}>{statusMessage}</p> : null}
     </section>
   );
 }

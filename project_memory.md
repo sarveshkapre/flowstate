@@ -144,6 +144,11 @@
   - project-scoped edge agent registration
   - config version write/read
   - command enqueue/pull/ack workflows
+- Added global command palette navigation (`Cmd/Ctrl + K`) with page search and quick jump.
+- Improved operator UX across control-plane screens:
+  - action-level loading/disabled states
+  - explicit status banners (info/success/error)
+  - edge health badges and command status filtering
 
 ## Decisions
 

@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -38,6 +37,19 @@ type EdgeAgentCommand = {
   acknowledged_at: string | null;
 };
 
+type EdgeAgentHealth = {
+  agent: EdgeAgent;
+  heartbeat_lag_ms: number | null;
+  stale_threshold_ms: number;
+  is_stale: boolean;
+  commands: {
+    pending: number;
+    claimed: number;
+    failed: number;
+    acknowledged: number;
+  };
+};
+
 type Role = "owner" | "admin" | "builder" | "reviewer" | "viewer";
 
 const ROLES: Role[] = ["owner", "admin", "builder", "reviewer", "viewer"];
@@ -52,10 +64,14 @@ export function EdgeControlClient() {
   const [agents, setAgents] = useState<EdgeAgent[]>([]);
   const [commands, setCommands] = useState<EdgeAgentCommand[]>([]);
   const [activeConfig, setActiveConfig] = useState<EdgeAgentConfig | null>(null);
+  const [activeHealth, setActiveHealth] = useState<EdgeAgentHealth | null>(null);
 
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [commandStatusFilter, setCommandStatusFilter] = useState<
+    "all" | "pending" | "claimed" | "acknowledged" | "failed"
+  >("all");
 
   const [newAgentName, setNewAgentName] = useState("Mac Mini Runner");
   const [newAgentPlatform, setNewAgentPlatform] = useState("macOS");
@@ -63,7 +79,24 @@ export function EdgeControlClient() {
   const [commandType, setCommandType] = useState("reload_flow");
   const [commandPayloadText, setCommandPayloadText] = useState('{"reason":"manual_update"}');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusTone, setStatusTone] = useState<"info" | "success" | "error">("info");
   const [responsePayload, setResponsePayload] = useState("");
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isLoadingAgents, setIsLoadingAgents] = useState(false);
+  const [isLoadingCommands, setIsLoadingCommands] = useState(false);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(false);
+  const [isLoadingHealth, setIsLoadingHealth] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function setSuccess(message: string) {
+    setStatusTone("success");
+    setStatusMessage(message);
+  }
+
+  function setError(message: string) {
+    setStatusTone("error");
+    setStatusMessage(message);
+  }
 
   const authHeaders = useCallback(
     (withJson: boolean) => {
@@ -103,22 +136,27 @@ export function EdgeControlClient() {
       return;
     }
 
-    const response = await fetch(`/api/v2/projects?organizationId=${encodeURIComponent(selectedOrganizationId)}`, {
-      cache: "no-store",
-      headers: authHeaders(false),
-    });
-    const payload = (await response.json()) as { projects?: Project[]; error?: string };
+    setIsLoadingProjects(true);
+    try {
+      const response = await fetch(`/api/v2/projects?organizationId=${encodeURIComponent(selectedOrganizationId)}`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { projects?: Project[]; error?: string };
 
-    if (!response.ok) {
-      setStatusMessage(payload.error || "Unable to load projects.");
-      setProjects([]);
-      return;
-    }
+      if (!response.ok) {
+        setError(payload.error || "Unable to load projects.");
+        setProjects([]);
+        return;
+      }
 
-    const nextProjects = payload.projects ?? [];
-    setProjects(nextProjects);
-    if (!nextProjects.some((project) => project.id === selectedProjectId)) {
-      setSelectedProjectId(nextProjects[0]?.id ?? "");
+      const nextProjects = payload.projects ?? [];
+      setProjects(nextProjects);
+      if (!nextProjects.some((project) => project.id === selectedProjectId)) {
+        setSelectedProjectId(nextProjects[0]?.id ?? "");
+      }
+    } finally {
+      setIsLoadingProjects(false);
     }
   }, [authHeaders, selectedOrganizationId, selectedProjectId]);
 
@@ -129,23 +167,28 @@ export function EdgeControlClient() {
       return;
     }
 
-    const response = await fetch(`/api/v2/edge/agents?projectId=${encodeURIComponent(selectedProjectId)}`, {
-      cache: "no-store",
-      headers: authHeaders(false),
-    });
-    const payload = (await response.json()) as { agents?: EdgeAgent[]; error?: string };
+    setIsLoadingAgents(true);
+    try {
+      const response = await fetch(`/api/v2/edge/agents?projectId=${encodeURIComponent(selectedProjectId)}`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { agents?: EdgeAgent[]; error?: string };
 
-    if (!response.ok) {
-      setStatusMessage(payload.error || "Unable to load edge agents.");
-      setAgents([]);
-      return;
-    }
+      if (!response.ok) {
+        setError(payload.error || "Unable to load edge agents.");
+        setAgents([]);
+        return;
+      }
 
-    const nextAgents = payload.agents ?? [];
-    setAgents(nextAgents);
+      const nextAgents = payload.agents ?? [];
+      setAgents(nextAgents);
 
-    if (!nextAgents.some((agent) => agent.id === selectedAgentId)) {
-      setSelectedAgentId(nextAgents[0]?.id ?? "");
+      if (!nextAgents.some((agent) => agent.id === selectedAgentId)) {
+        setSelectedAgentId(nextAgents[0]?.id ?? "");
+      }
+    } finally {
+      setIsLoadingAgents(false);
     }
   }, [authHeaders, selectedAgentId, selectedProjectId]);
 
@@ -155,20 +198,26 @@ export function EdgeControlClient() {
       return;
     }
 
-    const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/commands?limit=20`, {
-      cache: "no-store",
-      headers: authHeaders(false),
-    });
-    const payload = (await response.json()) as { commands?: EdgeAgentCommand[]; error?: string };
+    setIsLoadingCommands(true);
+    try {
+      const statusQuery = commandStatusFilter === "all" ? "" : `&status=${commandStatusFilter}`;
+      const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/commands?limit=20${statusQuery}`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { commands?: EdgeAgentCommand[]; error?: string };
 
-    if (!response.ok) {
-      setStatusMessage(payload.error || "Unable to load commands.");
-      setCommands([]);
-      return;
+      if (!response.ok) {
+        setError(payload.error || "Unable to load commands.");
+        setCommands([]);
+        return;
+      }
+
+      setCommands(payload.commands ?? []);
+    } finally {
+      setIsLoadingCommands(false);
     }
-
-    setCommands(payload.commands ?? []);
-  }, [authHeaders, selectedAgentId]);
+  }, [authHeaders, commandStatusFilter, selectedAgentId]);
 
   const loadConfig = useCallback(async () => {
     if (!selectedAgentId) {
@@ -176,19 +225,50 @@ export function EdgeControlClient() {
       return;
     }
 
-    const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/config`, {
-      cache: "no-store",
-      headers: authHeaders(false),
-    });
-    const payload = (await response.json()) as { config?: EdgeAgentConfig | null; error?: string };
+    setIsLoadingConfig(true);
+    try {
+      const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/config`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { config?: EdgeAgentConfig | null; error?: string };
 
-    if (!response.ok) {
-      setStatusMessage(payload.error || "Unable to load config.");
-      setActiveConfig(null);
+      if (!response.ok) {
+        setError(payload.error || "Unable to load config.");
+        setActiveConfig(null);
+        return;
+      }
+
+      setActiveConfig(payload.config ?? null);
+    } finally {
+      setIsLoadingConfig(false);
+    }
+  }, [authHeaders, selectedAgentId]);
+
+  const loadHealth = useCallback(async () => {
+    if (!selectedAgentId) {
+      setActiveHealth(null);
       return;
     }
 
-    setActiveConfig(payload.config ?? null);
+    setIsLoadingHealth(true);
+    try {
+      const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/health`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { health?: EdgeAgentHealth; error?: string };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load health.");
+        setActiveHealth(null);
+        return;
+      }
+
+      setActiveHealth(payload.health ?? null);
+    } finally {
+      setIsLoadingHealth(false);
+    }
   }, [authHeaders, selectedAgentId]);
 
   useEffect(() => {
@@ -206,14 +286,16 @@ export function EdgeControlClient() {
   useEffect(() => {
     void loadCommands();
     void loadConfig();
-  }, [loadCommands, loadConfig]);
+    void loadHealth();
+  }, [loadCommands, loadConfig, loadHealth]);
 
   async function registerAgent() {
     if (!selectedProjectId) {
-      setStatusMessage("Select a project first.");
+      setError("Select a project first.");
       return;
     }
 
+    setIsSubmitting(true);
     const response = await fetch("/api/v2/edge/agents/register", {
       method: "POST",
       headers: authHeaders(true),
@@ -226,19 +308,21 @@ export function EdgeControlClient() {
     const payload = (await response.json()) as { agent?: EdgeAgent; error?: string };
 
     if (!response.ok || !payload.agent) {
-      setStatusMessage(payload.error || "Failed to register edge agent.");
+      setError(payload.error || "Failed to register edge agent.");
+      setIsSubmitting(false);
       return;
     }
 
-    setStatusMessage(`Agent registered: ${payload.agent.name}`);
+    setSuccess(`Agent registered: ${payload.agent.name}`);
     setResponsePayload(JSON.stringify(payload, null, 2));
     await loadAgents();
     setSelectedAgentId(payload.agent.id);
+    setIsSubmitting(false);
   }
 
   async function saveConfig() {
     if (!selectedAgentId) {
-      setStatusMessage("Select an agent first.");
+      setError("Select an agent first.");
       return;
     }
 
@@ -246,10 +330,11 @@ export function EdgeControlClient() {
     try {
       config = JSON.parse(configText);
     } catch {
-      setStatusMessage("Config must be valid JSON.");
+      setError("Config must be valid JSON.");
       return;
     }
 
+    setIsSubmitting(true);
     const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/config`, {
       method: "POST",
       headers: authHeaders(true),
@@ -258,18 +343,21 @@ export function EdgeControlClient() {
     const payload = (await response.json()) as { config?: EdgeAgentConfig; error?: string };
 
     if (!response.ok || !payload.config) {
-      setStatusMessage(payload.error || "Failed to save agent config.");
+      setError(payload.error || "Failed to save agent config.");
+      setIsSubmitting(false);
       return;
     }
 
-    setStatusMessage(`Config saved (v${payload.config.version_number}).`);
+    setSuccess(`Config saved (v${payload.config.version_number}).`);
     setResponsePayload(JSON.stringify(payload, null, 2));
     await loadConfig();
+    await loadHealth();
+    setIsSubmitting(false);
   }
 
   async function enqueueCommand() {
     if (!selectedAgentId) {
-      setStatusMessage("Select an agent first.");
+      setError("Select an agent first.");
       return;
     }
 
@@ -277,10 +365,11 @@ export function EdgeControlClient() {
     try {
       payload = JSON.parse(commandPayloadText);
     } catch {
-      setStatusMessage("Command payload must be valid JSON.");
+      setError("Command payload must be valid JSON.");
       return;
     }
 
+    setIsSubmitting(true);
     const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/commands`, {
       method: "POST",
       headers: authHeaders(true),
@@ -292,21 +381,25 @@ export function EdgeControlClient() {
     const body = (await response.json()) as { command?: EdgeAgentCommand; error?: string };
 
     if (!response.ok || !body.command) {
-      setStatusMessage(body.error || "Failed to enqueue command.");
+      setError(body.error || "Failed to enqueue command.");
+      setIsSubmitting(false);
       return;
     }
 
-    setStatusMessage(`Command queued: ${body.command.command_type}`);
+    setSuccess(`Command queued: ${body.command.command_type}`);
     setResponsePayload(JSON.stringify(body, null, 2));
     await loadCommands();
+    await loadHealth();
+    setIsSubmitting(false);
   }
 
   async function pullCommands() {
     if (!selectedAgentId) {
-      setStatusMessage("Select an agent first.");
+      setError("Select an agent first.");
       return;
     }
 
+    setIsSubmitting(true);
     const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/commands/pull`, {
       method: "POST",
       headers: authHeaders(true),
@@ -315,21 +408,25 @@ export function EdgeControlClient() {
     const payload = (await response.json()) as { commands?: EdgeAgentCommand[]; error?: string };
 
     if (!response.ok) {
-      setStatusMessage(payload.error || "Command pull failed.");
+      setError(payload.error || "Command pull failed.");
+      setIsSubmitting(false);
       return;
     }
 
-    setStatusMessage(`Pulled ${payload.commands?.length ?? 0} command(s).`);
+    setSuccess(`Pulled ${payload.commands?.length ?? 0} command(s).`);
     setResponsePayload(JSON.stringify(payload, null, 2));
     await loadCommands();
+    await loadHealth();
+    setIsSubmitting(false);
   }
 
   async function acknowledgeCommand(commandId: string, status: "acknowledged" | "failed") {
     if (!selectedAgentId) {
-      setStatusMessage("Select an agent first.");
+      setError("Select an agent first.");
       return;
     }
 
+    setIsSubmitting(true);
     const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/commands/${commandId}/ack`, {
       method: "POST",
       headers: authHeaders(true),
@@ -341,13 +438,16 @@ export function EdgeControlClient() {
     const payload = (await response.json()) as { command?: EdgeAgentCommand; error?: string };
 
     if (!response.ok) {
-      setStatusMessage(payload.error || "Failed to acknowledge command.");
+      setError(payload.error || "Failed to acknowledge command.");
+      setIsSubmitting(false);
       return;
     }
 
-    setStatusMessage(`Command ${status}.`);
+    setSuccess(`Command ${status}.`);
     setResponsePayload(JSON.stringify(payload, null, 2));
     await loadCommands();
+    await loadHealth();
+    setIsSubmitting(false);
   }
 
   return (
@@ -423,6 +523,10 @@ export function EdgeControlClient() {
               ))}
             </select>
           </label>
+          <p className="muted">
+            {isLoadingProjects ? "Loading projects..." : null}
+            {isLoadingAgents ? " Loading agents..." : null}
+          </p>
         </article>
 
         <article className="card stack">
@@ -435,8 +539,8 @@ export function EdgeControlClient() {
             <span>Platform</span>
             <input value={newAgentPlatform} onChange={(event) => setNewAgentPlatform(event.target.value)} />
           </label>
-          <button className="button" onClick={() => void registerAgent()}>
-            Register Agent
+          <button className="button" disabled={isSubmitting} onClick={() => void registerAgent()}>
+            {isSubmitting ? "Working..." : "Register Agent"}
           </button>
         </article>
       </div>
@@ -448,8 +552,8 @@ export function EdgeControlClient() {
             <span>Config JSON</span>
             <textarea rows={6} value={configText} onChange={(event) => setConfigText(event.target.value)} />
           </label>
-          <button className="button" onClick={() => void saveConfig()}>
-            Save Config
+          <button className="button" disabled={isSubmitting || isLoadingConfig} onClick={() => void saveConfig()}>
+            {isSubmitting ? "Saving..." : "Save Config"}
           </button>
           {activeConfig ? (
             <p className="muted">
@@ -458,10 +562,45 @@ export function EdgeControlClient() {
           ) : (
             <p className="muted">No config version stored yet.</p>
           )}
+          <div className="row wrap">
+            <span className={`badge ${activeHealth?.is_stale ? "bad" : "good"}`}>
+              {activeHealth?.is_stale ? "stale" : "healthy"}
+            </span>
+            <span className="mono">
+              heartbeat lag:{" "}
+              {activeHealth?.heartbeat_lag_ms === null || activeHealth?.heartbeat_lag_ms === undefined
+                ? "n/a"
+                : `${Math.round(activeHealth.heartbeat_lag_ms / 1000)}s`}
+            </span>
+            {isLoadingHealth ? <span className="muted">loading health...</span> : null}
+          </div>
+          {activeHealth ? (
+            <p className="muted">
+              commands: pending {activeHealth.commands.pending}, claimed {activeHealth.commands.claimed}, failed{" "}
+              {activeHealth.commands.failed}, acked {activeHealth.commands.acknowledged}
+            </p>
+          ) : null}
         </article>
 
         <article className="card stack">
           <h3>Command Queue</h3>
+          <label className="field small">
+            <span>Status Filter</span>
+            <select
+              value={commandStatusFilter}
+              onChange={(event) =>
+                setCommandStatusFilter(
+                  event.target.value as "all" | "pending" | "claimed" | "acknowledged" | "failed",
+                )
+              }
+            >
+              <option value="all">all</option>
+              <option value="pending">pending</option>
+              <option value="claimed">claimed</option>
+              <option value="acknowledged">acknowledged</option>
+              <option value="failed">failed</option>
+            </select>
+          </label>
           <label className="field">
             <span>Command Type</span>
             <input value={commandType} onChange={(event) => setCommandType(event.target.value)} />
@@ -471,16 +610,17 @@ export function EdgeControlClient() {
             <textarea rows={6} value={commandPayloadText} onChange={(event) => setCommandPayloadText(event.target.value)} />
           </label>
           <div className="row wrap">
-            <button className="button" onClick={() => void enqueueCommand()}>
-              Enqueue
+            <button className="button" disabled={isSubmitting} onClick={() => void enqueueCommand()}>
+              {isSubmitting ? "Working..." : "Enqueue"}
             </button>
-            <button className="button secondary" onClick={() => void pullCommands()}>
+            <button className="button secondary" disabled={isSubmitting} onClick={() => void pullCommands()}>
               Pull (Claim)
             </button>
-            <button className="button secondary" onClick={() => void loadCommands()}>
+            <button className="button secondary" disabled={isLoadingCommands} onClick={() => void loadCommands()}>
               Refresh
             </button>
           </div>
+          {isLoadingCommands ? <p className="muted">Loading commands...</p> : null}
 
           {commands.length === 0 ? (
             <p className="muted">No commands yet.</p>
@@ -488,14 +628,33 @@ export function EdgeControlClient() {
             <ul className="list">
               {commands.map((command) => (
                 <li key={command.id}>
-                  <span className="mono">{command.command_type}</span> - {command.status}
+                  <span className="mono">{command.command_type}</span>{" "}
+                  <span
+                    className={`badge ${
+                      command.status === "acknowledged"
+                        ? "good"
+                        : command.status === "failed"
+                          ? "bad"
+                          : "warn"
+                    }`}
+                  >
+                    {command.status}
+                  </span>
                   {command.status === "claimed" || command.status === "pending" ? (
                     <>
                       {" "}
-                      <button className="button secondary" onClick={() => void acknowledgeCommand(command.id, "acknowledged")}>
+                      <button
+                        className="button secondary"
+                        disabled={isSubmitting}
+                        onClick={() => void acknowledgeCommand(command.id, "acknowledged")}
+                      >
                         Ack
                       </button>
-                      <button className="button secondary" onClick={() => void acknowledgeCommand(command.id, "failed")}>
+                      <button
+                        className="button secondary"
+                        disabled={isSubmitting}
+                        onClick={() => void acknowledgeCommand(command.id, "failed")}
+                      >
                         Fail
                       </button>
                     </>
@@ -507,7 +666,7 @@ export function EdgeControlClient() {
         </article>
       </div>
 
-      {statusMessage ? <p className="muted">{statusMessage}</p> : null}
+      {statusMessage ? <p className={`status ${statusTone}`}>{statusMessage}</p> : null}
       {responsePayload ? <pre className="json small">{responsePayload}</pre> : null}
     </section>
   );

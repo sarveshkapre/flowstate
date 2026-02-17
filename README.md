@@ -30,6 +30,7 @@ Phase 2 foundations are now in progress:
 - edge control UI (`/edge-control`) for agent registration, config, and command lifecycle operations
 - security hardening baseline: secure response headers + payload size guards + secret-redacted storage for v2 control-plane writes
 - global navigation command palette (`Cmd/Ctrl + K`) for fast page jumps
+- richer operator UX on `/flow-builder` and `/edge-control` (action loading states, status banners, health badges, command filtering)
 
 ## Core Principles
 

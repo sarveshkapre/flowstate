@@ -188,6 +188,31 @@ textarea {
   font-size: 0.92rem;
 }
 
+.status {
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.status.info {
+  background: #f8fafc;
+  color: var(--text);
+}
+
+.status.success {
+  background: #ecfdf3;
+  border-color: #8ce1b5;
+  color: #065f46;
+}
+
+.status.error {
+  background: #fef2f2;
+  border-color: #f3b3b3;
+  color: #991b1b;
+}
+
 .muted {
   color: var(--muted);
   margin: 0;
@@ -232,6 +257,34 @@ textarea {
   padding-left: 1rem;
   color: var(--text);
   font-size: 0.88rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  border: 1px solid var(--stroke);
+  background: #fff;
+}
+
+.badge.good {
+  background: #ecfdf3;
+  border-color: #8ce1b5;
+  color: #065f46;
+}
+
+.badge.warn {
+  background: #fff7ed;
+  border-color: #ffd4a8;
+  color: #9a3412;
+}
+
+.badge.bad {
+  background: #fef2f2;
+  border-color: #f3b3b3;
+  color: #991b1b;
 }
 
 .divider {

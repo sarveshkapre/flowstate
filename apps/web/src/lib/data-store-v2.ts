@@ -1117,6 +1117,11 @@ export async function listReviewDecisions(runId: string) {
   return state.review_decisions.filter((decision) => decision.run_id === runId);
 }
 
+export async function getReviewDecision(reviewDecisionId: string) {
+  const state = await readState();
+  return state.review_decisions.find((decision) => decision.id === reviewDecisionId) ?? null;
+}
+
 export async function listEvidenceRegions(reviewDecisionId: string) {
   const state = await readState();
   return state.evidence_regions.filter((evidence) => evidence.review_decision_id === reviewDecisionId);

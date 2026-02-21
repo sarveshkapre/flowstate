@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { FlowGraph, FlowNodeType } from "@flowstate/types";
 
 type Organization = {
@@ -60,6 +60,56 @@ type DatasetVersion = {
   item_count: number;
   file_name: string;
   created_at: string;
+};
+
+type RunRecordV2 = {
+  id: string;
+  project_id: string;
+  flow_id: string;
+  flow_version_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  created_at: string;
+  updated_at: string;
+};
+
+type ReviewDecisionValue = "correct" | "incorrect" | "missing" | "uncertain";
+type FailureReasonCode =
+  | "missing_field"
+  | "math_mismatch"
+  | "hallucinated_entity"
+  | "wrong_currency"
+  | "wrong_date"
+  | "wrong_class"
+  | "other";
+
+type ReviewDecisionRecord = {
+  id: string;
+  project_id: string;
+  run_id: string;
+  field_name: string;
+  decision: ReviewDecisionValue;
+  failure_reason: FailureReasonCode | null;
+  reviewer: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+type EvidenceRegionRecord = {
+  id: string;
+  review_decision_id: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  created_at: string;
+};
+
+type DraftEvidenceRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 type ConnectorDelivery = {
@@ -152,6 +202,17 @@ const API_KEY_SCOPES: ApiKeyScope[] = [
   "read_project",
 ];
 
+const REVIEW_DECISION_OPTIONS: ReviewDecisionValue[] = ["incorrect", "missing", "uncertain", "correct"];
+const FAILURE_REASON_OPTIONS: FailureReasonCode[] = [
+  "missing_field",
+  "math_mismatch",
+  "hallucinated_entity",
+  "wrong_currency",
+  "wrong_date",
+  "wrong_class",
+  "other",
+];
+
 const TEMPLATE_GRAPH: { name: string; graph: FlowGraph } = {
   name: "Document Intake",
   graph: {
@@ -195,6 +256,36 @@ function normalizeNodeId(raw: string, fallbackType: FlowNodeType) {
     .replace(/^_+|_+$/g, "");
 
   return cleaned || makeId(fallbackType);
+}
+
+function clamp01(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  if (value < 0) {
+    return 0;
+  }
+
+  if (value > 1) {
+    return 1;
+  }
+
+  return value;
+}
+
+function normalizeRect(start: { x: number; y: number }, end: { x: number; y: number }): DraftEvidenceRegion {
+  const left = clamp01(Math.min(start.x, end.x));
+  const top = clamp01(Math.min(start.y, end.y));
+  const right = clamp01(Math.max(start.x, end.x));
+  const bottom = clamp01(Math.max(start.y, end.y));
+
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
 }
 
 function toDraftGraph(graph: FlowGraph): { nodes: GraphNodeDraft[]; edges: GraphEdgeDraft[] } {
@@ -404,6 +495,19 @@ export function FlowBuilderClient() {
   const [connectorMaxAttempts, setConnectorMaxAttempts] = useState("3");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
+  const [runs, setRuns] = useState<RunRecordV2[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
+  const [selectedReviewDecisionId, setSelectedReviewDecisionId] = useState("");
+  const [newReviewFieldName, setNewReviewFieldName] = useState("total");
+  const [newReviewDecision, setNewReviewDecision] = useState<ReviewDecisionValue>("incorrect");
+  const [newReviewFailureReason, setNewReviewFailureReason] = useState<FailureReasonCode>("math_mismatch");
+  const [newReviewNotes, setNewReviewNotes] = useState("");
+  const [evidenceRegions, setEvidenceRegions] = useState<EvidenceRegionRecord[]>([]);
+  const [evidencePage, setEvidencePage] = useState("0");
+  const [evidencePreviewUrl, setEvidencePreviewUrl] = useState("https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?q=80&w=1400&auto=format&fit=crop");
+  const [draftEvidence, setDraftEvidence] = useState<DraftEvidenceRegion | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
 
   function setInfo(message: string) {
     setStatusTone("info");
@@ -448,6 +552,24 @@ export function FlowBuilderClient() {
   const selectedVersion = useMemo(
     () => versions.find((version) => version.id === selectedVersionId) ?? null,
     [selectedVersionId, versions],
+  );
+
+  const selectedReviewDecision = useMemo(
+    () => reviewDecisions.find((decision) => decision.id === selectedReviewDecisionId) ?? null,
+    [reviewDecisions, selectedReviewDecisionId],
+  );
+
+  const selectedEvidencePage = useMemo(() => {
+    const parsed = Number(evidencePage);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return 0;
+    }
+    return Math.floor(parsed);
+  }, [evidencePage]);
+
+  const visibleEvidenceRegions = useMemo(
+    () => evidenceRegions.filter((item) => item.page === selectedEvidencePage),
+    [evidenceRegions, selectedEvidencePage],
   );
 
   const loadOrganizations = useCallback(async () => {
@@ -547,6 +669,93 @@ export function FlowBuilderClient() {
       }
     },
     [authHeaders, selectedDatasetId],
+  );
+
+  const loadRuns = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setRuns([]);
+        setSelectedRunId("");
+        return;
+      }
+
+      const response = await fetch(`/api/v2/runs?projectId=${encodeURIComponent(projectId)}&limit=50`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { runs?: RunRecordV2[]; error?: string };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load runs.");
+        setRuns([]);
+        return;
+      }
+
+      const nextRuns = payload.runs ?? [];
+      setRuns(nextRuns);
+      if (!nextRuns.some((run) => run.id === selectedRunId)) {
+        setSelectedRunId(nextRuns[0]?.id ?? "");
+      }
+    },
+    [authHeaders, selectedRunId],
+  );
+
+  const loadReviewDecisions = useCallback(
+    async (runId: string) => {
+      if (!runId) {
+        setReviewDecisions([]);
+        setSelectedReviewDecisionId("");
+        return;
+      }
+
+      const response = await fetch(`/api/v2/reviews/${runId}/decisions`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { decisions?: ReviewDecisionRecord[]; error?: string };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load review decisions.");
+        setReviewDecisions([]);
+        return;
+      }
+
+      const nextDecisions = payload.decisions ?? [];
+      setReviewDecisions(nextDecisions);
+      if (!nextDecisions.some((decision) => decision.id === selectedReviewDecisionId)) {
+        setSelectedReviewDecisionId(nextDecisions[0]?.id ?? "");
+      }
+    },
+    [authHeaders, selectedReviewDecisionId],
+  );
+
+  const loadEvidenceRegions = useCallback(
+    async (runId: string, reviewDecisionId: string) => {
+      if (!runId || !reviewDecisionId || !selectedProjectId) {
+        setEvidenceRegions([]);
+        return;
+      }
+
+      const query = new URLSearchParams({
+        projectId: selectedProjectId,
+        reviewDecisionId,
+      });
+
+      const response = await fetch(`/api/v2/reviews/${runId}/evidence?${query.toString()}`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { evidence?: EvidenceRegionRecord[]; error?: string };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load evidence regions.");
+        setEvidenceRegions([]);
+        return;
+      }
+
+      setEvidenceRegions(payload.evidence ?? []);
+    },
+    [authHeaders, selectedProjectId],
   );
 
   const loadDatasetVersions = useCallback(
@@ -689,18 +898,34 @@ export function FlowBuilderClient() {
       setSelectedFlowId("");
       setDatasets([]);
       setSelectedDatasetId("");
+      setRuns([]);
+      setSelectedRunId("");
+      setReviewDecisions([]);
+      setSelectedReviewDecisionId("");
+      setEvidenceRegions([]);
       setMembers([]);
       setApiKeys([]);
       return;
     }
     void loadFlows(selectedProjectId);
     void loadDatasets(selectedProjectId);
+    void loadRuns(selectedProjectId);
     void loadMembersAndKeys(selectedProjectId);
-  }, [loadDatasets, loadFlows, loadMembersAndKeys, selectedProjectId]);
+  }, [loadDatasets, loadFlows, loadMembersAndKeys, loadRuns, selectedProjectId]);
 
   useEffect(() => {
     void loadDatasetVersions(selectedDatasetId);
   }, [loadDatasetVersions, selectedDatasetId]);
+
+  useEffect(() => {
+    void loadReviewDecisions(selectedRunId);
+    setDraftEvidence(null);
+  }, [loadReviewDecisions, selectedRunId]);
+
+  useEffect(() => {
+    void loadEvidenceRegions(selectedRunId, selectedReviewDecisionId);
+    setDraftEvidence(null);
+  }, [loadEvidenceRegions, selectedReviewDecisionId, selectedRunId]);
 
   useEffect(() => {
     if (!versions.some((version) => version.id === baselineVersionId)) {
@@ -1153,6 +1378,122 @@ export function FlowBuilderClient() {
     }
 
     setReplayResult(JSON.stringify(payload, null, 2));
+    setBusyAction(null);
+  }
+
+  async function createReviewDecisionEntry() {
+    if (!selectedProjectId || !selectedRunId || !newReviewFieldName.trim()) {
+      setError("Select project/run and enter a field name.");
+      return;
+    }
+
+    setBusyAction("create_review_decision");
+    const response = await fetch(`/api/v2/reviews/${selectedRunId}/decisions`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        fieldName: newReviewFieldName.trim(),
+        decision: newReviewDecision,
+        failureReason: newReviewDecision === "correct" ? undefined : newReviewFailureReason,
+        notes: newReviewNotes.trim() || undefined,
+      }),
+    });
+    const payload = (await response.json()) as { decision?: ReviewDecisionRecord; error?: string };
+
+    if (!response.ok || !payload.decision) {
+      setError(payload.error || "Unable to create review decision.");
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess(`Decision added for field "${payload.decision.field_name}".`);
+    await loadReviewDecisions(selectedRunId);
+    setSelectedReviewDecisionId(payload.decision.id);
+    setBusyAction(null);
+  }
+
+  function toRelativePosition(event: MouseEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = clamp01((event.clientX - rect.left) / rect.width);
+    const y = clamp01((event.clientY - rect.top) / rect.height);
+    return { x, y };
+  }
+
+  function onEvidenceMouseDown(event: MouseEvent<HTMLDivElement>) {
+    if (!selectedReviewDecisionId) {
+      setError("Select a review decision before drawing evidence.");
+      return;
+    }
+
+    const point = toRelativePosition(event);
+    setDragStart(point);
+    setDraftEvidence({
+      x: point.x,
+      y: point.y,
+      width: 0,
+      height: 0,
+    });
+  }
+
+  function onEvidenceMouseMove(event: MouseEvent<HTMLDivElement>) {
+    if (!dragStart) {
+      return;
+    }
+
+    const point = toRelativePosition(event);
+    setDraftEvidence(normalizeRect(dragStart, point));
+  }
+
+  function onEvidenceMouseUp(event: MouseEvent<HTMLDivElement>) {
+    if (!dragStart) {
+      return;
+    }
+
+    const point = toRelativePosition(event);
+    const rect = normalizeRect(dragStart, point);
+    setDragStart(null);
+
+    if (rect.width < 0.01 || rect.height < 0.01) {
+      setDraftEvidence(null);
+      setInfo("Ignored tiny evidence box. Drag a larger area.");
+      return;
+    }
+
+    setDraftEvidence(rect);
+  }
+
+  async function attachDraftEvidence() {
+    if (!selectedProjectId || !selectedRunId || !selectedReviewDecisionId || !draftEvidence) {
+      setError("Select project/run/decision and draw an evidence region first.");
+      return;
+    }
+
+    setBusyAction("attach_evidence");
+    const response = await fetch(`/api/v2/reviews/${selectedRunId}/evidence`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        reviewDecisionId: selectedReviewDecisionId,
+        page: selectedEvidencePage,
+        x: draftEvidence.x,
+        y: draftEvidence.y,
+        width: draftEvidence.width,
+        height: draftEvidence.height,
+      }),
+    });
+    const payload = (await response.json()) as { evidence?: EvidenceRegionRecord; error?: string };
+
+    if (!response.ok || !payload.evidence) {
+      setError(payload.error || "Unable to attach evidence region.");
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Evidence region attached.");
+    setDraftEvidence(null);
+    await loadEvidenceRegions(selectedRunId, selectedReviewDecisionId);
     setBusyAction(null);
   }
 
@@ -1824,6 +2165,172 @@ export function FlowBuilderClient() {
           </button>
 
           {replayResult ? <pre className="json small">{replayResult}</pre> : <p className="muted">No replay result yet.</p>}
+        </article>
+      </div>
+
+      <div className="grid two-col">
+        <article className="card stack">
+          <h3>Review Decisions v2</h3>
+          <p className="muted">Create field-level review outcomes for a run queue before attaching evidence regions.</p>
+
+          <label className="field">
+            <span>Run Queue</span>
+            <select value={selectedRunId} onChange={(event) => setSelectedRunId(event.target.value)}>
+              <option value="">Select run</option>
+              {runs.map((run) => (
+                <option key={run.id} value={run.id}>
+                  {run.id.slice(0, 8)} • {run.status}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="row wrap">
+            <button className="button secondary" onClick={() => void loadRuns(selectedProjectId)}>
+              Refresh Runs
+            </button>
+            <button className="button secondary" onClick={() => void loadReviewDecisions(selectedRunId)}>
+              Refresh Decisions
+            </button>
+          </div>
+
+          <div className="grid two-col">
+            <label className="field">
+              <span>Field Name</span>
+              <input value={newReviewFieldName} onChange={(event) => setNewReviewFieldName(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Decision</span>
+              <select
+                value={newReviewDecision}
+                onChange={(event) => setNewReviewDecision(event.target.value as ReviewDecisionValue)}
+              >
+                {REVIEW_DECISION_OPTIONS.map((decision) => (
+                  <option key={decision} value={decision}>
+                    {decision}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Failure Reason</span>
+              <select
+                value={newReviewFailureReason}
+                disabled={newReviewDecision === "correct"}
+                onChange={(event) => setNewReviewFailureReason(event.target.value as FailureReasonCode)}
+              >
+                {FAILURE_REASON_OPTIONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {reason}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Notes (optional)</span>
+              <input value={newReviewNotes} onChange={(event) => setNewReviewNotes(event.target.value)} />
+            </label>
+          </div>
+
+          <button className="button" disabled={busyAction !== null} onClick={() => void createReviewDecisionEntry()}>
+            {busyAction === "create_review_decision" ? "Saving..." : "Create Decision"}
+          </button>
+
+          <label className="field">
+            <span>Active Review Decision</span>
+            <select value={selectedReviewDecisionId} onChange={(event) => setSelectedReviewDecisionId(event.target.value)}>
+              <option value="">Select decision</option>
+              {reviewDecisions.map((decision) => (
+                <option key={decision.id} value={decision.id}>
+                  {decision.field_name} • {decision.decision}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedReviewDecision ? (
+            <p className="muted">
+              reviewer: {selectedReviewDecision.reviewer ?? "n/a"} | failure: {selectedReviewDecision.failure_reason ?? "none"}
+            </p>
+          ) : (
+            <p className="muted">No decision selected.</p>
+          )}
+        </article>
+
+        <article className="card stack">
+          <h3>Evidence Studio</h3>
+          <p className="muted">Draw bounding boxes directly on the preview to attach normalized evidence regions (0-1).</p>
+
+          <div className="grid two-col">
+            <label className="field">
+              <span>Preview Image URL</span>
+              <input value={evidencePreviewUrl} onChange={(event) => setEvidencePreviewUrl(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Page Index</span>
+              <input value={evidencePage} onChange={(event) => setEvidencePage(event.target.value)} />
+            </label>
+          </div>
+
+          <div
+            className="annotation-board"
+            style={{ backgroundImage: `url(${evidencePreviewUrl})` }}
+            onMouseDown={onEvidenceMouseDown}
+            onMouseMove={onEvidenceMouseMove}
+            onMouseUp={onEvidenceMouseUp}
+            onMouseLeave={() => setDragStart(null)}
+          >
+            {visibleEvidenceRegions.map((region) => (
+                <div
+                  key={region.id}
+                  className="annotation-box"
+                  style={{
+                    left: `${region.x * 100}%`,
+                    top: `${region.y * 100}%`,
+                    width: `${region.width * 100}%`,
+                    height: `${region.height * 100}%`,
+                  }}
+                />
+              ))}
+            {draftEvidence ? (
+              <div
+                className="annotation-box draft"
+                style={{
+                  left: `${draftEvidence.x * 100}%`,
+                  top: `${draftEvidence.y * 100}%`,
+                  width: `${draftEvidence.width * 100}%`,
+                  height: `${draftEvidence.height * 100}%`,
+                }}
+              />
+            ) : null}
+          </div>
+
+          <div className="row wrap">
+            <button
+              className="button"
+              disabled={busyAction !== null || !draftEvidence}
+              onClick={() => void attachDraftEvidence()}
+            >
+              {busyAction === "attach_evidence" ? "Attaching..." : "Attach Draft Evidence"}
+            </button>
+            <button className="button secondary" onClick={() => setDraftEvidence(null)}>
+              Clear Draft
+            </button>
+            <button className="button secondary" onClick={() => void loadEvidenceRegions(selectedRunId, selectedReviewDecisionId)}>
+              Refresh Evidence
+            </button>
+          </div>
+
+          {draftEvidence ? (
+            <p className="muted mono">
+              draft: x={draftEvidence.x.toFixed(4)} y={draftEvidence.y.toFixed(4)} w={draftEvidence.width.toFixed(4)} h=
+              {draftEvidence.height.toFixed(4)}
+            </p>
+          ) : (
+            <p className="muted">No draft evidence box. Click and drag on the preview.</p>
+          )}
+
+          <p className="muted">Persisted evidence regions for selected page: {visibleEvidenceRegions.length}</p>
         </article>
       </div>
 

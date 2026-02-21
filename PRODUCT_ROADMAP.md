@@ -22,9 +22,12 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - M2 Flow Builder v1 + Deploy (in progress)
 
 ## Pending Features
-- Evidence-region visual annotation UX.
+- Production connector transport integrations (Slack/Jira/SQS/DB) beyond simulation mode.
+- Real automated test coverage for v2 review/evidence and replay promotion gate paths.
 
 ## Delivered Features
+- 2026-02-21: Evidence Studio shipped in Flow Builder v2 with queue-scoped review decisions and drag-to-annotate evidence region capture.
+- 2026-02-21: v2 review/evidence API integrity hardening shipped (queue-project consistency and decision-to-queue ownership checks).
 - 2026-02-21: Legacy v1 API endpoints hardened with shared role/permission checks and stricter route-level validation.
 - 2026-02-21: Replay v2 promotion gates shipped with configurable rollout thresholds (success rate, baseline-change rate, field accuracy, expected-sample coverage).
 - 2026-02-21: Edge Control v2 expanded with runtime diagnostics UX (checkpoint visibility, filtered event stream, and one-click diagnostics command queueing).

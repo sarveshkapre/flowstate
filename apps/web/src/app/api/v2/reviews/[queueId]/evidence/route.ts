@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { attachEvidenceRegion, listEvidenceRegions } from "@/lib/data-store-v2";
+import { attachEvidenceRegion, getReviewDecision, getRunV2, listEvidenceRegions } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
 
 type Params = {
@@ -20,6 +20,12 @@ const attachEvidenceSchema = z.object({
 
 export async function GET(request: Request, { params }: Params) {
   const { queueId } = await params;
+  const run = await getRunV2(queueId);
+
+  if (!run) {
+    return NextResponse.json({ error: "Queue not found" }, { status: 404 });
+  }
+
   const reviewDecisionId = new URL(request.url).searchParams.get("reviewDecisionId");
 
   if (!reviewDecisionId) {
@@ -28,18 +34,24 @@ export async function GET(request: Request, { params }: Params) {
 
   const projectId = new URL(request.url).searchParams.get("projectId");
 
-  if (!projectId) {
-    return NextResponse.json({ error: "projectId is required" }, { status: 400 });
-  }
-
   const auth = await requirePermission({
     request,
     permission: "review_queue",
-    projectId,
+    projectId: run.project_id,
   });
 
   if (!auth.ok) {
     return auth.response;
+  }
+
+  if (projectId && projectId !== run.project_id) {
+    return NextResponse.json({ error: "projectId does not match queue project" }, { status: 400 });
+  }
+
+  const decision = await getReviewDecision(reviewDecisionId);
+
+  if (!decision || decision.run_id !== queueId || decision.project_id !== run.project_id) {
+    return NextResponse.json({ error: "Review decision not found in queue" }, { status: 404 });
   }
 
   const evidence = await listEvidenceRegions(reviewDecisionId);
@@ -48,6 +60,12 @@ export async function GET(request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   const { queueId } = await params;
+  const run = await getRunV2(queueId);
+
+  if (!run) {
+    return NextResponse.json({ error: "Queue not found" }, { status: 404 });
+  }
+
   const payload = await request.json().catch(() => null);
   const parsed = attachEvidenceSchema.safeParse(payload);
 
@@ -58,11 +76,21 @@ export async function POST(request: Request, { params }: Params) {
   const auth = await requirePermission({
     request,
     permission: "review_queue",
-    projectId: parsed.data.projectId,
+    projectId: run.project_id,
   });
 
   if (!auth.ok) {
     return auth.response;
+  }
+
+  if (parsed.data.projectId !== run.project_id) {
+    return NextResponse.json({ error: "projectId does not match queue project" }, { status: 400 });
+  }
+
+  const decision = await getReviewDecision(parsed.data.reviewDecisionId);
+
+  if (!decision || decision.run_id !== queueId || decision.project_id !== run.project_id) {
+    return NextResponse.json({ error: "Review decision not found in queue" }, { status: 404 });
   }
 
   const evidence = await attachEvidenceRegion({

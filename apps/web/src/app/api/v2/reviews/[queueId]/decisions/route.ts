@@ -41,6 +41,12 @@ export async function GET(request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   const { queueId } = await params;
+  const run = await getRunV2(queueId);
+
+  if (!run) {
+    return NextResponse.json({ error: "Queue not found" }, { status: 404 });
+  }
+
   const payload = await request.json().catch(() => null);
   const parsed = createDecisionSchema.safeParse(payload);
 
@@ -51,15 +57,19 @@ export async function POST(request: Request, { params }: Params) {
   const auth = await requirePermission({
     request,
     permission: "review_queue",
-    projectId: parsed.data.projectId,
+    projectId: run.project_id,
   });
 
   if (!auth.ok) {
     return auth.response;
   }
 
+  if (parsed.data.projectId !== run.project_id) {
+    return NextResponse.json({ error: "projectId does not match queue project" }, { status: 400 });
+  }
+
   const decision = await createReviewDecision({
-    projectId: parsed.data.projectId,
+    projectId: run.project_id,
     runId: queueId,
     fieldName: parsed.data.fieldName,
     decision: parsed.data.decision,

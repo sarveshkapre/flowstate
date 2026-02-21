@@ -292,6 +292,34 @@ textarea {
   margin: 0.6rem 0;
 }
 
+.annotation-board {
+  position: relative;
+  width: 100%;
+  min-height: 340px;
+  border: 1px dashed var(--stroke);
+  border-radius: 12px;
+  background-color: #f8fafc;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  cursor: crosshair;
+  overflow: hidden;
+}
+
+.annotation-box {
+  position: absolute;
+  border: 2px solid #f97316;
+  background: rgba(249, 115, 22, 0.16);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.annotation-box.draft {
+  border-style: dashed;
+  background: rgba(15, 118, 110, 0.16);
+  border-color: #0f766e;
+}
+
 .cmdk-hint {
   position: fixed;
   right: 1rem;

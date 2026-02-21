@@ -216,6 +216,17 @@ type ConnectorActionTimelineSummary = {
 };
 
 type ConnectorTimelineEventFilter = "all" | ConnectorActionTimelineEvent["event_type"];
+type ConnectorRecommendationPreviewAction = {
+  connector_type: string;
+  recommendation: Exclude<ConnectorReliabilityRecommendation, "healthy">;
+  risk_score: number;
+  risk_reasons: ConnectorReliabilityReason[];
+};
+
+type ConnectorRecommendationPreviewSkippedAction = ConnectorRecommendationPreviewAction & {
+  reason: string;
+  retry_after_seconds: number;
+};
 
 type ReviewDecisionSummary = {
   total: number;
@@ -475,6 +486,56 @@ function connectorTopRiskDrivers(item: ConnectorReliabilityItem, max = 2) {
     .map((entry) => `${entry.label} (${entry.value.toFixed(1)})`);
 
   return entries;
+}
+
+function asRecommendationPreviewAction(value: unknown): ConnectorRecommendationPreviewAction | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const item = value as Record<string, unknown>;
+  const connectorType = typeof item.connector_type === "string" ? item.connector_type : "";
+  const recommendation = item.recommendation;
+  const riskScore = typeof item.risk_score === "number" ? item.risk_score : Number.NaN;
+  const riskReasons = Array.isArray(item.risk_reasons)
+    ? item.risk_reasons.filter((reason): reason is ConnectorReliabilityReason => typeof reason === "string")
+    : [];
+
+  if (
+    !connectorType ||
+    (recommendation !== "process_queue" && recommendation !== "redrive_dead_letters") ||
+    !Number.isFinite(riskScore)
+  ) {
+    return null;
+  }
+
+  return {
+    connector_type: connectorType,
+    recommendation,
+    risk_score: riskScore,
+    risk_reasons: riskReasons,
+  };
+}
+
+function asRecommendationPreviewSkippedAction(value: unknown): ConnectorRecommendationPreviewSkippedAction | null {
+  const base = asRecommendationPreviewAction(value);
+  if (!base || !value || typeof value !== "object") {
+    return null;
+  }
+
+  const item = value as Record<string, unknown>;
+  const retryAfter = typeof item.retry_after_seconds === "number" ? item.retry_after_seconds : Number.NaN;
+  const reason = typeof item.reason === "string" ? item.reason : "";
+
+  if (!Number.isFinite(retryAfter) || !reason) {
+    return null;
+  }
+
+  return {
+    ...base,
+    reason,
+    retry_after_seconds: retryAfter,
+  };
 }
 
 function connectorTimelineEventLabel(eventType: ConnectorActionTimelineEvent["event_type"]) {
@@ -871,6 +932,12 @@ export function FlowBuilderClient() {
   const [connectorRecommendationConnectorTypes, setConnectorRecommendationConnectorTypes] = useState<string[]>([
     ...CONNECTOR_TYPES,
   ]);
+  const [connectorRecommendationPreviewSelected, setConnectorRecommendationPreviewSelected] = useState<
+    ConnectorRecommendationPreviewAction[]
+  >([]);
+  const [connectorRecommendationPreviewSkipped, setConnectorRecommendationPreviewSkipped] = useState<
+    ConnectorRecommendationPreviewSkippedAction[]
+  >([]);
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -1533,6 +1600,8 @@ export function FlowBuilderClient() {
       setConnectorActionTimelineEventType("all");
       setConnectorActionTimelineRedriveOnly(false);
       setConnectorRecommendationConnectorTypes([...CONNECTOR_TYPES]);
+      setConnectorRecommendationPreviewSelected([]);
+      setConnectorRecommendationPreviewSkipped([]);
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
@@ -3074,6 +3143,8 @@ export function FlowBuilderClient() {
     const actionResults = Array.isArray(result.action_results) ? result.action_results : [];
     const skippedActions = Array.isArray(result.skipped_actions) ? result.skipped_actions : [];
     setSuccess(`Executed ${actionResults.length} top connector recommendation(s) with ${skippedActions.length} cooldown skip(s).`);
+    setConnectorRecommendationPreviewSelected([]);
+    setConnectorRecommendationPreviewSkipped([]);
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
@@ -3108,6 +3179,16 @@ export function FlowBuilderClient() {
 
     const selectedActions = Array.isArray(result.selected_actions) ? result.selected_actions : [];
     const skippedActions = Array.isArray(result.skipped_actions) ? result.skipped_actions : [];
+    setConnectorRecommendationPreviewSelected(
+      selectedActions
+        .map(asRecommendationPreviewAction)
+        .filter((item): item is ConnectorRecommendationPreviewAction => item !== null),
+    );
+    setConnectorRecommendationPreviewSkipped(
+      skippedActions
+        .map(asRecommendationPreviewSkippedAction)
+        .filter((item): item is ConnectorRecommendationPreviewSkippedAction => item !== null),
+    );
     setSuccess(`Previewed ${selectedActions.length} top recommendation(s) with ${skippedActions.length} cooldown skip(s).`);
     setConnectorResult(JSON.stringify(result, null, 2));
     setBusyAction(null);
@@ -4255,6 +4336,37 @@ export function FlowBuilderClient() {
               Refresh Connector Ops
             </button>
           </div>
+
+          {connectorRecommendationPreviewSelected.length > 0 || connectorRecommendationPreviewSkipped.length > 0 ? (
+            <div className="stack">
+              <p className="muted">
+                top preview: selected {connectorRecommendationPreviewSelected.length} | cooldown skipped{" "}
+                {connectorRecommendationPreviewSkipped.length}
+              </p>
+              {connectorRecommendationPreviewSelected.length > 0 ? (
+                <ul className="list">
+                  {connectorRecommendationPreviewSelected.map((item) => (
+                    <li key={`${item.connector_type}:${item.recommendation}`}>
+                      <strong>{item.connector_type}</strong> - {connectorRecommendationLabel(item.recommendation)} - risk{" "}
+                      {item.risk_score.toFixed(2)}
+                      {item.risk_reasons.length > 0
+                        ? ` - reasons ${item.risk_reasons.map((reason) => connectorRiskReasonLabel(reason)).join(", ")}`
+                        : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {connectorRecommendationPreviewSkipped.length > 0 ? (
+                <ul className="list">
+                  {connectorRecommendationPreviewSkipped.map((item) => (
+                    <li key={`${item.connector_type}:${item.recommendation}:skip`}>
+                      <strong>{item.connector_type}</strong> skipped ({item.reason}) retry in {item.retry_after_seconds}s
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
 
           {connectorResult ? <pre className="json small">{connectorResult}</pre> : <p className="muted">No connector result yet.</p>}
         </article>

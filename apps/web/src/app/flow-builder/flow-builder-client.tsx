@@ -169,6 +169,22 @@ type ReviewQueueOpsSummary = {
   avg_error_rate: number;
 };
 
+type ReviewAlertPolicy = {
+  id: string;
+  project_id: string;
+  is_enabled: boolean;
+  connector_type: string;
+  stale_hours: number;
+  queue_limit: number;
+  min_unreviewed_queues: number;
+  min_at_risk_queues: number;
+  min_stale_queues: number;
+  min_avg_error_rate: number;
+  idempotency_window_minutes: number;
+  created_at: string;
+  updated_at: string;
+};
+
 type ActiveLearningCandidate = {
   run: RunRecordV2;
   score: number;
@@ -644,6 +660,7 @@ export function FlowBuilderClient() {
   const [reviewQueues, setReviewQueues] = useState<ReviewQueueOpsItem[]>([]);
   const [reviewQueueSummary, setReviewQueueSummary] = useState<ReviewQueueOpsSummary>(EMPTY_REVIEW_QUEUE_SUMMARY);
   const [reviewStaleHours, setReviewStaleHours] = useState("24");
+  const [reviewAlertPolicyEnabled, setReviewAlertPolicyEnabled] = useState(true);
   const [reviewAlertConnectorType, setReviewAlertConnectorType] = useState("slack");
   const [reviewAlertMinUnreviewed, setReviewAlertMinUnreviewed] = useState("5");
   const [reviewAlertMinAtRisk, setReviewAlertMinAtRisk] = useState("3");
@@ -895,6 +912,55 @@ export function FlowBuilderClient() {
       setReviewQueueSummary(payload.summary ?? EMPTY_REVIEW_QUEUE_SUMMARY);
     },
     [authHeaders, reviewStaleHours],
+  );
+
+  const loadReviewAlertPolicy = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setReviewAlertPolicyEnabled(true);
+        setReviewAlertConnectorType("slack");
+        setReviewStaleHours("24");
+        setReviewAlertMinUnreviewed("5");
+        setReviewAlertMinAtRisk("3");
+        setReviewAlertMinStale("3");
+        setReviewAlertMinAvgErrorRate("0.35");
+        return;
+      }
+
+      const response = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}/review-alert-policy`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as {
+        policy?: ReviewAlertPolicy | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load review alert policy.");
+        return;
+      }
+
+      if (!payload.policy) {
+        setReviewAlertPolicyEnabled(true);
+        setReviewAlertConnectorType("slack");
+        setReviewStaleHours("24");
+        setReviewAlertMinUnreviewed("5");
+        setReviewAlertMinAtRisk("3");
+        setReviewAlertMinStale("3");
+        setReviewAlertMinAvgErrorRate("0.35");
+        return;
+      }
+
+      setReviewAlertPolicyEnabled(payload.policy.is_enabled);
+      setReviewAlertConnectorType(payload.policy.connector_type);
+      setReviewStaleHours(String(payload.policy.stale_hours));
+      setReviewAlertMinUnreviewed(String(payload.policy.min_unreviewed_queues));
+      setReviewAlertMinAtRisk(String(payload.policy.min_at_risk_queues));
+      setReviewAlertMinStale(String(payload.policy.min_stale_queues));
+      setReviewAlertMinAvgErrorRate(String(payload.policy.min_avg_error_rate));
+    },
+    [authHeaders],
   );
 
   const loadActiveLearning = useCallback(
@@ -1155,15 +1221,32 @@ export function FlowBuilderClient() {
       setEvalPacks([]);
       setMembers([]);
       setApiKeys([]);
+      setReviewAlertPolicyEnabled(true);
+      setReviewAlertConnectorType("slack");
+      setReviewStaleHours("24");
+      setReviewAlertMinUnreviewed("5");
+      setReviewAlertMinAtRisk("3");
+      setReviewAlertMinStale("3");
+      setReviewAlertMinAvgErrorRate("0.35");
       return;
     }
     void loadFlows(selectedProjectId);
     void loadDatasets(selectedProjectId);
     void loadRuns(selectedProjectId);
+    void loadReviewAlertPolicy(selectedProjectId);
     void loadReviewQueues(selectedProjectId);
     void loadActiveLearning(selectedProjectId);
     void loadMembersAndKeys(selectedProjectId);
-  }, [loadActiveLearning, loadDatasets, loadFlows, loadMembersAndKeys, loadReviewQueues, loadRuns, selectedProjectId]);
+  }, [
+    loadActiveLearning,
+    loadDatasets,
+    loadFlows,
+    loadMembersAndKeys,
+    loadReviewAlertPolicy,
+    loadReviewQueues,
+    loadRuns,
+    selectedProjectId,
+  ]);
 
   useEffect(() => {
     void loadDatasetVersions(selectedDatasetId);
@@ -1715,6 +1798,51 @@ export function FlowBuilderClient() {
       minAvgErrorRate: parsedAvgErrorRate,
       staleHours: Math.floor(parsedStaleHours),
     };
+  }
+
+  async function saveReviewAlertPolicy() {
+    if (!selectedProjectId) {
+      setError("Select a project before saving review alert policy.");
+      return;
+    }
+
+    if (!reviewAlertConnectorType.trim()) {
+      setError("Alert connector type is required.");
+      return;
+    }
+
+    const parsed = parseReviewAlertThresholds();
+    if (!parsed) {
+      return;
+    }
+
+    setBusyAction("review_alert_policy_save");
+    const response = await fetch(`/api/v2/projects/${encodeURIComponent(selectedProjectId)}/review-alert-policy`, {
+      method: "PUT",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        isEnabled: reviewAlertPolicyEnabled,
+        connectorType: reviewAlertConnectorType.trim(),
+        staleHours: parsed.staleHours,
+        minUnreviewedQueues: parsed.minUnreviewedQueues,
+        minAtRiskQueues: parsed.minAtRiskQueues,
+        minStaleQueues: parsed.minStaleQueues,
+        minAvgErrorRate: parsed.minAvgErrorRate,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Unable to save review alert policy.");
+      setReviewAlertResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Review alert policy saved.");
+    setReviewAlertResult(JSON.stringify(result, null, 2));
+    await loadReviewAlertPolicy(selectedProjectId);
+    setBusyAction(null);
   }
 
   async function previewReviewAlert() {
@@ -2842,6 +2970,16 @@ export function FlowBuilderClient() {
           </label>
           <div className="grid two-col">
             <label className="field small">
+              <span>Automation</span>
+              <select
+                value={reviewAlertPolicyEnabled ? "enabled" : "disabled"}
+                onChange={(event) => setReviewAlertPolicyEnabled(event.target.value === "enabled")}
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
+            <label className="field small">
               <span>Alert Connector Type</span>
               <input value={reviewAlertConnectorType} onChange={(event) => setReviewAlertConnectorType(event.target.value)} />
             </label>
@@ -2868,6 +3006,9 @@ export function FlowBuilderClient() {
           <div className="row wrap">
             <button className="button secondary" onClick={() => void loadReviewQueues(selectedProjectId)}>
               Refresh Queue Ops
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void saveReviewAlertPolicy()}>
+              {busyAction === "review_alert_policy_save" ? "Saving..." : "Save Alert Policy"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void previewReviewAlert()}>
               {busyAction === "review_alert_preview" ? "Previewing..." : "Preview Alert"}

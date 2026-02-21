@@ -26,6 +26,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Project-level review alert policies shipped with persisted thresholds/connector settings, Flow Builder save/load controls, and worker-side policy-aware automation fallback.
 - 2026-02-21: Review Alerts control surface shipped with preview+dispatch APIs and Flow Builder threshold tuning for manual verification before automation rollout.
 - 2026-02-21: Connector dead-letter auto-recovery shipped with batch redrive API/action, reset-safe retry state, and worker-driven redrive+process automation.
 - 2026-02-21: v1 extraction/review request validation helper shipped with unit coverage for filter parsing and review action payloads.

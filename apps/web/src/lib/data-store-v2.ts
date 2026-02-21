@@ -40,6 +40,8 @@ import {
   projectRecordSchema,
   type ProjectRecord,
   type ProjectMemberRole,
+  reviewAlertPolicyRecordSchema,
+  type ReviewAlertPolicyRecord,
   reviewDecisionRecordSchema,
   type ReviewDecisionRecord,
   runRecordV2Schema,
@@ -82,6 +84,7 @@ type DbStateV2 = {
   review_decisions: ReviewDecisionRecord[];
   evidence_regions: EvidenceRegionRecord[];
   eval_packs: EvalPackRecord[];
+  review_alert_policies: ReviewAlertPolicyRecord[];
   connector_deliveries: ConnectorDeliveryRecord[];
   connector_delivery_attempts: ConnectorDeliveryAttemptRecord[];
   edge_agents: EdgeAgentRecord[];
@@ -107,6 +110,7 @@ const DEFAULT_STATE: DbStateV2 = {
   review_decisions: [],
   evidence_regions: [],
   eval_packs: [],
+  review_alert_policies: [],
   connector_deliveries: [],
   connector_delivery_attempts: [],
   edge_agents: [],
@@ -258,6 +262,7 @@ async function readState(): Promise<DbStateV2> {
     review_decisions: (parsed.review_decisions ?? []).map((item) => reviewDecisionRecordSchema.parse(item)),
     evidence_regions: (parsed.evidence_regions ?? []).map((item) => evidenceRegionRecordSchema.parse(item)),
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
+    review_alert_policies: (parsed.review_alert_policies ?? []).map((item) => reviewAlertPolicyRecordSchema.parse(item)),
     connector_deliveries: (parsed.connector_deliveries ?? []).map((item) => connectorDeliveryRecordSchema.parse(item)),
     connector_delivery_attempts: (parsed.connector_delivery_attempts ?? []).map((item) =>
       connectorDeliveryAttemptRecordSchema.parse(item),
@@ -1192,6 +1197,135 @@ export async function listReviewQueuesV2(input: {
     evidenceRegions,
     staleAfterMs: input.staleAfterMs,
     limit: input.limit,
+  });
+}
+
+const REVIEW_ALERT_POLICY_DEFAULTS = {
+  isEnabled: true,
+  connectorType: "slack",
+  staleHours: 24,
+  queueLimit: 50,
+  minUnreviewedQueues: 5,
+  minAtRiskQueues: 3,
+  minStaleQueues: 3,
+  minAvgErrorRate: 0.35,
+  idempotencyWindowMinutes: 30,
+} as const;
+
+function clampPositiveInt(value: number | undefined, fallback: number, max: number) {
+  if (!Number.isFinite(value) || typeof value !== "number" || value <= 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(value), max);
+}
+
+function clampNonNegativeInt(value: number | undefined, fallback: number, max: number) {
+  if (!Number.isFinite(value) || typeof value !== "number" || value < 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(value), max);
+}
+
+function clampRate(value: number | undefined, fallback: number) {
+  if (!Number.isFinite(value) || typeof value !== "number") {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, Number(value.toFixed(4))));
+}
+
+function normalizeConnectorType(value: string | undefined, fallback: string) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+export async function getReviewAlertPolicy(projectId: string) {
+  const state = await readState();
+  return state.review_alert_policies.find((policy) => policy.project_id === projectId) ?? null;
+}
+
+export async function upsertReviewAlertPolicy(input: {
+  projectId: string;
+  isEnabled?: boolean;
+  connectorType?: string;
+  staleHours?: number;
+  queueLimit?: number;
+  minUnreviewedQueues?: number;
+  minAtRiskQueues?: number;
+  minStaleQueues?: number;
+  minAvgErrorRate?: number;
+  idempotencyWindowMinutes?: number;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const project = state.projects.find((item) => item.id === input.projectId);
+    if (!project) {
+      throw new Error("Project not found");
+    }
+
+    const existing = state.review_alert_policies.find((policy) => policy.project_id === input.projectId) ?? null;
+    const now = new Date().toISOString();
+
+    const policy = reviewAlertPolicyRecordSchema.parse({
+      id: existing?.id ?? randomUUID(),
+      project_id: input.projectId,
+      is_enabled: input.isEnabled ?? existing?.is_enabled ?? REVIEW_ALERT_POLICY_DEFAULTS.isEnabled,
+      connector_type: normalizeConnectorType(
+        input.connectorType,
+        existing?.connector_type ?? REVIEW_ALERT_POLICY_DEFAULTS.connectorType,
+      ),
+      stale_hours: clampPositiveInt(
+        input.staleHours ?? existing?.stale_hours,
+        REVIEW_ALERT_POLICY_DEFAULTS.staleHours,
+        24 * 30,
+      ),
+      queue_limit: clampPositiveInt(input.queueLimit ?? existing?.queue_limit, REVIEW_ALERT_POLICY_DEFAULTS.queueLimit, 200),
+      min_unreviewed_queues: clampNonNegativeInt(
+        input.minUnreviewedQueues ?? existing?.min_unreviewed_queues,
+        REVIEW_ALERT_POLICY_DEFAULTS.minUnreviewedQueues,
+        500,
+      ),
+      min_at_risk_queues: clampNonNegativeInt(
+        input.minAtRiskQueues ?? existing?.min_at_risk_queues,
+        REVIEW_ALERT_POLICY_DEFAULTS.minAtRiskQueues,
+        500,
+      ),
+      min_stale_queues: clampNonNegativeInt(
+        input.minStaleQueues ?? existing?.min_stale_queues,
+        REVIEW_ALERT_POLICY_DEFAULTS.minStaleQueues,
+        500,
+      ),
+      min_avg_error_rate: clampRate(
+        input.minAvgErrorRate ?? existing?.min_avg_error_rate,
+        REVIEW_ALERT_POLICY_DEFAULTS.minAvgErrorRate,
+      ),
+      idempotency_window_minutes: clampPositiveInt(
+        input.idempotencyWindowMinutes ?? existing?.idempotency_window_minutes,
+        REVIEW_ALERT_POLICY_DEFAULTS.idempotencyWindowMinutes,
+        24 * 60,
+      ),
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    });
+
+    const existingIndex = state.review_alert_policies.findIndex((item) => item.project_id === input.projectId);
+    if (existingIndex >= 0) {
+      state.review_alert_policies[existingIndex] = policy;
+    } else {
+      state.review_alert_policies.unshift(policy);
+    }
+
+    appendAuditEvent(state, {
+      eventType: "review_alert_policy_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        policy_id: policy.id,
+        project_id: policy.project_id,
+        is_enabled: policy.is_enabled,
+        connector_type: policy.connector_type,
+      },
+    });
+
+    return policy;
   });
 }
 

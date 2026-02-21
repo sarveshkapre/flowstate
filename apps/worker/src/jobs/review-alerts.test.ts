@@ -19,6 +19,7 @@ test("parseReviewAlertsConfig applies defaults", () => {
   const config = parseReviewAlertsConfig({});
 
   assert.equal(config.connectorType, "slack");
+  assert.equal(config.useProjectPolicies, true);
   assert.equal(config.pollMs, 60_000);
   assert.equal(config.staleHours, 24);
   assert.equal(config.queueLimit, 50);
@@ -120,6 +121,10 @@ test("dispatchReviewAlertsOnce dispatches connector alert when threshold is met"
     fetchImpl: async (url, init) => {
       seenRequests.push({ method: init?.method, url: String(url) });
 
+      if (String(url).includes("/review-alert-policy")) {
+        return jsonResponse(200, { policy: null });
+      }
+
       if (String(url).includes("/api/v2/reviews/queues")) {
         return jsonResponse(200, {
           summary: {
@@ -146,8 +151,8 @@ test("dispatchReviewAlertsOnce dispatches connector alert when threshold is met"
   assert.equal(result.alerted_count, 1);
   assert.equal(result.skipped_count, 0);
   assert.deepEqual(result.failures, []);
-  assert.equal(seenRequests.length, 2);
-  assert.ok(seenRequests[1]?.url.includes("/api/v2/connectors/webhook/deliver"));
+  assert.equal(seenRequests.length, 3);
+  assert.ok(seenRequests[2]?.url.includes("/api/v2/connectors/webhook/deliver"));
 });
 
 test("dispatchReviewAlertsOnce skips connector call when thresholds are not met", async () => {
@@ -164,6 +169,11 @@ test("dispatchReviewAlertsOnce skips connector call when thresholds are not met"
     config,
     fetchImpl: async (url, init) => {
       seenRequests.push({ method: init?.method, url: String(url) });
+
+      if (String(url).includes("/review-alert-policy")) {
+        return jsonResponse(200, { policy: null });
+      }
+
       return jsonResponse(200, {
         summary: {
           total_queues: 5,
@@ -186,6 +196,103 @@ test("dispatchReviewAlertsOnce skips connector call when thresholds are not met"
   assert.equal(result.alerted_count, 0);
   assert.equal(result.skipped_count, 1);
   assert.deepEqual(result.failures, []);
+  assert.equal(seenRequests.length, 2);
+  assert.ok(seenRequests[1]?.url.includes("/api/v2/reviews/queues"));
+});
+
+test("dispatchReviewAlertsOnce uses persisted project policy thresholds and connector", async () => {
+  const seenRequests: Array<{ method?: string; url: string }> = [];
+  const config = parseReviewAlertsConfig({
+    FLOWSTATE_REVIEW_ALERTS_PROJECT_IDS: "proj-alpha",
+    FLOWSTATE_REVIEW_ALERTS_MIN_UNREVIEWED: "100",
+    FLOWSTATE_REVIEW_ALERTS_CONNECTOR_TYPE: "slack",
+  });
+
+  const result = await dispatchReviewAlertsOnce({
+    config,
+    nowMs: Date.parse("2026-02-21T12:00:00.000Z"),
+    fetchImpl: async (url, init) => {
+      seenRequests.push({ method: init?.method, url: String(url) });
+
+      if (String(url).includes("/review-alert-policy")) {
+        return jsonResponse(200, {
+          policy: {
+            project_id: "proj-alpha",
+            is_enabled: true,
+            connector_type: "jira",
+            stale_hours: 12,
+            queue_limit: 25,
+            min_unreviewed_queues: 2,
+            min_at_risk_queues: 9,
+            min_stale_queues: 9,
+            min_avg_error_rate: 0.9,
+            idempotency_window_minutes: 45,
+          },
+        });
+      }
+
+      if (String(url).includes("/api/v2/reviews/queues")) {
+        return jsonResponse(200, {
+          summary: {
+            total_queues: 5,
+            unreviewed_queues: 3,
+            at_risk_queues: 1,
+            stale_queues: 0,
+            healthy_queues: 1,
+            total_decisions: 8,
+            total_evidence_regions: 4,
+            avg_error_rate: 0.2,
+          },
+          queues: [],
+        });
+      }
+
+      return jsonResponse(202, { delivery: { id: "delivery-id" } });
+    },
+    logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+  });
+
+  assert.equal(result.project_count, 1);
+  assert.equal(result.evaluated_count, 1);
+  assert.equal(result.alerted_count, 1);
+  assert.equal(result.skipped_count, 0);
+  assert.deepEqual(result.failures, []);
+  assert.equal(seenRequests.length, 3);
+  assert.ok(seenRequests[1]?.url.includes("staleHours=12"));
+  assert.ok(seenRequests[1]?.url.includes("limit=25"));
+  assert.ok(seenRequests[2]?.url.includes("/api/v2/connectors/jira/deliver"));
+});
+
+test("dispatchReviewAlertsOnce skips project when persisted policy is disabled", async () => {
+  const seenRequests: Array<{ method?: string; url: string }> = [];
+  const config = parseReviewAlertsConfig({
+    FLOWSTATE_REVIEW_ALERTS_PROJECT_IDS: "proj-alpha",
+  });
+
+  const result = await dispatchReviewAlertsOnce({
+    config,
+    fetchImpl: async (url, init) => {
+      seenRequests.push({ method: init?.method, url: String(url) });
+
+      if (String(url).includes("/review-alert-policy")) {
+        return jsonResponse(200, {
+          policy: {
+            project_id: "proj-alpha",
+            is_enabled: false,
+          },
+        });
+      }
+
+      return jsonResponse(500, { error: "should not call this endpoint" });
+    },
+    logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+  });
+
+  assert.equal(result.project_count, 1);
+  assert.equal(result.evaluated_count, 0);
+  assert.equal(result.alerted_count, 0);
+  assert.equal(result.skipped_count, 1);
+  assert.deepEqual(result.failures, []);
   assert.equal(seenRequests.length, 1);
-  assert.ok(seenRequests[0]?.url.includes("/api/v2/reviews/queues"));
+  assert.ok(seenRequests[0]?.url.includes("/review-alert-policy"));
 });

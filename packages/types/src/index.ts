@@ -211,6 +211,7 @@ export const auditEventTypeSchema = z.enum([
   "connector_delivery_attempted_v2",
   "connector_delivered_v2",
   "connector_dead_lettered_v2",
+  "review_alert_policy_updated_v2",
   "edge_agent_config_updated_v2",
   "edge_agent_command_enqueued_v2",
   "edge_agent_command_acknowledged_v2",
@@ -492,6 +493,23 @@ export const evalPackRecordSchema = z.object({
   created_at: z.string(),
 });
 export type EvalPackRecord = z.infer<typeof evalPackRecordSchema>;
+
+export const reviewAlertPolicyRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  is_enabled: z.boolean(),
+  connector_type: z.string(),
+  stale_hours: z.number().int().positive(),
+  queue_limit: z.number().int().positive(),
+  min_unreviewed_queues: z.number().int().nonnegative(),
+  min_at_risk_queues: z.number().int().nonnegative(),
+  min_stale_queues: z.number().int().nonnegative(),
+  min_avg_error_rate: z.number().min(0).max(1),
+  idempotency_window_minutes: z.number().int().positive(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ReviewAlertPolicyRecord = z.infer<typeof reviewAlertPolicyRecordSchema>;
 
 export const environmentProfileSchema = z.enum(["local", "staging", "prod"]);
 export type EnvironmentProfile = z.infer<typeof environmentProfileSchema>;

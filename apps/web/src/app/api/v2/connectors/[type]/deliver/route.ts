@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  getConnectorBackpressurePolicy,
   listConnectorDeliveries,
   listConnectorDeliveryAttempts,
   processConnectorDelivery,
@@ -196,6 +197,15 @@ export async function PATCH(request: Request, { params }: Params) {
       return auth.response;
     }
 
+    const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
+    const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
+      ? {
+          enabled: policy.is_enabled,
+          maxRetrying: policy.max_retrying,
+          maxDueNow: policy.max_due_now,
+          minLimit: policy.min_limit,
+        }
+      : undefined);
     const summary = await summarizeConnectorDeliveries({
       projectId: parsed.data.projectId,
       connectorType: type,
@@ -203,7 +213,7 @@ export async function PATCH(request: Request, { params }: Params) {
     const backpressure = resolveConnectorProcessBackpressure({
       requestedLimit: parsed.data.limit,
       summary,
-      config: parsed.data.backpressure,
+      config: effectiveBackpressureConfig,
     });
 
     const result = await processConnectorDeliveryQueue({
@@ -220,6 +230,7 @@ export async function PATCH(request: Request, { params }: Params) {
       effective_limit: backpressure.effective_limit,
       throttled: backpressure.throttled,
       throttle_reason: backpressure.reason,
+      policy_applied: parsed.data.backpressure === undefined && policy !== null,
       backpressure,
       processed_count: result.processed_count,
       deliveries: result.deliveries,

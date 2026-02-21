@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { processConnectorDeliveryQueue, redriveConnectorDeliveryBatch, summarizeConnectorDeliveries } from "@/lib/data-store-v2";
+import {
+  getConnectorBackpressurePolicy,
+  processConnectorDeliveryQueue,
+  redriveConnectorDeliveryBatch,
+  summarizeConnectorDeliveries,
+} from "@/lib/data-store-v2";
 import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import { requirePermission } from "@/lib/v2/auth";
 import { connectorTypeSchema } from "@/lib/v2/request-security";
@@ -42,6 +47,15 @@ export async function POST(request: Request) {
   }
 
   const actor = auth.actor.email ?? "api-key";
+  const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
+  const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
+    ? {
+        enabled: policy.is_enabled,
+        maxRetrying: policy.max_retrying,
+        maxDueNow: policy.max_due_now,
+        minLimit: policy.min_limit,
+      }
+    : undefined);
 
   if (parsed.data.action === "process_queue") {
     const summary = await summarizeConnectorDeliveries({
@@ -51,7 +65,7 @@ export async function POST(request: Request) {
     const backpressure = resolveConnectorProcessBackpressure({
       requestedLimit: parsed.data.limit,
       summary,
-      config: parsed.data.backpressure,
+      config: effectiveBackpressureConfig,
     });
 
     const result = await processConnectorDeliveryQueue({
@@ -69,6 +83,7 @@ export async function POST(request: Request) {
       effective_limit: backpressure.effective_limit,
       throttled: backpressure.throttled,
       throttle_reason: backpressure.reason,
+      policy_applied: parsed.data.backpressure === undefined && policy !== null,
       backpressure,
       processed_count: result.processed_count,
       delivery_ids: result.deliveries.map((delivery) => delivery.id),
@@ -93,7 +108,7 @@ export async function POST(request: Request) {
     processBackpressure = resolveConnectorProcessBackpressure({
       requestedLimit: redrive.redriven_count,
       summary,
-      config: parsed.data.backpressure,
+      config: effectiveBackpressureConfig,
     });
 
     const processed = await processConnectorDeliveryQueue({
@@ -114,6 +129,7 @@ export async function POST(request: Request) {
     effective_process_limit: processBackpressure?.effective_limit ?? 0,
     process_throttled: processBackpressure?.throttled ?? false,
     process_throttle_reason: processBackpressure?.reason ?? null,
+    policy_applied: parsed.data.backpressure === undefined && policy !== null,
     process_backpressure: processBackpressure,
     processed_count: processedCount,
     delivery_ids: redrive.deliveries.map((delivery) => delivery.id),

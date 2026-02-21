@@ -213,6 +213,7 @@ export const auditEventTypeSchema = z.enum([
   "connector_dead_lettered_v2",
   "review_alert_policy_updated_v2",
   "connector_guardian_policy_updated_v2",
+  "connector_backpressure_policy_updated_v2",
   "edge_agent_config_updated_v2",
   "edge_agent_command_enqueued_v2",
   "edge_agent_command_acknowledged_v2",
@@ -529,6 +530,18 @@ export const connectorGuardianPolicyRecordSchema = z.object({
   updated_at: z.string(),
 });
 export type ConnectorGuardianPolicyRecord = z.infer<typeof connectorGuardianPolicyRecordSchema>;
+
+export const connectorBackpressurePolicyRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  is_enabled: z.boolean(),
+  max_retrying: z.number().int().positive(),
+  max_due_now: z.number().int().positive(),
+  min_limit: z.number().int().positive(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ConnectorBackpressurePolicyRecord = z.infer<typeof connectorBackpressurePolicyRecordSchema>;
 
 export const environmentProfileSchema = z.enum(["local", "staging", "prod"]);
 export type EnvironmentProfile = z.infer<typeof environmentProfileSchema>;

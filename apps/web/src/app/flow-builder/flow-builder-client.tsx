@@ -316,6 +316,17 @@ type ConnectorGuardianPolicy = {
   updated_at: string;
 };
 
+type ConnectorBackpressurePolicy = {
+  id: string;
+  project_id: string;
+  is_enabled: boolean;
+  max_retrying: number;
+  max_due_now: number;
+  min_limit: number;
+  created_at: string;
+  updated_at: string;
+};
+
 type ActiveLearningCandidate = {
   run: RunRecordV2;
   score: number;
@@ -1378,6 +1389,46 @@ export function FlowBuilderClient() {
     [authHeaders],
   );
 
+  const loadConnectorBackpressurePolicy = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setConnectorProcessBackpressureEnabled(true);
+        setConnectorProcessBackpressureMaxRetrying("50");
+        setConnectorProcessBackpressureMaxDueNow("100");
+        setConnectorProcessBackpressureMinLimit("1");
+        return;
+      }
+
+      const response = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}/connector-backpressure-policy`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as {
+        policy?: ConnectorBackpressurePolicy | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load connector backpressure policy.");
+        return;
+      }
+
+      if (!payload.policy) {
+        setConnectorProcessBackpressureEnabled(true);
+        setConnectorProcessBackpressureMaxRetrying("50");
+        setConnectorProcessBackpressureMaxDueNow("100");
+        setConnectorProcessBackpressureMinLimit("1");
+        return;
+      }
+
+      setConnectorProcessBackpressureEnabled(payload.policy.is_enabled);
+      setConnectorProcessBackpressureMaxRetrying(String(payload.policy.max_retrying));
+      setConnectorProcessBackpressureMaxDueNow(String(payload.policy.max_due_now));
+      setConnectorProcessBackpressureMinLimit(String(payload.policy.min_limit));
+    },
+    [authHeaders],
+  );
+
   const loadActiveLearning = useCallback(
     async (projectId: string) => {
       if (!projectId) {
@@ -1679,11 +1730,13 @@ export function FlowBuilderClient() {
     void loadRuns(selectedProjectId);
     void loadReviewAlertPolicy(selectedProjectId);
     void loadConnectorGuardianPolicy(selectedProjectId);
+    void loadConnectorBackpressurePolicy(selectedProjectId);
     void loadReviewQueues(selectedProjectId);
     void loadActiveLearning(selectedProjectId);
     void loadMembersAndKeys(selectedProjectId);
   }, [
     loadActiveLearning,
+    loadConnectorBackpressurePolicy,
     loadConnectorGuardianPolicy,
     loadDatasets,
     loadFlows,
@@ -2302,6 +2355,68 @@ export function FlowBuilderClient() {
     setSuccess("Review alert policy saved.");
     setReviewAlertResult(JSON.stringify(result, null, 2));
     await loadReviewAlertPolicy(selectedProjectId);
+    setBusyAction(null);
+  }
+
+  function parseConnectorBackpressurePolicyInputs() {
+    const parsedMaxRetrying = Number(connectorProcessBackpressureMaxRetrying);
+    const parsedMaxDueNow = Number(connectorProcessBackpressureMaxDueNow);
+    const parsedMinLimit = Number(connectorProcessBackpressureMinLimit);
+
+    if (!Number.isFinite(parsedMaxRetrying) || parsedMaxRetrying <= 0) {
+      setError("Backpressure max retrying must be a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedMaxDueNow) || parsedMaxDueNow <= 0) {
+      setError("Backpressure max due now must be a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedMinLimit) || parsedMinLimit <= 0) {
+      setError("Backpressure min limit must be a positive number.");
+      return null;
+    }
+
+    return {
+      maxRetrying: Math.min(Math.floor(parsedMaxRetrying), 10_000),
+      maxDueNow: Math.min(Math.floor(parsedMaxDueNow), 10_000),
+      minLimit: Math.min(Math.floor(parsedMinLimit), 100),
+    };
+  }
+
+  async function saveConnectorBackpressurePolicy() {
+    if (!selectedProjectId) {
+      setError("Select a project before saving connector backpressure policy.");
+      return;
+    }
+
+    const parsed = parseConnectorBackpressurePolicyInputs();
+    if (!parsed) {
+      return;
+    }
+
+    setBusyAction("connector_backpressure_policy_save");
+    const response = await fetch(`/api/v2/projects/${encodeURIComponent(selectedProjectId)}/connector-backpressure-policy`, {
+      method: "PUT",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        isEnabled: connectorProcessBackpressureEnabled,
+        maxRetrying: parsed.maxRetrying,
+        maxDueNow: parsed.maxDueNow,
+        minLimit: parsed.minLimit,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Unable to save connector backpressure policy.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Connector backpressure policy saved.");
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorBackpressurePolicy(selectedProjectId);
     setBusyAction(null);
   }
 
@@ -4505,6 +4620,12 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void suggestConnectorBackpressure()}>
               {busyAction === "connector_backpressure_suggest" ? "Suggesting..." : "Suggest Backpressure"}
+            </button>
+            <button className="button secondary" onClick={() => void loadConnectorBackpressurePolicy(selectedProjectId)}>
+              Refresh Backpressure Policy
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void saveConnectorBackpressurePolicy()}>
+              {busyAction === "connector_backpressure_policy_save" ? "Saving..." : "Save Backpressure Policy"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveConnectorBatch()}>
               {busyAction === "connector_redrive_batch" ? "Redriving..." : "Batch Redrive"}

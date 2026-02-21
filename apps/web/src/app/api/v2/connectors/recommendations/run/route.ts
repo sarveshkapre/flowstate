@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  getConnectorBackpressurePolicy,
   getConnectorDelivery,
   listConnectorDeliveries,
   listConnectorDeliveryAttempts,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/data-store-v2";
 import { toConnectorActionTimelineEvent } from "@/lib/v2/connector-action-timeline";
 import { requirePermission } from "@/lib/v2/auth";
+import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import { computeConnectorInsights } from "@/lib/v2/connector-insights";
 import { rankConnectorReliability } from "@/lib/v2/connector-reliability";
 import {
@@ -33,6 +35,14 @@ const runRecommendationsSchema = z.object({
   allowProcessQueue: z.boolean().default(true),
   allowRedriveDeadLetters: z.boolean().default(true),
   dryRun: z.boolean().default(false),
+  backpressure: z
+    .object({
+      enabled: z.boolean().default(false),
+      maxRetrying: z.number().int().positive().max(10_000).optional(),
+      maxDueNow: z.number().int().positive().max(10_000).optional(),
+      minLimit: z.number().int().positive().max(100).default(1),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -90,6 +100,9 @@ export async function POST(request: Request) {
   );
 
   const ranked = rankConnectorReliability(records);
+  const summaryByConnector = new Map<string, (typeof records)[number]["summary"]>(
+    records.map((record) => [record.connector_type, record.summary]),
+  );
   const selected = selectConnectorRecommendationActions({
     connectors: ranked,
     riskThreshold: parsed.data.riskThreshold,
@@ -144,11 +157,24 @@ export async function POST(request: Request) {
   });
   const eligibleActions = cooldownFiltered.eligible;
   const skippedActions = cooldownFiltered.skipped;
+  const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
+  const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
+    ? {
+        enabled: policy.is_enabled,
+        maxRetrying: policy.max_retrying,
+        maxDueNow: policy.max_due_now,
+        minLimit: policy.min_limit,
+      }
+    : undefined);
 
   const actionResults: Array<{
     connector_type: string;
     recommendation: "process_queue" | "redrive_dead_letters";
     risk_score: number;
+    requested_process_limit: number;
+    effective_process_limit: number;
+    process_throttled: boolean;
+    process_throttle_reason: "retrying_limit" | "due_now_limit" | null;
     processed_count: number;
     redriven_count: number;
     delivery_ids: string[];
@@ -158,10 +184,20 @@ export async function POST(request: Request) {
     const actor = auth.actor.email ?? "api-key";
     for (const action of eligibleActions) {
       if (action.recommendation === "process_queue") {
+        const currentSummary = summaryByConnector.get(action.connector_type) ?? {
+          queued: 0,
+          retrying: 0,
+          due_now: 0,
+        };
+        const processBackpressure = resolveConnectorProcessBackpressure({
+          requestedLimit: parsed.data.limit,
+          summary: currentSummary,
+          config: effectiveBackpressureConfig,
+        });
         const process = await processConnectorDeliveryQueue({
           projectId: parsed.data.projectId,
           connectorType: action.connector_type,
-          limit: parsed.data.limit,
+          limit: processBackpressure.effective_limit,
           actor,
         });
 
@@ -169,6 +205,10 @@ export async function POST(request: Request) {
           connector_type: action.connector_type,
           recommendation: action.recommendation,
           risk_score: action.risk_score,
+          requested_process_limit: processBackpressure.requested_limit,
+          effective_process_limit: processBackpressure.effective_limit,
+          process_throttled: processBackpressure.throttled,
+          process_throttle_reason: processBackpressure.reason,
           processed_count: process.processed_count,
           redriven_count: 0,
           delivery_ids: process.deliveries.map((delivery) => delivery.id),
@@ -185,11 +225,21 @@ export async function POST(request: Request) {
       });
 
       let processedCount = 0;
+      let processBackpressure = null as ReturnType<typeof resolveConnectorProcessBackpressure> | null;
       if (redrive.redriven_count > 0) {
+        const processSummary = await summarizeConnectorDeliveries({
+          projectId: parsed.data.projectId,
+          connectorType: action.connector_type,
+        });
+        processBackpressure = resolveConnectorProcessBackpressure({
+          requestedLimit: redrive.redriven_count,
+          summary: processSummary,
+          config: effectiveBackpressureConfig,
+        });
         const process = await processConnectorDeliveryQueue({
           projectId: parsed.data.projectId,
           connectorType: action.connector_type,
-          limit: redrive.redriven_count,
+          limit: processBackpressure.effective_limit,
           actor,
         });
         processedCount = process.processed_count;
@@ -199,6 +249,10 @@ export async function POST(request: Request) {
         connector_type: action.connector_type,
         recommendation: action.recommendation,
         risk_score: action.risk_score,
+        requested_process_limit: processBackpressure?.requested_limit ?? 0,
+        effective_process_limit: processBackpressure?.effective_limit ?? 0,
+        process_throttled: processBackpressure?.throttled ?? false,
+        process_throttle_reason: processBackpressure?.reason ?? null,
         processed_count: processedCount,
         redriven_count: redrive.redriven_count,
         delivery_ids: redrive.deliveries.map((delivery) => delivery.id),
@@ -214,6 +268,8 @@ export async function POST(request: Request) {
     max_actions: parsed.data.maxActions,
     cooldown_minutes: parsed.data.cooldownMinutes,
     dry_run: parsed.data.dryRun,
+    backpressure_enabled: effectiveBackpressureConfig?.enabled === true,
+    policy_applied: parsed.data.backpressure === undefined && policy !== null,
     selected_actions: eligibleActions,
     skipped_actions: skippedActions,
     action_results: actionResults,

@@ -42,6 +42,8 @@ import {
   type ProjectMemberRole,
   reviewAlertPolicyRecordSchema,
   type ReviewAlertPolicyRecord,
+  connectorBackpressurePolicyRecordSchema,
+  type ConnectorBackpressurePolicyRecord,
   connectorGuardianPolicyRecordSchema,
   type ConnectorGuardianPolicyRecord,
   reviewDecisionRecordSchema,
@@ -87,6 +89,7 @@ type DbStateV2 = {
   evidence_regions: EvidenceRegionRecord[];
   eval_packs: EvalPackRecord[];
   review_alert_policies: ReviewAlertPolicyRecord[];
+  connector_backpressure_policies: ConnectorBackpressurePolicyRecord[];
   connector_guardian_policies: ConnectorGuardianPolicyRecord[];
   connector_deliveries: ConnectorDeliveryRecord[];
   connector_delivery_attempts: ConnectorDeliveryAttemptRecord[];
@@ -114,6 +117,7 @@ const DEFAULT_STATE: DbStateV2 = {
   evidence_regions: [],
   eval_packs: [],
   review_alert_policies: [],
+  connector_backpressure_policies: [],
   connector_guardian_policies: [],
   connector_deliveries: [],
   connector_delivery_attempts: [],
@@ -267,6 +271,9 @@ async function readState(): Promise<DbStateV2> {
     evidence_regions: (parsed.evidence_regions ?? []).map((item) => evidenceRegionRecordSchema.parse(item)),
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
     review_alert_policies: (parsed.review_alert_policies ?? []).map((item) => reviewAlertPolicyRecordSchema.parse(item)),
+    connector_backpressure_policies: (parsed.connector_backpressure_policies ?? []).map((item) =>
+      connectorBackpressurePolicyRecordSchema.parse(item),
+    ),
     connector_guardian_policies: (parsed.connector_guardian_policies ?? []).map((item) =>
       connectorGuardianPolicyRecordSchema.parse({
         dry_run: false,
@@ -1235,6 +1242,13 @@ const CONNECTOR_GUARDIAN_POLICY_DEFAULTS = {
   allowRedriveDeadLetters: true,
 } as const;
 
+const CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS = {
+  isEnabled: true,
+  maxRetrying: 50,
+  maxDueNow: 100,
+  minLimit: 1,
+} as const;
+
 function clampPositiveInt(value: number | undefined, fallback: number, max: number) {
   if (!Number.isFinite(value) || typeof value !== "number" || value <= 0) {
     return fallback;
@@ -1364,6 +1378,11 @@ export async function getConnectorGuardianPolicy(projectId: string) {
   return state.connector_guardian_policies.find((policy) => policy.project_id === projectId) ?? null;
 }
 
+export async function getConnectorBackpressurePolicy(projectId: string) {
+  const state = await readState();
+  return state.connector_backpressure_policies.find((policy) => policy.project_id === projectId) ?? null;
+}
+
 export async function upsertConnectorGuardianPolicy(input: {
   projectId: string;
   isEnabled?: boolean;
@@ -1449,6 +1468,66 @@ export async function upsertConnectorGuardianPolicy(input: {
         dry_run: policy.dry_run,
         risk_threshold: policy.risk_threshold,
         max_actions_per_project: policy.max_actions_per_project,
+      },
+    });
+
+    return policy;
+  });
+}
+
+export async function upsertConnectorBackpressurePolicy(input: {
+  projectId: string;
+  isEnabled?: boolean;
+  maxRetrying?: number;
+  maxDueNow?: number;
+  minLimit?: number;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const project = state.projects.find((item) => item.id === input.projectId);
+    if (!project) {
+      throw new Error("Project not found");
+    }
+
+    const existing = state.connector_backpressure_policies.find((policy) => policy.project_id === input.projectId) ?? null;
+    const now = new Date().toISOString();
+
+    const policy = connectorBackpressurePolicyRecordSchema.parse({
+      id: existing?.id ?? randomUUID(),
+      project_id: input.projectId,
+      is_enabled: input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.isEnabled,
+      max_retrying: clampPositiveInt(
+        input.maxRetrying ?? existing?.max_retrying,
+        CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxRetrying,
+        10_000,
+      ),
+      max_due_now: clampPositiveInt(
+        input.maxDueNow ?? existing?.max_due_now,
+        CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxDueNow,
+        10_000,
+      ),
+      min_limit: clampPositiveInt(input.minLimit ?? existing?.min_limit, CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit, 100),
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    });
+
+    const existingIndex = state.connector_backpressure_policies.findIndex((item) => item.project_id === input.projectId);
+    if (existingIndex >= 0) {
+      state.connector_backpressure_policies[existingIndex] = policy;
+    } else {
+      state.connector_backpressure_policies.unshift(policy);
+    }
+
+    appendAuditEvent(state, {
+      eventType: "connector_backpressure_policy_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        policy_id: policy.id,
+        project_id: policy.project_id,
+        is_enabled: policy.is_enabled,
+        max_retrying: policy.max_retrying,
+        max_due_now: policy.max_due_now,
+        min_limit: policy.min_limit,
       },
     });
 

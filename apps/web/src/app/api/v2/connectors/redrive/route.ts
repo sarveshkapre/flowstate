@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  getConnectorBackpressurePolicy,
   processConnectorDeliveryQueue,
   redriveConnectorDeliveryBatch,
   summarizeConnectorDeliveries,
@@ -47,6 +48,15 @@ export async function POST(request: Request) {
   }
 
   const actor = auth.actor.email ?? "api-key";
+  const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
+  const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
+    ? {
+        enabled: policy.is_enabled,
+        maxRetrying: policy.max_retrying,
+        maxDueNow: policy.max_due_now,
+        minLimit: policy.min_limit,
+      }
+    : undefined);
   const connectorTypes = [...new Set(parsed.data.connectorTypes ?? [...SUPPORTED_CONNECTOR_TYPES])];
   let redrivenCount = 0;
   let processedCount = 0;
@@ -112,7 +122,7 @@ export async function POST(request: Request) {
       processBackpressure = resolveConnectorProcessBackpressure({
         requestedLimit: redriveResult.redriven_count,
         summary: processSummary,
-        config: parsed.data.backpressure,
+        config: effectiveBackpressureConfig,
       });
 
       const processResult = await processConnectorDeliveryQueue({
@@ -153,7 +163,8 @@ export async function POST(request: Request) {
     min_dead_letter_count: parsed.data.minDeadLetterCount,
     min_dead_letter_minutes: parsed.data.minDeadLetterMinutes,
     process_after_redrive: parsed.data.processAfterRedrive,
-    backpressure_enabled: parsed.data.backpressure?.enabled === true,
+    backpressure_enabled: effectiveBackpressureConfig?.enabled === true,
+    policy_applied: parsed.data.backpressure === undefined && policy !== null,
     redriven_count: redrivenCount,
     processed_count: processedCount,
     skipped_count: skippedCount,

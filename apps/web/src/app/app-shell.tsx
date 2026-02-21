@@ -54,7 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={cn(
           "block rounded-md px-3 py-2 text-sm font-medium transition-colors",
           isActive(item.href)
-            ? "bg-primary text-primary-foreground"
+            ? "bg-primary text-white shadow-sm"
             : "text-muted-foreground hover:bg-muted hover:text-foreground"
         )}
       >
@@ -105,7 +105,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className={cn(
                 "inline-flex w-full items-center justify-center rounded-md px-1 py-2 text-center text-xs font-medium",
                 isActive(item.href)
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-primary text-white shadow-sm"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
@@ -138,7 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={cn(
                   "rounded-md border border-border px-3 py-2 text-sm",
                   isActive(item.href)
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-primary text-white shadow-sm"
                     : "text-foreground hover:bg-muted"
                 )}
               >

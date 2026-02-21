@@ -2,6 +2,14 @@
 
 This file defines the default UI standards for any new or updated interface in Flowstate.
 
+## 0. Source of Truth
+
+1. Build UI using shadcn/ui Tailwind v4 patterns and Radix UI primitives.
+2. Primary reference: `https://ui.shadcn.com/docs/tailwind-v4`
+3. Primary reference: `https://www.radix-ui.com/primitives`
+4. Local reference implementation: `/Users/sarvesh/code/ui`
+5. Reusable UI primitives must be added in `packages/ui` first, then consumed by `apps/web`.
+
 ## 1. Product UX Priorities
 
 1. Optimize for operator speed and confidence.
@@ -129,8 +137,8 @@ A UI task is complete only if:
 
 ## 12. Implementation Notes for Contributors
 
-1. Start by extending existing design tokens and shared classes.
-2. Prefer small composable improvements over one-off page hacks.
-3. Reuse established classes (`panel`, `card`, `stack`, `grid`, `status`, `button`).
-4. If introducing a new pattern, document it in this file in the same PR.
-
+1. Use `@flowstate/ui` components as the first choice for buttons, inputs, cards, tabs, and badges.
+2. When adding a new component, follow shadcn component structure and `cn` utility patterns.
+3. Keep style tokens centralized in Tailwind v4 CSS variables and avoid page-scoped one-off color systems.
+4. Prefer Radix-based behavior wrappers (accessibility/state) over custom JS for primitives.
+5. If introducing a new pattern, document it in this file in the same PR.

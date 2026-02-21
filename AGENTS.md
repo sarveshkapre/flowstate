@@ -18,6 +18,15 @@ Build Flowstate into an OpenAI-native VisionOps platform with production softwar
 - Reusable UI belongs in `packages/ui`.
 - Worker jobs belong in `apps/worker/src/jobs`.
 
+## UI Stack (Required)
+
+- Default UI stack is shadcn/ui patterns on Tailwind CSS v4 with Radix UI primitives.
+- Before building new UI, reference:
+- `https://ui.shadcn.com/docs/tailwind-v4`
+- `https://www.radix-ui.com/primitives`
+- Local shadcn reference checkout at `/Users/sarvesh/code/ui` for implementation patterns and component structure.
+- Prefer adding reusable primitives in `packages/ui` and consume them in `apps/web` instead of page-specific one-off styling.
+
 ## Code Quality
 
 - TypeScript strict mode remains enabled.

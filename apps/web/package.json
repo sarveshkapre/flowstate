@@ -12,6 +12,7 @@
     "test": "node --experimental-strip-types --test src/lib/v1/*.test.ts src/lib/v2/*.test.ts && mkdir -p coverage && echo \"ok\" > coverage/.keep"
   },
   "dependencies": {
+    "@flowstate/ui": "*",
     "next": "^16.0.0",
     "openai": "^6.4.0",
     "react": "^19.2.0",

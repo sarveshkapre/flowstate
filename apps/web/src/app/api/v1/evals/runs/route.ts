@@ -3,6 +3,7 @@ import { reviewStatusSchema } from "@flowstate/types";
 import { z } from "zod";
 
 import { getEvaluationRuns, runEvaluation } from "@/lib/eval-service";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const createEvalRunSchema = z.object({
   organizationId: z.string().min(1).max(120).optional(),
@@ -11,6 +12,11 @@ const createEvalRunSchema = z.object({
 });
 
 export async function GET(request: Request) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const url = new URL(request.url);
   const organizationId = url.searchParams.get("organizationId") || undefined;
   const reviewStatusParam = url.searchParams.get("reviewStatus");
@@ -33,6 +39,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "run_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const payload = await request.json().catch(() => null);
   const parsed = createEvalRunSchema.safeParse(payload);
 

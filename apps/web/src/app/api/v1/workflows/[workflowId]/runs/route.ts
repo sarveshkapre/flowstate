@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getWorkflow, listWorkflowRuns } from "@/lib/data-store";
 import { runWorkflow } from "@/lib/workflow-service";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 type Params = {
   params: Promise<{ workflowId: string }>;
@@ -12,7 +13,12 @@ const runWorkflowSchema = z.object({
   artifactId: z.string().uuid(),
 });
 
-export async function GET(_: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const { workflowId } = await params;
 
   const workflow = await getWorkflow(workflowId);
@@ -26,6 +32,11 @@ export async function GET(_: Request, { params }: Params) {
 }
 
 export async function POST(request: Request, { params }: Params) {
+  const unauthorized = await requireV1Permission(request, "run_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const { workflowId } = await params;
   const workflow = await getWorkflow(workflowId);
 

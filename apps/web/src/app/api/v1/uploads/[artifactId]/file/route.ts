@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 
 import { readArtifactBytes } from "@/lib/data-store";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 type Params = {
   params: Promise<{ artifactId: string }>;
 };
 
-export async function GET(_: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const { artifactId } = await params;
   const record = await readArtifactBytes(artifactId);
 

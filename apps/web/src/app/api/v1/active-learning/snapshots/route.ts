@@ -9,6 +9,7 @@ import {
   writeSnapshotJsonl,
 } from "@/lib/data-store";
 import { selectActiveLearningCandidates } from "@/lib/active-learning";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const createSchema = z.object({
   max: z.number().int().positive().max(5000).default(200),
@@ -22,6 +23,11 @@ function buildSnapshotFileName() {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "create_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const payload = await request.json().catch(() => ({}));
   const parsed = createSchema.safeParse(payload);
 

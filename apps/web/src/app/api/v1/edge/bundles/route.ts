@@ -3,6 +3,7 @@ import { edgeAdapterSchema } from "@flowstate/types";
 import { z } from "zod";
 
 import { createEdgeDeploymentBundle, listBundles } from "@/lib/edge-bundle-service";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const createBundleSchema = z.object({
   workflowId: z.string().uuid(),
@@ -11,11 +12,20 @@ const createBundleSchema = z.object({
 });
 
 export async function GET(request: Request) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const url = new URL(request.url);
   const organizationId = url.searchParams.get("organizationId") || undefined;
   const workflowId = url.searchParams.get("workflowId") || undefined;
   const limitParam = url.searchParams.get("limit");
   const limit = limitParam ? Number(limitParam) : undefined;
+
+  if (limitParam && (!Number.isFinite(limit) || (limit ?? 0) <= 0)) {
+    return NextResponse.json({ error: "Invalid limit" }, { status: 400 });
+  }
 
   const bundles = await listBundles({
     organizationId,
@@ -27,6 +37,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "create_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const payload = await request.json().catch(() => null);
   const parsed = createBundleSchema.safeParse(payload);
 

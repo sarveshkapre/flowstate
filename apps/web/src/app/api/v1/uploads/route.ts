@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createArtifact, listArtifacts } from "@/lib/data-store";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const MAX_UPLOAD_BYTES = Number(process.env.FLOWSTATE_MAX_UPLOAD_BYTES || 20 * 1024 * 1024);
 
@@ -9,6 +10,11 @@ function isSupportedMimeType(mimeType: string) {
 }
 
 export async function GET(request: Request) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const url = new URL(request.url);
   const limitParam = url.searchParams.get("limit");
   const limit = limitParam ? Number(limitParam) : undefined;
@@ -22,6 +28,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "run_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const form = await request.formData();
   const file = form.get("file");
 

@@ -10,6 +10,7 @@ import {
   listExtractionJobs,
   writeSnapshotJsonl,
 } from "@/lib/data-store";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const createSchema = z.object({
   reviewStatus: reviewStatusSchema.default("approved"),
@@ -20,12 +21,22 @@ function buildSnapshotFileName() {
   return `snapshot-${stamp}-${randomUUID().slice(0, 8)}.jsonl`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const snapshots = await listDatasetSnapshots();
   return NextResponse.json({ snapshots });
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "create_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const payload = await request.json().catch(() => ({}));
   const parsed = createSchema.safeParse(payload);
 

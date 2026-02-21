@@ -8,6 +8,7 @@ import {
   listExtractionJobs,
 } from "@/lib/data-store";
 import { executeExtractionJob } from "@/lib/extraction-service";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const createRequestSchema = z.object({
   artifactId: z.string().uuid(),
@@ -15,6 +16,11 @@ const createRequestSchema = z.object({
 });
 
 export async function GET(request: Request) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
   const reviewStatus = url.searchParams.get("reviewStatus");
@@ -58,6 +64,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "run_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const payload = await request.json().catch(() => null);
   const parsed = createRequestSchema.safeParse(payload);
 

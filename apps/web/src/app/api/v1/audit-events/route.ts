@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { listAuditEvents } from "@/lib/data-store";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 export async function GET(request: Request) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const url = new URL(request.url);
   const jobId = url.searchParams.get("jobId") ?? undefined;
   const limitParam = url.searchParams.get("limit");

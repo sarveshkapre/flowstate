@@ -3,6 +3,7 @@ import { documentTypeSchema } from "@flowstate/types";
 import { z } from "zod";
 
 import { createWorkflow, listWorkflows } from "@/lib/data-store";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const createWorkflowSchema = z.object({
   organizationId: z.string().min(1).max(120).optional(),
@@ -15,6 +16,11 @@ const createWorkflowSchema = z.object({
 });
 
 export async function GET(request: Request) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const url = new URL(request.url);
   const organizationId = url.searchParams.get("organizationId") || undefined;
 
@@ -25,6 +31,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "create_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const payload = await request.json().catch(() => null);
   const parsed = createWorkflowSchema.safeParse(payload);
 

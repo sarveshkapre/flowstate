@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { assignReviewer, getExtractionJob, updateReviewStatus } from "@/lib/data-store";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const patchSchema = z.discriminatedUnion("action", [
   z.object({
@@ -20,7 +21,12 @@ type Params = {
   params: Promise<{ jobId: string }>;
 };
 
-export async function GET(_: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
+  const unauthorized = await requireV1Permission(request, "read_project");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const { jobId } = await params;
   const job = await getExtractionJob(jobId);
 
@@ -32,6 +38,11 @@ export async function GET(_: Request, { params }: Params) {
 }
 
 export async function PATCH(request: Request, { params }: Params) {
+  const unauthorized = await requireV1Permission(request, "review_queue");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const { jobId } = await params;
   const payload = await request.json().catch(() => null);
   const parsed = patchSchema.safeParse(payload);

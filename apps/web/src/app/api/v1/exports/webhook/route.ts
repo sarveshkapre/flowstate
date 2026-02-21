@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { listExtractionJobs } from "@/lib/data-store";
 import { dispatchWebhookForJobs } from "@/lib/webhook-dispatch";
+import { requireV1Permission } from "@/lib/v1/auth";
 
 const requestSchema = z.object({
   targetUrl: z.url(),
@@ -12,6 +13,11 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const unauthorized = await requireV1Permission(request, "run_flow");
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   const payload = await request.json().catch(() => null);
   const parsed = requestSchema.safeParse(payload);
 

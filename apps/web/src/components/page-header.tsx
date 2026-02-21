@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Badge, Button } from "@flowstate/ui";
+import { Button } from "@flowstate/ui";
 
 type HeaderLink = {
   href: string;
@@ -7,19 +7,20 @@ type HeaderLink = {
 };
 
 type PageHeaderProps = {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
   links: HeaderLink[];
+  minimal?: boolean;
 };
 
-export function PageHeader({ eyebrow, title, description, links }: PageHeaderProps) {
+export function PageHeader({ eyebrow, title, description, links, minimal = true }: PageHeaderProps) {
   return (
-    <header className="hero compact panel space-y-4">
-      <Badge variant="secondary">{eyebrow}</Badge>
+    <header className="hero compact space-y-3">
+      {!minimal && eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
       <h1 className="max-w-4xl text-balance">{title}</h1>
-      <p className="subtitle">{description}</p>
-      <div className="flex flex-wrap gap-2">
+      {!minimal && description ? <p className="subtitle">{description}</p> : null}
+      <div className="flex flex-wrap items-center gap-2">
         {links.map((link) => (
           <Button key={link.href} asChild size="sm" variant="outline">
             <Link href={link.href}>{link.label}</Link>

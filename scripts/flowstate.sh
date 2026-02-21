@@ -8,6 +8,7 @@ LOG_DIR="$RUNTIME_DIR/logs"
 WEB_PID_FILE="$PID_DIR/web.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
 WATCHER_PID_FILE="$PID_DIR/inbox-watcher.pid"
+CONNECTOR_PUMP_PID_FILE="$PID_DIR/connector-pump.pid"
 
 print_error() {
   printf "\033[31m%s\033[0m\n" "$1" >&2
@@ -65,6 +66,9 @@ show_logs() {
     watcher)
       tail -n "$tail_lines" "$LOG_DIR/inbox-watcher.log"
       ;;
+    connector-pump)
+      tail -n "$tail_lines" "$LOG_DIR/connector-pump.log"
+      ;;
     all)
       print_info "web log"
       tail -n "$tail_lines" "$LOG_DIR/web.log" || true
@@ -74,6 +78,9 @@ show_logs() {
       printf "\n"
       print_info "inbox-watcher log"
       tail -n "$tail_lines" "$LOG_DIR/inbox-watcher.log" || true
+      printf "\n"
+      print_info "connector-pump log"
+      tail -n "$tail_lines" "$LOG_DIR/connector-pump.log" || true
       ;;
     *)
       print_error "Unknown service: $service"
@@ -91,7 +98,7 @@ Usage:
   scripts/flowstate.sh stop
   scripts/flowstate.sh restart
   scripts/flowstate.sh status
-  scripts/flowstate.sh logs [web|worker|watcher|all]
+  scripts/flowstate.sh logs [web|worker|watcher|connector-pump|all]
 USAGE
 }
 
@@ -113,6 +120,7 @@ case "$COMMAND" in
     status_line "web" "$WEB_PID_FILE"
     status_line "worker" "$WORKER_PID_FILE"
     status_line "inbox-watcher" "$WATCHER_PID_FILE"
+    status_line "connector-pump" "$CONNECTOR_PUMP_PID_FILE"
     ;;
   logs)
     if [[ ! -d "$LOG_DIR" ]]; then

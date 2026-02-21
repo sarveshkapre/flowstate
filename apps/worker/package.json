@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "watch:inbox": "tsx src/watch/inbox.ts",
+    "watch:connectors": "tsx src/watch/connectors.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"No worker tests yet\""
+    "test": "tsx --test src/jobs/*.test.ts"
   },
   "dependencies": {
     "openai": "^6.4.0",

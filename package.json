@@ -21,6 +21,7 @@
     "dev:down": "bash scripts/dev-down.sh",
     "flowstate": "bash scripts/flowstate.sh",
     "watch:inbox": "npm run watch:inbox --workspace @flowstate/worker",
+    "watch:connectors": "npm run watch:connectors --workspace @flowstate/worker",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

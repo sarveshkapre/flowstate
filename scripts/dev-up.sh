@@ -10,9 +10,11 @@ PID_DIR="$RUNTIME_DIR/pids"
 WEB_LOG="$LOG_DIR/web.log"
 WORKER_LOG="$LOG_DIR/worker.log"
 WATCHER_LOG="$LOG_DIR/inbox-watcher.log"
+CONNECTOR_PUMP_LOG="$LOG_DIR/connector-pump.log"
 WEB_PID_FILE="$PID_DIR/web.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
 WATCHER_PID_FILE="$PID_DIR/inbox-watcher.pid"
+CONNECTOR_PUMP_PID_FILE="$PID_DIR/connector-pump.pid"
 
 print_error() {
   printf "\033[31m%s\033[0m\n" "$1" >&2
@@ -108,6 +110,8 @@ fi
 
 FOLDER_WATCHER_ENABLED="$(read_env_value FLOWSTATE_ENABLE_FOLDER_WATCHER || true)"
 FOLDER_WATCHER_ENABLED_NORMALIZED="$(printf '%s' "$FOLDER_WATCHER_ENABLED" | tr '[:upper:]' '[:lower:]')"
+CONNECTOR_PUMP_ENABLED="$(read_env_value FLOWSTATE_ENABLE_CONNECTOR_PUMP || true)"
+CONNECTOR_PUMP_ENABLED_NORMALIZED="$(printf '%s' "$CONNECTOR_PUMP_ENABLED" | tr '[:upper:]' '[:lower:]')"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
@@ -131,11 +135,22 @@ if [[ "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "1" || "$FOLDER_WATCHER_ENABLED_NO
     env FLOWSTATE_EFFECTIVE_OPENAI_API_KEY="$OPENAI_API_KEY_VALUE" bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && export OPENAI_API_KEY=\"\$FLOWSTATE_EFFECTIVE_OPENAI_API_KEY\" && npm run watch:inbox --workspace @flowstate/worker"
 fi
 
+if [[ "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "1" || "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "true" || "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "yes" ]]; then
+  start_service \
+    "connector-pump" \
+    "$CONNECTOR_PUMP_PID_FILE" \
+    "$CONNECTOR_PUMP_LOG" \
+    env FLOWSTATE_EFFECTIVE_OPENAI_API_KEY="$OPENAI_API_KEY_VALUE" bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && export OPENAI_API_KEY=\"\$FLOWSTATE_EFFECTIVE_OPENAI_API_KEY\" && npm run watch:connectors --workspace @flowstate/worker"
+fi
+
 printf "\nFlowstate dev services are running.\n"
 printf "  Web URL:      %s\n" "http://localhost:3000"
 printf "  Web log:      %s\n" "$WEB_LOG"
 printf "  Worker log:   %s\n" "$WORKER_LOG"
 if [[ "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "1" || "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "true" || "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "yes" ]]; then
   printf "  Watcher log:  %s\n" "$WATCHER_LOG"
+fi
+if [[ "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "1" || "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "true" || "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "yes" ]]; then
+  printf "  Pump log:     %s\n" "$CONNECTOR_PUMP_LOG"
 fi
 printf "  Stop command: %s\n" "scripts/dev-down.sh"

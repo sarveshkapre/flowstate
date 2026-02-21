@@ -22,12 +22,12 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - M2 Flow Builder v1 + Deploy (in progress)
 
 ## Pending Features
-- Role/permission hardening across all legacy v1 endpoints.
-- Replay diff reports and promotion gates with explicit release thresholds.
 - Evidence-region visual annotation UX.
-- Edge runner runtime health dashboard and remote diagnostics UX.
 
 ## Delivered Features
+- 2026-02-21: Legacy v1 API endpoints hardened with shared role/permission checks and stricter route-level validation.
+- 2026-02-21: Replay v2 promotion gates shipped with configurable rollout thresholds (success rate, baseline-change rate, field accuracy, expected-sample coverage).
+- 2026-02-21: Edge Control v2 expanded with runtime diagnostics UX (checkpoint visibility, filtered event stream, and one-click diagnostics command queueing).
 - 2026-02-17: v2 control-plane API foundations added for projects, auth, flows, runs, datasets, replay, reviews, active-learning eval packs, connectors, and edge agent ingress.
 - 2026-02-17: Flow Builder v2 UI shipped with graph editing, version/deploy controls, and webhook runtime testing.
 - 2026-02-17: Replay v2 enhanced with optional baseline version diff summaries and field-level expected accuracy.

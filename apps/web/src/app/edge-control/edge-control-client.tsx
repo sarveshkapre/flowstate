@@ -37,6 +37,22 @@ type EdgeAgentCommand = {
   acknowledged_at: string | null;
 };
 
+type SyncCheckpoint = {
+  id: string;
+  agent_id: string;
+  checkpoint_key: string;
+  checkpoint_value: string;
+  updated_at: string;
+};
+
+type EdgeAgentEvent = {
+  id: string;
+  agent_id: string;
+  event_type: string;
+  payload: unknown;
+  created_at: string;
+};
+
 type EdgeAgentHealth = {
   agent: EdgeAgent;
   heartbeat_lag_ms: number | null;
@@ -48,6 +64,8 @@ type EdgeAgentHealth = {
     failed: number;
     acknowledged: number;
   };
+  checkpoints: SyncCheckpoint[];
+  recent_events: EdgeAgentEvent[];
 };
 
 type Role = "owner" | "admin" | "builder" | "reviewer" | "viewer";
@@ -63,6 +81,7 @@ export function EdgeControlClient() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<EdgeAgent[]>([]);
   const [commands, setCommands] = useState<EdgeAgentCommand[]>([]);
+  const [events, setEvents] = useState<EdgeAgentEvent[]>([]);
   const [activeConfig, setActiveConfig] = useState<EdgeAgentConfig | null>(null);
   const [activeHealth, setActiveHealth] = useState<EdgeAgentHealth | null>(null);
 
@@ -72,6 +91,8 @@ export function EdgeControlClient() {
   const [commandStatusFilter, setCommandStatusFilter] = useState<
     "all" | "pending" | "claimed" | "acknowledged" | "failed"
   >("all");
+  const [eventTypeFilter, setEventTypeFilter] = useState("");
+  const [eventLimit, setEventLimit] = useState("20");
 
   const [newAgentName, setNewAgentName] = useState("Mac Mini Runner");
   const [newAgentPlatform, setNewAgentPlatform] = useState("macOS");
@@ -86,6 +107,7 @@ export function EdgeControlClient() {
   const [isLoadingCommands, setIsLoadingCommands] = useState(false);
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [isLoadingHealth, setIsLoadingHealth] = useState(false);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function setSuccess(message: string) {
@@ -119,7 +141,7 @@ export function EdgeControlClient() {
   );
 
   const loadOrganizations = useCallback(async () => {
-    const response = await fetch("/api/v1/organizations", { cache: "no-store" });
+    const response = await fetch("/api/v1/organizations", { cache: "no-store", headers: authHeaders(false) });
     const payload = (await response.json()) as { organizations?: Organization[] };
     const nextOrganizations = payload.organizations ?? [];
     setOrganizations(nextOrganizations);
@@ -127,7 +149,7 @@ export function EdgeControlClient() {
     if (!selectedOrganizationId && nextOrganizations[0]) {
       setSelectedOrganizationId(nextOrganizations[0].id);
     }
-  }, [selectedOrganizationId]);
+  }, [authHeaders, selectedOrganizationId]);
 
   const loadProjects = useCallback(async () => {
     if (!selectedOrganizationId) {
@@ -271,6 +293,42 @@ export function EdgeControlClient() {
     }
   }, [authHeaders, selectedAgentId]);
 
+  const loadEvents = useCallback(async () => {
+    if (!selectedAgentId) {
+      setEvents([]);
+      return;
+    }
+
+    const parsedLimit = Number(eventLimit);
+    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), 100) : 20;
+    const query = new URLSearchParams({
+      limit: String(safeLimit),
+    });
+
+    if (eventTypeFilter.trim()) {
+      query.set("eventType", eventTypeFilter.trim());
+    }
+
+    setIsLoadingEvents(true);
+    try {
+      const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/events?${query.toString()}`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as { events?: EdgeAgentEvent[]; error?: string };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load agent events.");
+        setEvents([]);
+        return;
+      }
+
+      setEvents(payload.events ?? []);
+    } finally {
+      setIsLoadingEvents(false);
+    }
+  }, [authHeaders, eventLimit, eventTypeFilter, selectedAgentId]);
+
   useEffect(() => {
     void loadOrganizations();
   }, [loadOrganizations]);
@@ -287,7 +345,8 @@ export function EdgeControlClient() {
     void loadCommands();
     void loadConfig();
     void loadHealth();
-  }, [loadCommands, loadConfig, loadHealth]);
+    void loadEvents();
+  }, [loadCommands, loadConfig, loadEvents, loadHealth]);
 
   async function registerAgent() {
     if (!selectedProjectId) {
@@ -447,6 +506,41 @@ export function EdgeControlClient() {
     setResponsePayload(JSON.stringify(payload, null, 2));
     await loadCommands();
     await loadHealth();
+    await loadEvents();
+    setIsSubmitting(false);
+  }
+
+  async function enqueueDiagnosticCommand(command: "collect_diagnostics" | "flush_logs" | "restart_runtime") {
+    if (!selectedAgentId) {
+      setError("Select an agent first.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    const response = await fetch(`/api/v2/edge/agents/${selectedAgentId}/commands`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        commandType: command,
+        payload: {
+          requested_at: new Date().toISOString(),
+          source: "edge-control-ui",
+        },
+      }),
+    });
+    const payload = (await response.json()) as { command?: EdgeAgentCommand; error?: string };
+
+    if (!response.ok || !payload.command) {
+      setError(payload.error || "Failed to enqueue diagnostic command.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    setSuccess(`Diagnostic command queued: ${command}`);
+    setResponsePayload(JSON.stringify(payload, null, 2));
+    await loadCommands();
+    await loadHealth();
+    await loadEvents();
     setIsSubmitting(false);
   }
 
@@ -575,11 +669,32 @@ export function EdgeControlClient() {
             {isLoadingHealth ? <span className="muted">loading health...</span> : null}
           </div>
           {activeHealth ? (
-            <p className="muted">
-              commands: pending {activeHealth.commands.pending}, claimed {activeHealth.commands.claimed}, failed{" "}
-              {activeHealth.commands.failed}, acked {activeHealth.commands.acknowledged}
-            </p>
+            <>
+              <p className="muted">
+                commands: pending {activeHealth.commands.pending}, claimed {activeHealth.commands.claimed}, failed{" "}
+                {activeHealth.commands.failed}, acked {activeHealth.commands.acknowledged}
+              </p>
+              <p className="muted">
+                stale threshold: {Math.round(activeHealth.stale_threshold_ms / 1000)}s | last heartbeat:{" "}
+                {activeHealth.agent.last_heartbeat_at ? new Date(activeHealth.agent.last_heartbeat_at).toLocaleString() : "never"}
+              </p>
+            </>
           ) : null}
+
+          <div className="stack">
+            <p className="muted">Recent checkpoints</p>
+            {!activeHealth?.checkpoints?.length ? (
+              <p className="muted">No checkpoints published by agent.</p>
+            ) : (
+              <ul className="list">
+                {activeHealth.checkpoints.map((checkpoint) => (
+                  <li key={checkpoint.id}>
+                    <span className="mono">{checkpoint.checkpoint_key}</span>: {checkpoint.checkpoint_value}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </article>
 
         <article className="card stack">
@@ -659,6 +774,70 @@ export function EdgeControlClient() {
                       </button>
                     </>
                   ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+      </div>
+
+      <div className="grid two-col">
+        <article className="card stack">
+          <h3>Remote Diagnostics</h3>
+          <p className="muted">Queue common diagnostics commands without editing JSON payloads manually.</p>
+          <div className="row wrap">
+            <button
+              className="button secondary"
+              disabled={isSubmitting}
+              onClick={() => void enqueueDiagnosticCommand("collect_diagnostics")}
+            >
+              Collect Diagnostics
+            </button>
+            <button
+              className="button secondary"
+              disabled={isSubmitting}
+              onClick={() => void enqueueDiagnosticCommand("flush_logs")}
+            >
+              Flush Logs
+            </button>
+            <button
+              className="button secondary"
+              disabled={isSubmitting}
+              onClick={() => void enqueueDiagnosticCommand("restart_runtime")}
+            >
+              Restart Runtime
+            </button>
+          </div>
+          <p className="muted">
+            Latest health signal:{" "}
+            <span className={`badge ${activeHealth?.is_stale ? "bad" : "good"}`}>
+              {activeHealth?.is_stale ? "stale" : "healthy"}
+            </span>
+          </p>
+        </article>
+
+        <article className="card stack">
+          <h3>Event Stream</h3>
+          <div className="grid two-col">
+            <label className="field">
+              <span>Event Type Filter</span>
+              <input value={eventTypeFilter} onChange={(event) => setEventTypeFilter(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Limit</span>
+              <input value={eventLimit} onChange={(event) => setEventLimit(event.target.value)} />
+            </label>
+          </div>
+          <button className="button secondary" disabled={isLoadingEvents} onClick={() => void loadEvents()}>
+            {isLoadingEvents ? "Loading..." : "Refresh Events"}
+          </button>
+          {events.length === 0 ? (
+            <p className="muted">No events for selected filter.</p>
+          ) : (
+            <ul className="list">
+              {events.map((event) => (
+                <li key={event.id}>
+                  <span className="mono">{event.event_type}</span> - {new Date(event.created_at).toLocaleString()}
                 </li>
               ))}
             </ul>

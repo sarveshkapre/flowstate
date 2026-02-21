@@ -451,7 +451,10 @@ export function FlowBuilderClient() {
   );
 
   const loadOrganizations = useCallback(async () => {
-    const response = await fetch("/api/v1/organizations", { cache: "no-store" });
+    const response = await fetch("/api/v1/organizations", {
+      cache: "no-store",
+      headers: authHeaders(false),
+    });
     const payload = (await response.json()) as { organizations?: Organization[] };
     const nextOrganizations = payload.organizations ?? [];
     setOrganizations(nextOrganizations);
@@ -459,7 +462,7 @@ export function FlowBuilderClient() {
     if (!selectedOrganizationId && nextOrganizations[0]) {
       setSelectedOrganizationId(nextOrganizations[0].id);
     }
-  }, [selectedOrganizationId]);
+  }, [authHeaders, selectedOrganizationId]);
 
   const loadProjects = useCallback(
     async (organizationId: string) => {

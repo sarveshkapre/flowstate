@@ -644,6 +644,12 @@ export function FlowBuilderClient() {
   const [reviewQueues, setReviewQueues] = useState<ReviewQueueOpsItem[]>([]);
   const [reviewQueueSummary, setReviewQueueSummary] = useState<ReviewQueueOpsSummary>(EMPTY_REVIEW_QUEUE_SUMMARY);
   const [reviewStaleHours, setReviewStaleHours] = useState("24");
+  const [reviewAlertConnectorType, setReviewAlertConnectorType] = useState("slack");
+  const [reviewAlertMinUnreviewed, setReviewAlertMinUnreviewed] = useState("5");
+  const [reviewAlertMinAtRisk, setReviewAlertMinAtRisk] = useState("3");
+  const [reviewAlertMinStale, setReviewAlertMinStale] = useState("3");
+  const [reviewAlertMinAvgErrorRate, setReviewAlertMinAvgErrorRate] = useState("0.35");
+  const [reviewAlertResult, setReviewAlertResult] = useState("");
   const [selectedReviewDecisionId, setSelectedReviewDecisionId] = useState("");
   const [newReviewFieldName, setNewReviewFieldName] = useState("total");
   const [newReviewDecision, setNewReviewDecision] = useState<ReviewDecisionValue>("incorrect");
@@ -1671,6 +1677,136 @@ export function FlowBuilderClient() {
 
     setSuccess(`Eval pack created with ${payload.pack.candidate_run_ids.length} candidate runs.`);
     await loadActiveLearning(selectedProjectId);
+    setBusyAction(null);
+  }
+
+  function parseReviewAlertThresholds() {
+    const parsedUnreviewed = Number(reviewAlertMinUnreviewed);
+    const parsedAtRisk = Number(reviewAlertMinAtRisk);
+    const parsedStale = Number(reviewAlertMinStale);
+    const parsedAvgErrorRate = Number(reviewAlertMinAvgErrorRate);
+    const parsedStaleHours = Number(reviewStaleHours);
+
+    if (!Number.isFinite(parsedUnreviewed) || parsedUnreviewed < 0) {
+      setError("Min unreviewed queues must be zero or a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedAtRisk) || parsedAtRisk < 0) {
+      setError("Min at-risk queues must be zero or a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedStale) || parsedStale < 0) {
+      setError("Min stale queues must be zero or a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedAvgErrorRate) || parsedAvgErrorRate < 0 || parsedAvgErrorRate > 1) {
+      setError("Min average error rate must be a number between 0 and 1.");
+      return null;
+    }
+    if (!Number.isFinite(parsedStaleHours) || parsedStaleHours <= 0) {
+      setError("Stale threshold hours must be a positive number.");
+      return null;
+    }
+
+    return {
+      minUnreviewedQueues: Math.floor(parsedUnreviewed),
+      minAtRiskQueues: Math.floor(parsedAtRisk),
+      minStaleQueues: Math.floor(parsedStale),
+      minAvgErrorRate: parsedAvgErrorRate,
+      staleHours: Math.floor(parsedStaleHours),
+    };
+  }
+
+  async function previewReviewAlert() {
+    if (!selectedProjectId) {
+      setError("Select a project before previewing review alerts.");
+      return;
+    }
+
+    const parsed = parseReviewAlertThresholds();
+    if (!parsed) {
+      return;
+    }
+
+    const query = new URLSearchParams({
+      projectId: selectedProjectId,
+      staleHours: String(parsed.staleHours),
+      minUnreviewedQueues: String(parsed.minUnreviewedQueues),
+      minAtRiskQueues: String(parsed.minAtRiskQueues),
+      minStaleQueues: String(parsed.minStaleQueues),
+      minAvgErrorRate: String(parsed.minAvgErrorRate),
+    });
+
+    setBusyAction("review_alert_preview");
+    const response = await fetch(`/api/v2/reviews/alerts?${query.toString()}`, {
+      cache: "no-store",
+      headers: authHeaders(false),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Unable to preview review alerts.");
+      setReviewAlertResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    const evaluation = result.evaluation as { should_alert?: unknown } | null | undefined;
+    if (evaluation && typeof evaluation.should_alert === "boolean") {
+      if (evaluation.should_alert) {
+        setInfo("Review alert preview indicates thresholds are met.");
+      } else {
+        setInfo("Review alert preview indicates thresholds are not met.");
+      }
+    }
+
+    setReviewAlertResult(JSON.stringify(result, null, 2));
+    setBusyAction(null);
+  }
+
+  async function dispatchReviewAlertNow() {
+    if (!selectedProjectId) {
+      setError("Select a project before dispatching review alerts.");
+      return;
+    }
+
+    const parsed = parseReviewAlertThresholds();
+    if (!parsed) {
+      return;
+    }
+
+    setBusyAction("review_alert_dispatch");
+    const response = await fetch("/api/v2/reviews/alerts", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        connectorType: reviewAlertConnectorType,
+        staleHours: parsed.staleHours,
+        minUnreviewedQueues: parsed.minUnreviewedQueues,
+        minAtRiskQueues: parsed.minAtRiskQueues,
+        minStaleQueues: parsed.minStaleQueues,
+        minAvgErrorRate: parsed.minAvgErrorRate,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Unable to dispatch review alert.");
+      setReviewAlertResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    const dispatched = result.dispatched === true;
+    if (dispatched) {
+      setSuccess("Review alert dispatched to connector queue.");
+      await loadConnectorDeliveries();
+    } else {
+      setInfo("Review alert was not dispatched because thresholds were not met.");
+    }
+
+    setReviewAlertResult(JSON.stringify(result, null, 2));
     setBusyAction(null);
   }
 
@@ -2704,15 +2840,47 @@ export function FlowBuilderClient() {
             <span>Stale Threshold (hours)</span>
             <input value={reviewStaleHours} onChange={(event) => setReviewStaleHours(event.target.value)} />
           </label>
+          <div className="grid two-col">
+            <label className="field small">
+              <span>Alert Connector Type</span>
+              <input value={reviewAlertConnectorType} onChange={(event) => setReviewAlertConnectorType(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Min Unreviewed Queues</span>
+              <input value={reviewAlertMinUnreviewed} onChange={(event) => setReviewAlertMinUnreviewed(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Min At-risk Queues</span>
+              <input value={reviewAlertMinAtRisk} onChange={(event) => setReviewAlertMinAtRisk(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Min Stale Queues</span>
+              <input value={reviewAlertMinStale} onChange={(event) => setReviewAlertMinStale(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Min Avg Error Rate</span>
+              <input
+                value={reviewAlertMinAvgErrorRate}
+                onChange={(event) => setReviewAlertMinAvgErrorRate(event.target.value)}
+              />
+            </label>
+          </div>
           <div className="row wrap">
             <button className="button secondary" onClick={() => void loadReviewQueues(selectedProjectId)}>
               Refresh Queue Ops
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void previewReviewAlert()}>
+              {busyAction === "review_alert_preview" ? "Previewing..." : "Preview Alert"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void dispatchReviewAlertNow()}>
+              {busyAction === "review_alert_dispatch" ? "Dispatching..." : "Dispatch Alert"}
             </button>
             <p className="muted">
               queues {reviewQueueSummary.total_queues} | unreviewed {reviewQueueSummary.unreviewed_queues} | at-risk{" "}
               {reviewQueueSummary.at_risk_queues} | stale {reviewQueueSummary.stale_queues}
             </p>
           </div>
+          {reviewAlertResult ? <pre className="json small">{reviewAlertResult}</pre> : null}
           <p className="muted">
             healthy {reviewQueueSummary.healthy_queues} | decisions {reviewQueueSummary.total_decisions} | evidence{" "}
             {reviewQueueSummary.total_evidence_regions} | avg error {(reviewQueueSummary.avg_error_rate * 100).toFixed(1)}%

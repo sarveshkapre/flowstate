@@ -153,6 +153,16 @@ type ConnectorInsights = {
   top_errors: Array<{ message: string; count: number }>;
 };
 
+type ConnectorReliabilityRecommendation = "healthy" | "process_queue" | "redrive_dead_letters";
+
+type ConnectorReliabilityItem = {
+  connector_type: string;
+  risk_score: number;
+  recommendation: ConnectorReliabilityRecommendation;
+  summary: ConnectorDeliverySummary;
+  insights: ConnectorInsights;
+};
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -334,6 +344,16 @@ const EMPTY_CONNECTOR_INSIGHTS: ConnectorInsights = {
   max_attempts_observed: 0,
   top_errors: [],
 };
+
+function connectorRecommendationLabel(recommendation: ConnectorReliabilityRecommendation) {
+  if (recommendation === "redrive_dead_letters") {
+    return "Redrive dead letters";
+  }
+  if (recommendation === "process_queue") {
+    return "Process queue";
+  }
+  return "Healthy";
+}
 
 const EMPTY_REVIEW_SUMMARY: ReviewDecisionSummary = {
   total: 0,
@@ -715,6 +735,7 @@ export function FlowBuilderClient() {
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
   const [connectorInsightsLookbackHours, setConnectorInsightsLookbackHours] = useState("24");
   const [connectorInsights, setConnectorInsights] = useState<ConnectorInsights>(EMPTY_CONNECTOR_INSIGHTS);
+  const [connectorReliability, setConnectorReliability] = useState<ConnectorReliabilityItem[]>([]);
   const [runs, setRuns] = useState<RunRecordV2[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
@@ -2204,6 +2225,34 @@ export function FlowBuilderClient() {
     setConnectorInsights(payload.insights ?? EMPTY_CONNECTOR_INSIGHTS);
   }, [authHeaders, connectorInsightsLookbackHours, connectorType, selectedProjectId]);
 
+  const loadConnectorReliability = useCallback(async () => {
+    if (!selectedProjectId) {
+      setConnectorReliability([]);
+      return;
+    }
+
+    const parsedLookback = Number(connectorInsightsLookbackHours);
+    const lookbackHours =
+      Number.isFinite(parsedLookback) && parsedLookback > 0 ? Math.min(Math.floor(parsedLookback), 24 * 30) : 24;
+    const query = `/api/v2/connectors/reliability?projectId=${encodeURIComponent(selectedProjectId)}&lookbackHours=${lookbackHours}&limit=200`;
+    const response = await fetch(query, {
+      cache: "no-store",
+      headers: authHeaders(false),
+    });
+    const payload = (await response.json()) as {
+      connectors?: ConnectorReliabilityItem[];
+      error?: string;
+    };
+
+    if (!response.ok) {
+      setError(payload.error || "Unable to load connector reliability.");
+      setConnectorReliability([]);
+      return;
+    }
+
+    setConnectorReliability(Array.isArray(payload.connectors) ? payload.connectors : []);
+  }, [authHeaders, connectorInsightsLookbackHours, selectedProjectId]);
+
   useEffect(() => {
     void loadConnectorDeliveries();
   }, [loadConnectorDeliveries]);
@@ -2211,6 +2260,10 @@ export function FlowBuilderClient() {
   useEffect(() => {
     void loadConnectorInsights();
   }, [loadConnectorInsights]);
+
+  useEffect(() => {
+    void loadConnectorReliability();
+  }, [loadConnectorReliability]);
 
   async function testConnectorConfig(mode: "validate" | "dispatch") {
     if (!selectedProjectId) {
@@ -2292,6 +2345,7 @@ export function FlowBuilderClient() {
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
+    await loadConnectorReliability();
     setBusyAction(null);
   }
 
@@ -2328,6 +2382,7 @@ export function FlowBuilderClient() {
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
+    await loadConnectorReliability();
     setBusyAction(null);
   }
 
@@ -2378,6 +2433,7 @@ export function FlowBuilderClient() {
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
+    await loadConnectorReliability();
     setBusyAction(null);
   }
 
@@ -2409,6 +2465,7 @@ export function FlowBuilderClient() {
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
+    await loadConnectorReliability();
     setBusyAction(null);
   }
 
@@ -2447,6 +2504,7 @@ export function FlowBuilderClient() {
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
+    await loadConnectorReliability();
     setBusyAction(null);
   }
 
@@ -2501,6 +2559,7 @@ export function FlowBuilderClient() {
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
+    await loadConnectorReliability();
     setBusyAction(null);
   }
 
@@ -3569,6 +3628,7 @@ export function FlowBuilderClient() {
               onClick={() => {
                 void loadConnectorDeliveries();
                 void loadConnectorInsights();
+                void loadConnectorReliability();
               }}
             >
               Refresh Connector Ops
@@ -3630,6 +3690,37 @@ export function FlowBuilderClient() {
                       </button>
                     </>
                   ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+
+        <article className="card stack">
+          <h3>Connector Recovery Radar</h3>
+          <p className="muted">Ranked by dead-letter pressure, due retries, and recent error rates.</p>
+          {connectorReliability.length === 0 ? (
+            <p className="muted">No connector reliability data yet.</p>
+          ) : (
+            <ul className="list">
+              {connectorReliability.map((item) => (
+                <li key={item.connector_type}>
+                  <strong>{item.connector_type}</strong> - risk {item.risk_score.toFixed(2)} -{" "}
+                  {connectorRecommendationLabel(item.recommendation)}
+                  {item.insights.top_errors[0] ? ` - top error ${item.insights.top_errors[0].message}` : ""}
+                  {" | "}
+                  dead-letter {item.summary.dead_lettered} | due now {item.summary.due_now}
+                  <button
+                    className="button secondary"
+                    disabled={busyAction !== null}
+                    onClick={() => {
+                      setConnectorType(item.connector_type);
+                      setConnectorConfigText(connectorConfigTemplate(item.connector_type));
+                      setInfo(`Focused connector lab on ${item.connector_type}.`);
+                    }}
+                  >
+                    Focus
+                  </button>
                 </li>
               ))}
             </ul>

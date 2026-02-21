@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector Recovery Radar shipped with a project-level reliability ranking API and Flow Builder risk-ranked action panel to focus operations on the highest-risk connector first.
 - 2026-02-21: Worker connector pump automation now uses the project-level bulk process endpoint, reducing API fan-out and improving throughput for multi-connector projects.
 - 2026-02-21: Project-level connector redrive orchestration shipped with a bulk redrive API, Flow Builder one-click all-connector recovery, and worker automation upgraded to single-call dead-letter recovery with processing.
 - 2026-02-21: Bulk connector queue operations shipped with a project-level process-all endpoint and Flow Builder control for one-click multi-connector draining.

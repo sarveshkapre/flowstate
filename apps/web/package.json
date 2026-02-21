@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "next typegen && tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test src/lib/v2/*.test.ts && mkdir -p coverage && echo \"ok\" > coverage/.keep"
+    "test": "node --experimental-strip-types --test src/lib/v1/*.test.ts src/lib/v2/*.test.ts && mkdir -p coverage && echo \"ok\" > coverage/.keep"
   },
   "dependencies": {
     "next": "^16.0.0",

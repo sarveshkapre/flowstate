@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { documentTypeSchema, extractionJobStatusSchema, reviewStatusSchema } from "@flowstate/types";
+import { documentTypeSchema } from "@flowstate/types";
 import { z } from "zod";
 
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/lib/data-store";
 import { executeExtractionJob } from "@/lib/extraction-service";
 import { requireV1Permission } from "@/lib/v1/auth";
+import { parseExtractionListFilters } from "@/lib/v1/extractions-request";
 
 const createRequestSchema = z.object({
   artifactId: z.string().uuid(),
@@ -22,31 +23,12 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const status = url.searchParams.get("status");
-  const reviewStatus = url.searchParams.get("reviewStatus");
-  const documentType = url.searchParams.get("documentType");
-
-  const statusParsed = status ? extractionJobStatusSchema.safeParse(status) : null;
-  const reviewParsed = reviewStatus ? reviewStatusSchema.safeParse(reviewStatus) : null;
-  const docTypeParsed = documentType ? documentTypeSchema.safeParse(documentType) : null;
-
-  if (status && !statusParsed?.success) {
-    return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
+  const parsedFilters = parseExtractionListFilters(url.searchParams);
+  if (!parsedFilters.ok) {
+    return NextResponse.json({ error: parsedFilters.error }, { status: 400 });
   }
 
-  if (reviewStatus && !reviewParsed?.success) {
-    return NextResponse.json({ error: "Invalid reviewStatus filter" }, { status: 400 });
-  }
-
-  if (documentType && !docTypeParsed?.success) {
-    return NextResponse.json({ error: "Invalid documentType filter" }, { status: 400 });
-  }
-
-  const jobs = await listExtractionJobs({
-    status: statusParsed?.success ? statusParsed.data : undefined,
-    reviewStatus: reviewParsed?.success ? reviewParsed.data : undefined,
-    documentType: docTypeParsed?.success ? docTypeParsed.data : undefined,
-  });
+  const jobs = await listExtractionJobs(parsedFilters.filters);
 
   const jobsWithArtifacts = await Promise.all(
     jobs.map(async (job) => {

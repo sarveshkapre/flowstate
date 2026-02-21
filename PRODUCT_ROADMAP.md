@@ -26,6 +26,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Active Learning Workbench shipped in Flow Builder with ranked candidates, one-click eval pack creation, and eval pack history tracking.
 - 2026-02-21: Review Ops queue dashboard shipped with project-level unreviewed/at-risk/stale prioritization, queue health scoring, and Flow Builder triage controls.
 - 2026-02-21: Review queue analytics shipped with decision summary metrics, failure hotspots, and field-level error concentration surfaced in API + Flow Builder.
 - 2026-02-21: Worker-backed connector queue pump shipped with auto-drain polling, per-project processing, and strict-mode API key support.

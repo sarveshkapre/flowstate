@@ -4,6 +4,8 @@
 import { type MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { FlowGraph, FlowNodeType } from "@flowstate/types";
 
+import { selectTopCandidateRunIds } from "@/lib/v2/eval-pack";
+
 type Organization = {
   id: string;
   name: string;
@@ -165,6 +167,23 @@ type ReviewQueueOpsSummary = {
   total_decisions: number;
   total_evidence_regions: number;
   avg_error_rate: number;
+};
+
+type ActiveLearningCandidate = {
+  run: RunRecordV2;
+  score: number;
+  incorrect_count: number;
+  uncertain_count: number;
+  avg_latency_ms: number;
+  cost_usd: number;
+};
+
+type EvalPack = {
+  id: string;
+  project_id: string;
+  name: string;
+  candidate_run_ids: string[];
+  created_at: string;
 };
 
 type ProjectMemberRole = "owner" | "admin" | "builder" | "reviewer" | "viewer";
@@ -633,6 +652,10 @@ export function FlowBuilderClient() {
   const [evidencePreviewUrl, setEvidencePreviewUrl] = useState("https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?q=80&w=1400&auto=format&fit=crop");
   const [draftEvidence, setDraftEvidence] = useState<DraftEvidenceRegion | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [activeLearningCandidates, setActiveLearningCandidates] = useState<ActiveLearningCandidate[]>([]);
+  const [evalPacks, setEvalPacks] = useState<EvalPack[]>([]);
+  const [newEvalPackName, setNewEvalPackName] = useState("Priority Eval Pack");
+  const [evalPackCandidateCount, setEvalPackCandidateCount] = useState("10");
 
   function setInfo(message: string) {
     setStatusTone("info");
@@ -866,6 +889,48 @@ export function FlowBuilderClient() {
     [authHeaders, reviewStaleHours],
   );
 
+  const loadActiveLearning = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setActiveLearningCandidates([]);
+        setEvalPacks([]);
+        return;
+      }
+
+      const [candidatesResponse, packsResponse] = await Promise.all([
+        fetch(`/api/v2/active-learning/candidates?projectId=${encodeURIComponent(projectId)}&limit=50`, {
+          cache: "no-store",
+          headers: authHeaders(false),
+        }),
+        fetch(`/api/v2/active-learning/eval-packs?projectId=${encodeURIComponent(projectId)}`, {
+          cache: "no-store",
+          headers: authHeaders(false),
+        }),
+      ]);
+
+      const candidatesPayload = (await candidatesResponse.json()) as {
+        candidates?: ActiveLearningCandidate[];
+        error?: string;
+      };
+      const packsPayload = (await packsResponse.json()) as { packs?: EvalPack[]; error?: string };
+
+      if (!candidatesResponse.ok) {
+        setError(candidatesPayload.error || "Unable to load active learning candidates.");
+        setActiveLearningCandidates([]);
+      } else {
+        setActiveLearningCandidates(candidatesPayload.candidates ?? []);
+      }
+
+      if (!packsResponse.ok) {
+        setError(packsPayload.error || "Unable to load eval packs.");
+        setEvalPacks([]);
+      } else {
+        setEvalPacks(packsPayload.packs ?? []);
+      }
+    },
+    [authHeaders],
+  );
+
   const loadReviewDecisions = useCallback(
     async (runId: string) => {
       if (!runId) {
@@ -1078,6 +1143,8 @@ export function FlowBuilderClient() {
       setReviewDecisions([]);
       setSelectedReviewDecisionId("");
       setEvidenceRegions([]);
+      setActiveLearningCandidates([]);
+      setEvalPacks([]);
       setMembers([]);
       setApiKeys([]);
       return;
@@ -1086,8 +1153,9 @@ export function FlowBuilderClient() {
     void loadDatasets(selectedProjectId);
     void loadRuns(selectedProjectId);
     void loadReviewQueues(selectedProjectId);
+    void loadActiveLearning(selectedProjectId);
     void loadMembersAndKeys(selectedProjectId);
-  }, [loadDatasets, loadFlows, loadMembersAndKeys, loadReviewQueues, loadRuns, selectedProjectId]);
+  }, [loadActiveLearning, loadDatasets, loadFlows, loadMembersAndKeys, loadReviewQueues, loadRuns, selectedProjectId]);
 
   useEffect(() => {
     void loadDatasetVersions(selectedDatasetId);
@@ -1554,6 +1622,53 @@ export function FlowBuilderClient() {
     }
 
     setReplayResult(JSON.stringify(payload, null, 2));
+    setBusyAction(null);
+  }
+
+  async function createEvalPackFromCandidates() {
+    if (!selectedProjectId || !newEvalPackName.trim()) {
+      setError("Select a project and provide an eval pack name.");
+      return;
+    }
+
+    const parsedCount = Number(evalPackCandidateCount);
+    const candidateCount =
+      Number.isFinite(parsedCount) && parsedCount > 0 ? Math.min(Math.floor(parsedCount), 100) : 10;
+
+    const selectedRunIds = selectTopCandidateRunIds({
+      candidates: activeLearningCandidates,
+      count: candidateCount,
+    });
+    const fallbackRunIds = reviewQueues
+      .filter((queue) => queue.health === "at_risk" || queue.health === "unreviewed")
+      .map((queue) => queue.run_id);
+    const candidateRunIds = selectedRunIds.length > 0 ? selectedRunIds : [...new Set(fallbackRunIds)].slice(0, candidateCount);
+
+    if (candidateRunIds.length === 0) {
+      setError("No candidate runs are available to build an eval pack.");
+      return;
+    }
+
+    setBusyAction("create_eval_pack");
+    const response = await fetch("/api/v2/active-learning/eval-packs", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        name: newEvalPackName.trim(),
+        candidateRunIds,
+      }),
+    });
+    const payload = (await response.json()) as { pack?: EvalPack; error?: string };
+
+    if (!response.ok || !payload.pack) {
+      setError(payload.error || "Unable to create eval pack.");
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess(`Eval pack created with ${payload.pack.candidate_run_ids.length} candidate runs.`);
+    await loadActiveLearning(selectedProjectId);
     setBusyAction(null);
   }
 
@@ -2456,6 +2571,69 @@ export function FlowBuilderClient() {
           </button>
 
           {replayResult ? <pre className="json small">{replayResult}</pre> : <p className="muted">No replay result yet.</p>}
+        </article>
+      </div>
+
+      <div className="grid two-col">
+        <article className="card stack">
+          <h3>Active Learning Candidates</h3>
+          <p className="muted">
+            Rank completed runs by review failures, uncertainty, latency, and cost. Create eval packs from top candidates.
+          </p>
+
+          <div className="grid two-col">
+            <label className="field small">
+              <span>Eval Pack Name</span>
+              <input value={newEvalPackName} onChange={(event) => setNewEvalPackName(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Candidate Count</span>
+              <input value={evalPackCandidateCount} onChange={(event) => setEvalPackCandidateCount(event.target.value)} />
+            </label>
+          </div>
+
+          <div className="row wrap">
+            <button className="button secondary" onClick={() => void loadActiveLearning(selectedProjectId)}>
+              Refresh Candidates
+            </button>
+            <button className="button" disabled={busyAction !== null} onClick={() => void createEvalPackFromCandidates()}>
+              {busyAction === "create_eval_pack" ? "Creating..." : "Create Eval Pack From Top Candidates"}
+            </button>
+          </div>
+
+          {activeLearningCandidates.length === 0 ? (
+            <p className="muted">No active learning candidates available.</p>
+          ) : (
+            <ul className="list">
+              {activeLearningCandidates.slice(0, 10).map((candidate) => (
+                <li key={candidate.run.id}>
+                  <span className="mono">{candidate.run.id.slice(0, 8)}</span> - score {candidate.score.toFixed(2)} - incorrect{" "}
+                  {candidate.incorrect_count} - uncertain {candidate.uncertain_count} - latency{" "}
+                  {candidate.avg_latency_ms.toFixed(0)}ms - cost ${candidate.cost_usd.toFixed(4)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+
+        <article className="card stack">
+          <h3>Eval Pack History</h3>
+          <p className="muted">Track created eval packs and candidate volume over time.</p>
+          <button className="button secondary" onClick={() => void loadActiveLearning(selectedProjectId)}>
+            Refresh Packs
+          </button>
+          {evalPacks.length === 0 ? (
+            <p className="muted">No eval packs created yet.</p>
+          ) : (
+            <ul className="list">
+              {evalPacks.map((pack) => (
+                <li key={pack.id}>
+                  <span className="mono">{pack.id.slice(0, 8)}</span> - {pack.name} - {pack.candidate_run_ids.length} runs -{" "}
+                  {new Date(pack.created_at).toLocaleString()}
+                </li>
+              ))}
+            </ul>
+          )}
         </article>
       </div>
 

@@ -52,25 +52,65 @@ function readFromConfigOrEnv(config: JsonRecord, key: string, envKey: string): s
   return readString(config, key) ?? readString(config, envKey) ?? (process.env[envKey]?.trim() || null);
 }
 
-function redactSecrets(config: JsonRecord): JsonRecord {
-  const out: JsonRecord = {};
-  const secretPattern = /(token|secret|password|authorization|api[_-]?key)/i;
-
-  for (const [key, value] of Object.entries(config)) {
-    if (secretPattern.test(key)) {
-      out[key] = "[redacted]";
-      continue;
-    }
-
-    if (typeof value === "string" && value.length > 120) {
-      out[key] = `${value.slice(0, 120)}...[truncated]`;
-      continue;
-    }
-
-    out[key] = value;
+function redactSecrets(value: unknown, parentKey = "", depth = 0): unknown {
+  if (depth > 8) {
+    return "[max-depth]";
   }
 
-  return out;
+  const secretPattern = /(token|secret|password|authorization|api[_-]?key)/i;
+
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    if (secretPattern.test(parentKey)) {
+      return "[redacted]";
+    }
+    if (value.length > 120) {
+      return `${value.slice(0, 120)}...[truncated]`;
+    }
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 30).map((item) => redactSecrets(item, parentKey, depth + 1));
+  }
+
+  if (typeof value === "object") {
+    const out: JsonRecord = {};
+    for (const [key, item] of Object.entries(value as JsonRecord).slice(0, 100)) {
+      out[key] = secretPattern.test(key) ? "[redacted]" : redactSecrets(item, key, depth + 1);
+    }
+    return out;
+  }
+
+  return String(value);
+}
+
+function parseHeaders(config: JsonRecord): Record<string, string> {
+  const headersRecord = asRecord(config.headers);
+  const headers: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(headersRecord)) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const name = key.trim();
+    const headerValue = value.trim();
+    if (!name || !headerValue) {
+      continue;
+    }
+
+    headers[name] = headerValue;
+  }
+
+  return headers;
 }
 
 export function normalizeConnectorType(rawType: string): ConnectorNormalizedType | null {
@@ -150,7 +190,7 @@ export function validateConnectorConfig(connectorTypeRaw: string, configInput: u
       ok: false,
       connectorType: null,
       errors: ["Unsupported connector type. Supported: webhook, slack, jira."],
-      sanitizedConfig: redactSecrets(config),
+      sanitizedConfig: redactSecrets(config) as JsonRecord,
     };
   }
 
@@ -187,7 +227,7 @@ export function validateConnectorConfig(connectorTypeRaw: string, configInput: u
     ok: errors.length === 0,
     connectorType,
     errors,
-    sanitizedConfig: redactSecrets(config),
+    sanitizedConfig: redactSecrets(config) as JsonRecord,
   };
 }
 
@@ -294,7 +334,7 @@ export async function dispatchConnectorDelivery(input: {
       };
     }
 
-    return executeHttpPost(webhookConfig.targetUrl, input.payload);
+    return executeHttpPost(webhookConfig.targetUrl, input.payload, parseHeaders(config));
   }
 
   if (validation.connectorType === "slack") {
@@ -308,7 +348,7 @@ export async function dispatchConnectorDelivery(input: {
       };
     }
 
-    return executeHttpPost(slackConfig.webhookUrl, toSlackPayload(input.payload));
+    return executeHttpPost(slackConfig.webhookUrl, toSlackPayload(input.payload), parseHeaders(config));
   }
 
   const jiraConfig = resolveJiraConfig(config);

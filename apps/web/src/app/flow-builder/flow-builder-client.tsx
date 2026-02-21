@@ -318,6 +318,9 @@ function connectorConfigTemplate(type: string) {
   return JSON.stringify(
     {
       targetUrl: "https://example.com/webhook",
+      headers: {
+        Authorization: "Bearer <token>",
+      },
     },
     null,
     2,

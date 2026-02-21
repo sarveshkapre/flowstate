@@ -25,8 +25,15 @@ test("validateConnectorConfig fails when required settings are missing", () => {
 test("validateConnectorConfig accepts valid webhook/slack/jira configs and redacts secrets", () => {
   const webhook = validateConnectorConfig("webhook", {
     targetUrl: "https://example.com/hook",
+    headers: {
+      Authorization: "Bearer abc123",
+      "x-request-id": "flowstate",
+    },
   });
   assert.equal(webhook.ok, true);
+  const sanitizedHeaders = webhook.sanitizedConfig.headers as Record<string, unknown>;
+  assert.equal(sanitizedHeaders.Authorization, "[redacted]");
+  assert.equal(sanitizedHeaders["x-request-id"], "flowstate");
 
   const slack = validateConnectorConfig("slack", {
     webhookUrl: "https://hooks.slack.com/services/a/b/c",

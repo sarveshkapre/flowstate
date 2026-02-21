@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createReviewDecision, getRunV2, listReviewDecisions } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
 import { isQueueProjectMatch } from "@/lib/v2/review-queue";
+import { summarizeReviewDecisions } from "@/lib/v2/review-summary";
 
 type Params = {
   params: Promise<{ queueId: string }>;
@@ -37,7 +38,8 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   const decisions = await listReviewDecisions(queueId);
-  return NextResponse.json({ decisions });
+  const summary = summarizeReviewDecisions(decisions);
+  return NextResponse.json({ decisions, summary });
 }
 
 export async function POST(request: Request, { params }: Params) {

@@ -134,6 +134,15 @@ type ConnectorDeliverySummary = {
   earliest_next_attempt_at: string | null;
 };
 
+type ReviewDecisionSummary = {
+  total: number;
+  by_decision: Record<ReviewDecisionValue, number>;
+  error_rate: number;
+  failure_hotspots: Array<{ reason: FailureReasonCode; count: number }>;
+  field_hotspots: Array<{ field_name: string; total: number; non_correct: number }>;
+  reviewer_activity: Array<{ reviewer: string; count: number }>;
+};
+
 type ProjectMemberRole = "owner" | "admin" | "builder" | "reviewer" | "viewer";
 
 type ApiKeyScope =
@@ -231,6 +240,20 @@ const EMPTY_CONNECTOR_SUMMARY: ConnectorDeliverySummary = {
   dead_lettered: 0,
   due_now: 0,
   earliest_next_attempt_at: null,
+};
+
+const EMPTY_REVIEW_SUMMARY: ReviewDecisionSummary = {
+  total: 0,
+  by_decision: {
+    correct: 0,
+    incorrect: 0,
+    missing: 0,
+    uncertain: 0,
+  },
+  error_rate: 0,
+  failure_hotspots: [],
+  field_hotspots: [],
+  reviewer_activity: [],
 };
 
 const TEMPLATE_GRAPH: { name: string; graph: FlowGraph } = {
@@ -561,6 +584,7 @@ export function FlowBuilderClient() {
   const [runs, setRuns] = useState<RunRecordV2[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
+  const [reviewSummary, setReviewSummary] = useState<ReviewDecisionSummary>(EMPTY_REVIEW_SUMMARY);
   const [selectedReviewDecisionId, setSelectedReviewDecisionId] = useState("");
   const [newReviewFieldName, setNewReviewFieldName] = useState("total");
   const [newReviewDecision, setNewReviewDecision] = useState<ReviewDecisionValue>("incorrect");
@@ -767,6 +791,7 @@ export function FlowBuilderClient() {
     async (runId: string) => {
       if (!runId) {
         setReviewDecisions([]);
+        setReviewSummary(EMPTY_REVIEW_SUMMARY);
         setSelectedReviewDecisionId("");
         return;
       }
@@ -775,16 +800,22 @@ export function FlowBuilderClient() {
         cache: "no-store",
         headers: authHeaders(false),
       });
-      const payload = (await response.json()) as { decisions?: ReviewDecisionRecord[]; error?: string };
+      const payload = (await response.json()) as {
+        decisions?: ReviewDecisionRecord[];
+        summary?: ReviewDecisionSummary;
+        error?: string;
+      };
 
       if (!response.ok) {
         setError(payload.error || "Unable to load review decisions.");
         setReviewDecisions([]);
+        setReviewSummary(EMPTY_REVIEW_SUMMARY);
         return;
       }
 
       const nextDecisions = payload.decisions ?? [];
       setReviewDecisions(nextDecisions);
+      setReviewSummary(payload.summary ?? EMPTY_REVIEW_SUMMARY);
       if (!nextDecisions.some((decision) => decision.id === selectedReviewDecisionId)) {
         setSelectedReviewDecisionId(nextDecisions[0]?.id ?? "");
       }
@@ -2348,6 +2379,25 @@ export function FlowBuilderClient() {
         <article className="card stack">
           <h3>Review Decisions v2</h3>
           <p className="muted">Create field-level review outcomes for a run queue before attaching evidence regions.</p>
+          <p className="muted">
+            total {reviewSummary.total} | correct {reviewSummary.by_decision.correct} | incorrect {reviewSummary.by_decision.incorrect}
+          </p>
+          <p className="muted">
+            missing {reviewSummary.by_decision.missing} | uncertain {reviewSummary.by_decision.uncertain} | error rate{" "}
+            {(reviewSummary.error_rate * 100).toFixed(1)}%
+          </p>
+          <p className="muted">
+            top failures:{" "}
+            {reviewSummary.failure_hotspots.length > 0
+              ? reviewSummary.failure_hotspots.map((item) => `${item.reason} (${item.count})`).join(" | ")
+              : "none"}
+          </p>
+          <p className="muted">
+            hot fields:{" "}
+            {reviewSummary.field_hotspots.length > 0
+              ? reviewSummary.field_hotspots.map((item) => `${item.field_name} (${item.non_correct}/${item.total})`).join(" | ")
+              : "none"}
+          </p>
 
           <label className="field">
             <span>Run Queue</span>

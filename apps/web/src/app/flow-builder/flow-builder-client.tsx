@@ -193,6 +193,8 @@ type ConnectorActionTimelineSummary = {
   by_connector: Array<{ connector_type: string; total: number; dead_lettered: number; delivered: number }>;
 };
 
+type ConnectorTimelineEventFilter = "all" | ConnectorActionTimelineEvent["event_type"];
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -813,6 +815,8 @@ export function FlowBuilderClient() {
     EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY,
   );
   const [connectorActionTimelineLimit, setConnectorActionTimelineLimit] = useState("40");
+  const [connectorActionTimelineEventType, setConnectorActionTimelineEventType] = useState<ConnectorTimelineEventFilter>("all");
+  const [connectorActionTimelineRedriveOnly, setConnectorActionTimelineRedriveOnly] = useState(false);
   const [runs, setRuns] = useState<RunRecordV2[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
@@ -1457,6 +1461,10 @@ export function FlowBuilderClient() {
       setConnectorDeliveries([]);
       setConnectorSummary(EMPTY_CONNECTOR_SUMMARY);
       setConnectorInsights(EMPTY_CONNECTOR_INSIGHTS);
+      setConnectorActionTimeline([]);
+      setConnectorActionTimelineSummary(EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY);
+      setConnectorActionTimelineEventType("all");
+      setConnectorActionTimelineRedriveOnly(false);
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
@@ -2500,8 +2508,18 @@ export function FlowBuilderClient() {
 
     const parsedLimit = Number(connectorActionTimelineLimit);
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), 500) : 40;
-    const query = `/api/v2/connectors/actions?projectId=${encodeURIComponent(selectedProjectId)}&limit=${limit}`;
-    const response = await fetch(query, {
+    const query = new URLSearchParams({
+      projectId: selectedProjectId,
+      limit: String(limit),
+    });
+    if (connectorActionTimelineEventType !== "all") {
+      query.set("eventType", connectorActionTimelineEventType);
+    }
+    if (connectorActionTimelineRedriveOnly) {
+      query.set("redriveOnly", "true");
+    }
+
+    const response = await fetch(`/api/v2/connectors/actions?${query.toString()}`, {
       cache: "no-store",
       headers: authHeaders(false),
     });
@@ -2520,7 +2538,7 @@ export function FlowBuilderClient() {
 
     setConnectorActionTimeline(Array.isArray(payload.events) ? payload.events : []);
     setConnectorActionTimelineSummary(payload.summary ?? EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY);
-  }, [authHeaders, connectorActionTimelineLimit, selectedProjectId]);
+  }, [authHeaders, connectorActionTimelineEventType, connectorActionTimelineLimit, connectorActionTimelineRedriveOnly, selectedProjectId]);
 
   useEffect(() => {
     void loadConnectorDeliveries();
@@ -4059,6 +4077,29 @@ export function FlowBuilderClient() {
             <label className="field">
               <span>Timeline Event Limit</span>
               <input value={connectorActionTimelineLimit} onChange={(event) => setConnectorActionTimelineLimit(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Timeline Event Type</span>
+              <select
+                value={connectorActionTimelineEventType}
+                onChange={(event) => setConnectorActionTimelineEventType(event.target.value as ConnectorTimelineEventFilter)}
+              >
+                <option value="all">all</option>
+                <option value="connector_delivery_queued_v2">queued</option>
+                <option value="connector_delivery_attempted_v2">attempted</option>
+                <option value="connector_delivered_v2">delivered</option>
+                <option value="connector_dead_lettered_v2">dead-lettered</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Timeline Scope</span>
+              <select
+                value={connectorActionTimelineRedriveOnly ? "redrive_only" : "all"}
+                onChange={(event) => setConnectorActionTimelineRedriveOnly(event.target.value === "redrive_only")}
+              >
+                <option value="all">all actions</option>
+                <option value="redrive_only">redrive only</option>
+              </select>
             </label>
           </div>
 

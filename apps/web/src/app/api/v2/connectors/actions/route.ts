@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getConnectorDelivery, listV2AuditEvents } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
 import {
+  CONNECTOR_ACTION_EVENT_TYPES,
   summarizeConnectorActionTimeline,
   toConnectorActionTimelineEvent,
   type ConnectorActionTimelineEvent,
@@ -13,6 +14,8 @@ import { connectorTypeSchema } from "@/lib/v2/request-security";
 const querySchema = z.object({
   projectId: z.string().min(1),
   connectorType: connectorTypeSchema.optional(),
+  eventType: z.enum(CONNECTOR_ACTION_EVENT_TYPES).optional(),
+  redriveOnly: z.enum(["1", "true", "0", "false"]).optional(),
   limit: z.coerce.number().int().positive().max(500).default(100),
 });
 
@@ -21,6 +24,8 @@ export async function GET(request: Request) {
   const parsedQuery = querySchema.safeParse({
     projectId: url.searchParams.get("projectId"),
     connectorType: url.searchParams.get("connectorType") || undefined,
+    eventType: url.searchParams.get("eventType") || undefined,
+    redriveOnly: url.searchParams.get("redriveOnly") || undefined,
     limit: url.searchParams.get("limit") || undefined,
   });
 
@@ -39,6 +44,7 @@ export async function GET(request: Request) {
   }
 
   const rawEvents = await listV2AuditEvents(Math.max(parsedQuery.data.limit * 6, 300));
+  const redriveOnly = parsedQuery.data.redriveOnly === "1" || parsedQuery.data.redriveOnly === "true";
   const fallbackByDeliveryId = new Map<string, { project_id: string | null; connector_type: string | null }>();
   const timeline: ConnectorActionTimelineEvent[] = [];
 
@@ -73,6 +79,14 @@ export async function GET(request: Request) {
       continue;
     }
 
+    if (parsedQuery.data.eventType && mapped.event_type !== parsedQuery.data.eventType) {
+      continue;
+    }
+
+    if (redriveOnly && !mapped.redrive) {
+      continue;
+    }
+
     timeline.push(mapped);
     if (timeline.length >= parsedQuery.data.limit) {
       break;
@@ -84,6 +98,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     project_id: parsedQuery.data.projectId,
     connector_type: parsedQuery.data.connectorType ?? null,
+    event_type: parsedQuery.data.eventType ?? null,
+    redrive_only: redriveOnly,
     limit: parsedQuery.data.limit,
     summary,
     events: timeline,

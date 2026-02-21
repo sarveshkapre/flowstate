@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector Automation Timeline filtering shipped (event-type and redrive-only filters in API + Flow Builder), enabling faster triage of specific remediation pathways.
 - 2026-02-21: Top recommendation dry-run mode shipped with Flow Builder preview controls, allowing operators to inspect candidate connector actions and cooldown skips before executing remediation.
 - 2026-02-21: Project-level Connector Guardian policy shipped (API + Flow Builder controls + worker policy resolution), enabling per-project automation guardrails for risk thresholds, action budgets, cooldowns, and remediation toggles.
 - 2026-02-21: Local runtime orchestration now supports connector guardian lifecycle/logging in flowstate start/stop/status/logs scripts, making automated remediation manageable in day-to-day operations.

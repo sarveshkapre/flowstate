@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector backpressure tuning feedback loop shipped (typed tuning engine + recommend API + Flow Builder suggest/apply UX), turning live queue pressure into actionable threshold defaults per connector.
 - 2026-02-21: Connector redrive automation now honors backpressure controls (API + worker + Flow Builder wiring), preventing redrive-triggered bursts from overrunning retry-heavy connector queues.
 - 2026-02-21: Connector queue backpressure controls shipped across process APIs, Flow Builder controls, and worker pump defaults, adding adaptive throttling based on retry/due-now pressure for safer high-throughput dispatch.
 - 2026-02-21: Connector Guardian dry-run controls shipped across env defaults, project policy API, Flow Builder policy UI, and worker execution, enabling shadow-mode rollout before live remediation.
@@ -81,4 +82,4 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 ## Risks And Blockers
 - Scope growth across "general-purpose CV" surfaces.
 - Need to keep v1 compatibility while accelerating v2 rollout.
-- Need production telemetry feedback loop for tuning connector backpressure thresholds by connector type.
+- Need persisted per-project backpressure policies so tuned thresholds survive across operators and sessions.

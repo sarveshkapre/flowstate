@@ -231,6 +231,25 @@ type ConnectorRecommendationPreviewSkippedAction = ConnectorRecommendationPrevie
   retry_after_seconds: number;
 };
 
+type ConnectorBackpressureSuggestion = {
+  enabled: boolean;
+  maxRetrying: number;
+  maxDueNow: number;
+  minLimit: number;
+};
+
+type ConnectorBackpressureSuggestionItem = {
+  connector_type: string;
+  pressure_tier: "low" | "medium" | "high";
+  summary: {
+    queued: number;
+    retrying: number;
+    due_now: number;
+    outstanding: number;
+  };
+  recommendation: ConnectorBackpressureSuggestion;
+};
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -471,6 +490,16 @@ function connectorRiskReasonLabel(reason: ConnectorReliabilityReason) {
     return "high error volume";
   }
   return "high attempt count";
+}
+
+function connectorPressureTierLabel(tier: ConnectorBackpressureSuggestionItem["pressure_tier"]) {
+  if (tier === "high") {
+    return "high pressure";
+  }
+  if (tier === "medium") {
+    return "medium pressure";
+  }
+  return "low pressure";
 }
 
 function connectorTopRiskDrivers(item: ConnectorReliabilityItem, max = 2) {
@@ -946,6 +975,7 @@ export function FlowBuilderClient() {
   const [connectorRecommendationPreviewSkipped, setConnectorRecommendationPreviewSkipped] = useState<
     ConnectorRecommendationPreviewSkippedAction[]
   >([]);
+  const [connectorBackpressureByConnector, setConnectorBackpressureByConnector] = useState<ConnectorBackpressureSuggestionItem[]>([]);
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -1616,6 +1646,7 @@ export function FlowBuilderClient() {
       setConnectorRecommendationConnectorTypes([...CONNECTOR_TYPES]);
       setConnectorRecommendationPreviewSelected([]);
       setConnectorRecommendationPreviewSkipped([]);
+      setConnectorBackpressureByConnector([]);
       setConnectorReliabilityIncludeTrend(true);
       setConnectorReliabilityTrendLookbackHours("24");
       setConnectorProcessBackpressureEnabled(true);
@@ -2613,6 +2644,52 @@ export function FlowBuilderClient() {
       maxDueNow: Number.isFinite(parsedMaxDueNow) && parsedMaxDueNow > 0 ? Math.floor(parsedMaxDueNow) : 100,
       minLimit: Number.isFinite(parsedMinLimit) && parsedMinLimit > 0 ? Math.floor(parsedMinLimit) : 1,
     };
+  }
+
+  async function suggestConnectorBackpressure() {
+    if (!selectedProjectId) {
+      setError("Select a project before generating backpressure suggestions.");
+      return;
+    }
+
+    const connectorTypes = connectorRecommendationConnectorTypes.filter(
+      (type): type is (typeof CONNECTOR_TYPES)[number] => CONNECTOR_TYPE_SET.has(type),
+    );
+    if (connectorTypes.length === 0) {
+      setError("Select at least one connector type for backpressure suggestions.");
+      return;
+    }
+
+    setBusyAction("connector_backpressure_suggest");
+    const response = await fetch("/api/v2/connectors/backpressure/recommend", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        connectorTypes,
+      }),
+    });
+    const result = (await response.json()) as {
+      recommendation?: ConnectorBackpressureSuggestion;
+      by_connector?: ConnectorBackpressureSuggestionItem[];
+      error?: string;
+    };
+
+    if (!response.ok || !result.recommendation) {
+      setError(result.error || "Unable to suggest connector backpressure settings.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setConnectorProcessBackpressureEnabled(result.recommendation.enabled);
+    setConnectorProcessBackpressureMaxRetrying(String(result.recommendation.maxRetrying));
+    setConnectorProcessBackpressureMaxDueNow(String(result.recommendation.maxDueNow));
+    setConnectorProcessBackpressureMinLimit(String(result.recommendation.minLimit));
+    setConnectorBackpressureByConnector(Array.isArray(result.by_connector) ? result.by_connector : []);
+    setConnectorResult(JSON.stringify(result, null, 2));
+    setSuccess(`Applied suggested backpressure settings from ${connectorTypes.length} connector type(s).`);
+    setBusyAction(null);
   }
 
   const loadConnectorInsights = useCallback(async () => {
@@ -4426,6 +4503,9 @@ export function FlowBuilderClient() {
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void runTopConnectorRecommendations()}>
               {busyAction === "connector_recommendations_run_top" ? "Running Top..." : "Run Top Recommendations"}
             </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void suggestConnectorBackpressure()}>
+              {busyAction === "connector_backpressure_suggest" ? "Suggesting..." : "Suggest Backpressure"}
+            </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveConnectorBatch()}>
               {busyAction === "connector_redrive_batch" ? "Redriving..." : "Batch Redrive"}
             </button>
@@ -4470,6 +4550,22 @@ export function FlowBuilderClient() {
                   ))}
                 </ul>
               ) : null}
+            </div>
+          ) : null}
+
+          {connectorBackpressureByConnector.length > 0 ? (
+            <div className="stack">
+              <p className="muted">backpressure suggestions by connector</p>
+              <ul className="list">
+                {connectorBackpressureByConnector.map((item) => (
+                  <li key={`bp:${item.connector_type}`}>
+                    <strong>{item.connector_type}</strong> {connectorPressureTierLabel(item.pressure_tier)} - queued{" "}
+                    {item.summary.queued} retrying {item.summary.retrying} due now {item.summary.due_now} - recommend max retrying{" "}
+                    {item.recommendation.maxRetrying}, max due now {item.recommendation.maxDueNow}, min limit{" "}
+                    {item.recommendation.minLimit}
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
 

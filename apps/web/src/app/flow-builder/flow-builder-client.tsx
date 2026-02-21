@@ -2142,13 +2142,23 @@ export function FlowBuilderClient() {
     void loadConnectorDeliveries();
   }, [loadConnectorDeliveries]);
 
-  async function testConnectorConfig() {
+  async function testConnectorConfig(mode: "validate" | "dispatch") {
     if (!selectedProjectId) {
       setError("Select a project before connector config test.");
       return;
     }
 
+    let payload: unknown = null;
     let config: Record<string, unknown> = {};
+    if (mode === "dispatch") {
+      try {
+        payload = JSON.parse(connectorPayloadText);
+      } catch {
+        setError("Connector payload must be valid JSON.");
+        return;
+      }
+    }
+
     try {
       config = connectorConfigText.trim() ? (JSON.parse(connectorConfigText) as Record<string, unknown>) : {};
     } catch {
@@ -2156,12 +2166,14 @@ export function FlowBuilderClient() {
       return;
     }
 
-    setBusyAction("connector_test");
+    setBusyAction(mode === "dispatch" ? "connector_test_dispatch" : "connector_test_validate");
     const response = await fetch(`/api/v2/connectors/${encodeURIComponent(connectorType)}/test`, {
       method: "POST",
       headers: authHeaders(true),
       body: JSON.stringify({
         projectId: selectedProjectId,
+        mode,
+        payload,
         config,
       }),
     });
@@ -2174,7 +2186,7 @@ export function FlowBuilderClient() {
       return;
     }
 
-    setSuccess("Connector config validated.");
+    setSuccess(mode === "dispatch" ? "Connector test dispatch delivered." : "Connector config validated.");
     setConnectorResult(JSON.stringify(result, null, 2));
     setBusyAction(null);
   }
@@ -3360,8 +3372,11 @@ export function FlowBuilderClient() {
           </div>
 
           <div className="row wrap">
-            <button className="button secondary" disabled={busyAction !== null} onClick={() => void testConnectorConfig()}>
-              {busyAction === "connector_test" ? "Testing..." : "Test Config"}
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void testConnectorConfig("validate")}>
+              {busyAction === "connector_test_validate" ? "Validating..." : "Validate Config"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void testConnectorConfig("dispatch")}>
+              {busyAction === "connector_test_dispatch" ? "Dispatching..." : "Send Test Event"}
             </button>
             <button className="button" disabled={busyAction !== null} onClick={() => void deliverConnector()}>
               {busyAction === "connector_deliver" ? "Delivering..." : "Deliver Event"}

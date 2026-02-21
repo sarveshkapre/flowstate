@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { assertJsonBodySize, connectorTypeSchema, invalidRequestResponse, sanitizeForStorage } from "@/lib/v2/request-security";
 import { requirePermission } from "@/lib/v2/auth";
-import { normalizeConnectorType, validateConnectorConfig } from "@/lib/v2/connector-runtime";
+import { dispatchConnectorDelivery, normalizeConnectorType, validateConnectorConfig } from "@/lib/v2/connector-runtime";
 
 type Params = {
   params: Promise<{ type: string }>;
@@ -11,7 +11,9 @@ type Params = {
 
 const testConnectorSchema = z.object({
   projectId: z.string().min(1),
+  mode: z.enum(["validate", "dispatch"]).default("validate"),
   config: z.record(z.string(), z.unknown()).optional(),
+  payload: z.unknown().optional(),
 });
 
 export async function POST(request: Request, { params }: Params) {
@@ -31,7 +33,7 @@ export async function POST(request: Request, { params }: Params) {
 
   const auth = await requirePermission({
     request,
-    permission: "deploy_flow",
+    permission: parsed.data.mode === "dispatch" ? "run_flow" : "deploy_flow",
     projectId: parsed.data.projectId,
   });
 
@@ -41,6 +43,9 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     assertJsonBodySize(parsed.data.config ?? {});
+    if (parsed.data.mode === "dispatch") {
+      assertJsonBodySize(parsed.data.payload ?? {});
+    }
   } catch (error) {
     return invalidRequestResponse(error);
   }
@@ -59,6 +64,49 @@ export async function POST(request: Request, { params }: Params) {
       },
       { status: 400 },
     );
+  }
+
+  if (parsed.data.mode === "dispatch") {
+    const delivery = await dispatchConnectorDelivery({
+      connectorTypeRaw: type,
+      config: parsed.data.config ?? {},
+      payload:
+        parsed.data.payload ??
+        {
+          event: "connector.test.dispatch",
+          generated_at: new Date().toISOString(),
+          project_id: parsed.data.projectId,
+          connector_type: type,
+        },
+    });
+
+    if (!delivery.success) {
+      return NextResponse.json(
+        {
+          connector_type: type,
+          connector_normalized_type: normalizedType,
+          project_id: parsed.data.projectId,
+          status: "failed",
+          mode: "dispatch",
+          sanitized_config_preview: sanitizeForStorage(parsed.data.config ?? {}),
+          payload_preview: sanitizeForStorage(parsed.data.payload ?? null),
+          delivery,
+        },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json({
+      connector_type: type,
+      connector_normalized_type: normalizedType,
+      project_id: parsed.data.projectId,
+      status: "ok",
+      mode: "dispatch",
+      sanitized_config_preview: sanitizeForStorage(parsed.data.config ?? {}),
+      payload_preview: sanitizeForStorage(parsed.data.payload ?? null),
+      delivery,
+      message: "Connector test dispatch delivered successfully.",
+    });
   }
 
   return NextResponse.json({

@@ -1,0 +1,161 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import {
+  listConnectorDeliveries,
+  listConnectorDeliveryAttempts,
+  processConnectorDeliveryQueue,
+  redriveConnectorDeliveryBatch,
+  summarizeConnectorDeliveries,
+} from "@/lib/data-store-v2";
+import { requirePermission } from "@/lib/v2/auth";
+import { computeConnectorInsights } from "@/lib/v2/connector-insights";
+import { rankConnectorReliability } from "@/lib/v2/connector-reliability";
+import { selectConnectorRecommendationActions } from "@/lib/v2/connector-recommendations";
+import { connectorTypeSchema } from "@/lib/v2/request-security";
+import { SUPPORTED_CONNECTOR_TYPES } from "@/lib/v2/connectors";
+
+const runRecommendationsSchema = z.object({
+  projectId: z.string().min(1),
+  lookbackHours: z.number().int().positive().max(24 * 30).default(24),
+  connectorTypes: z.array(connectorTypeSchema).min(1).max(20).optional(),
+  limit: z.number().int().positive().max(100).default(10),
+  minDeadLetterMinutes: z.number().int().nonnegative().max(7 * 24 * 60).default(15),
+  riskThreshold: z.number().positive().max(500).default(20),
+  maxActions: z.number().int().positive().max(20).default(3),
+  allowProcessQueue: z.boolean().default(true),
+  allowRedriveDeadLetters: z.boolean().default(true),
+});
+
+export async function POST(request: Request) {
+  const payload = await request.json().catch(() => null);
+  const parsed = runRecommendationsSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const auth = await requirePermission({
+    request,
+    permission: "run_flow",
+    projectId: parsed.data.projectId,
+  });
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  const connectorTypes = [...new Set(parsed.data.connectorTypes ?? [...SUPPORTED_CONNECTOR_TYPES])];
+  const records = await Promise.all(
+    connectorTypes.map(async (connectorType) => {
+      const [summary, deliveries] = await Promise.all([
+        summarizeConnectorDeliveries({
+          projectId: parsed.data.projectId,
+          connectorType,
+        }),
+        listConnectorDeliveries({
+          projectId: parsed.data.projectId,
+          connectorType,
+          limit: 200,
+        }),
+      ]);
+
+      const attemptsEntries = await Promise.all(
+        deliveries.map(async (delivery) => {
+          const attempts = await listConnectorDeliveryAttempts(delivery.id);
+          return [delivery.id, attempts] as const;
+        }),
+      );
+
+      const insights = computeConnectorInsights({
+        deliveries,
+        attemptsByDeliveryId: Object.fromEntries(attemptsEntries),
+        lookbackHours: parsed.data.lookbackHours,
+      });
+
+      return {
+        connector_type: connectorType,
+        summary,
+        insights,
+      };
+    }),
+  );
+
+  const ranked = rankConnectorReliability(records);
+  const selected = selectConnectorRecommendationActions({
+    connectors: ranked,
+    riskThreshold: parsed.data.riskThreshold,
+    maxActions: parsed.data.maxActions,
+    allowProcessQueue: parsed.data.allowProcessQueue,
+    allowRedriveDeadLetters: parsed.data.allowRedriveDeadLetters,
+  });
+
+  const actor = auth.actor.email ?? "api-key";
+  const actionResults: Array<{
+    connector_type: string;
+    recommendation: "process_queue" | "redrive_dead_letters";
+    risk_score: number;
+    processed_count: number;
+    redriven_count: number;
+    delivery_ids: string[];
+  }> = [];
+
+  for (const action of selected) {
+    if (action.recommendation === "process_queue") {
+      const process = await processConnectorDeliveryQueue({
+        projectId: parsed.data.projectId,
+        connectorType: action.connector_type,
+        limit: parsed.data.limit,
+        actor,
+      });
+
+      actionResults.push({
+        connector_type: action.connector_type,
+        recommendation: action.recommendation,
+        risk_score: action.risk_score,
+        processed_count: process.processed_count,
+        redriven_count: 0,
+        delivery_ids: process.deliveries.map((delivery) => delivery.id),
+      });
+      continue;
+    }
+
+    const redrive = await redriveConnectorDeliveryBatch({
+      projectId: parsed.data.projectId,
+      connectorType: action.connector_type,
+      limit: parsed.data.limit,
+      minDeadLetterMinutes: parsed.data.minDeadLetterMinutes,
+      actor,
+    });
+
+    let processedCount = 0;
+    if (redrive.redriven_count > 0) {
+      const process = await processConnectorDeliveryQueue({
+        projectId: parsed.data.projectId,
+        connectorType: action.connector_type,
+        limit: redrive.redriven_count,
+        actor,
+      });
+      processedCount = process.processed_count;
+    }
+
+    actionResults.push({
+      connector_type: action.connector_type,
+      recommendation: action.recommendation,
+      risk_score: action.risk_score,
+      processed_count: processedCount,
+      redriven_count: redrive.redriven_count,
+      delivery_ids: redrive.deliveries.map((delivery) => delivery.id),
+    });
+  }
+
+  return NextResponse.json({
+    project_id: parsed.data.projectId,
+    lookback_hours: parsed.data.lookbackHours,
+    connector_types: connectorTypes,
+    risk_threshold: parsed.data.riskThreshold,
+    max_actions: parsed.data.maxActions,
+    selected_actions: selected,
+    action_results: actionResults,
+  });
+}

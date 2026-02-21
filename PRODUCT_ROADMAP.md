@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Top recommendation orchestration shipped with a project-level run endpoint and Flow Builder one-click execution of highest-risk connector actions using configurable risk/max-action controls.
 - 2026-02-21: Connector Guardian automation shipped with worker-side risk-threshold polling that reads reliability rankings and executes top process/redrive recommendations per project.
 - 2026-02-21: Connector recommendation runner shipped with a typed orchestration API and Flow Builder one-click execution of process/redrive actions directly from Recovery Radar rankings.
 - 2026-02-21: Connector Recovery Radar shipped with a project-level reliability ranking API and Flow Builder risk-ranked action panel to focus operations on the highest-risk connector first.

@@ -730,6 +730,8 @@ export function FlowBuilderClient() {
   const [connectorBatchRedriveLimit, setConnectorBatchRedriveLimit] = useState("10");
   const [connectorBatchRedriveMinAgeMinutes, setConnectorBatchRedriveMinAgeMinutes] = useState("15");
   const [connectorRedriveAllMinDeadLetterCount, setConnectorRedriveAllMinDeadLetterCount] = useState("1");
+  const [connectorRecommendationRiskThreshold, setConnectorRecommendationRiskThreshold] = useState("20");
+  const [connectorRecommendationMaxActions, setConnectorRecommendationMaxActions] = useState("3");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -2622,6 +2624,57 @@ export function FlowBuilderClient() {
     setBusyAction(null);
   }
 
+  async function runTopConnectorRecommendations() {
+    if (!selectedProjectId) {
+      setError("Select a project before running top connector recommendations.");
+      return;
+    }
+
+    const parsedLookback = Number(connectorInsightsLookbackHours);
+    const parsedLimit = Number(connectorBatchRedriveLimit);
+    const parsedMinAge = Number(connectorBatchRedriveMinAgeMinutes);
+    const parsedRiskThreshold = Number(connectorRecommendationRiskThreshold);
+    const parsedMaxActions = Number(connectorRecommendationMaxActions);
+
+    const lookbackHours =
+      Number.isFinite(parsedLookback) && parsedLookback > 0 ? Math.min(Math.floor(parsedLookback), 24 * 30) : 24;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 10;
+    const minDeadLetterMinutes = Number.isFinite(parsedMinAge) && parsedMinAge >= 0 ? Math.floor(parsedMinAge) : 15;
+    const riskThreshold = Number.isFinite(parsedRiskThreshold) && parsedRiskThreshold > 0 ? parsedRiskThreshold : 20;
+    const maxActions = Number.isFinite(parsedMaxActions) && parsedMaxActions > 0 ? Math.floor(parsedMaxActions) : 3;
+
+    setBusyAction("connector_recommendations_run_top");
+    const response = await fetch("/api/v2/connectors/recommendations/run", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        lookbackHours,
+        connectorTypes: CONNECTOR_TYPES,
+        limit,
+        minDeadLetterMinutes,
+        riskThreshold,
+        maxActions,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Failed to run top connector recommendations.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    const actionResults = Array.isArray(result.action_results) ? result.action_results : [];
+    setSuccess(`Executed ${actionResults.length} top connector recommendation(s).`);
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+    await loadConnectorInsights();
+    await loadConnectorReliability();
+    setBusyAction(null);
+  }
+
   return (
     <section className="panel stack">
       <h2>Flow Builder v2</h2>
@@ -3655,6 +3708,20 @@ export function FlowBuilderClient() {
               />
             </label>
             <label className="field">
+              <span>Recommendation Risk Threshold</span>
+              <input
+                value={connectorRecommendationRiskThreshold}
+                onChange={(event) => setConnectorRecommendationRiskThreshold(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Recommendation Max Actions</span>
+              <input
+                value={connectorRecommendationMaxActions}
+                onChange={(event) => setConnectorRecommendationMaxActions(event.target.value)}
+              />
+            </label>
+            <label className="field">
               <span>Insights Lookback (hours)</span>
               <input value={connectorInsightsLookbackHours} onChange={(event) => setConnectorInsightsLookbackHours(event.target.value)} />
             </label>
@@ -3678,6 +3745,9 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveAllConnectorQueues()}>
               {busyAction === "connector_redrive_all" ? "Redriving All..." : "Redrive All Connectors"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void runTopConnectorRecommendations()}>
+              {busyAction === "connector_recommendations_run_top" ? "Running Top..." : "Run Top Recommendations"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveConnectorBatch()}>
               {busyAction === "connector_redrive_batch" ? "Redriving..." : "Batch Redrive"}

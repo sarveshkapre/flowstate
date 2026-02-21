@@ -2563,6 +2563,65 @@ export function FlowBuilderClient() {
     setBusyAction(null);
   }
 
+  async function runConnectorRecommendation(item: ConnectorReliabilityItem) {
+    if (!selectedProjectId) {
+      setError("Select a project before running connector recommendations.");
+      return;
+    }
+
+    if (item.recommendation === "healthy") {
+      setInfo(`${item.connector_type} is healthy. No action required.`);
+      return;
+    }
+
+    const parsedProcessLimit = Number(connectorProcessLimit);
+    const parsedRedriveLimit = Number(connectorBatchRedriveLimit);
+    const parsedMinAge = Number(connectorBatchRedriveMinAgeMinutes);
+    const processLimit = Number.isFinite(parsedProcessLimit) && parsedProcessLimit > 0 ? Math.floor(parsedProcessLimit) : 10;
+    const redriveLimit = Number.isFinite(parsedRedriveLimit) && parsedRedriveLimit > 0 ? Math.floor(parsedRedriveLimit) : 10;
+    const minDeadLetterMinutes = Number.isFinite(parsedMinAge) && parsedMinAge >= 0 ? Math.floor(parsedMinAge) : 15;
+
+    const busyKey = `connector_recommend_${item.connector_type}`;
+    setBusyAction(busyKey);
+    const response = await fetch("/api/v2/connectors/action", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        connectorType: item.connector_type,
+        action: item.recommendation,
+        limit: item.recommendation === "process_queue" ? processLimit : redriveLimit,
+        minDeadLetterMinutes,
+        processAfterRedrive: true,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Failed to run connector recommendation.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    if (item.recommendation === "process_queue") {
+      const processedCount = typeof result.processed_count === "number" ? result.processed_count : 0;
+      setSuccess(`Processed ${processedCount} queued delivery(ies) for ${item.connector_type}.`);
+    } else {
+      const redrivenCount = typeof result.redriven_count === "number" ? result.redriven_count : 0;
+      const processedCount = typeof result.processed_count === "number" ? result.processed_count : 0;
+      setSuccess(`Redriven ${redrivenCount} and processed ${processedCount} delivery(ies) for ${item.connector_type}.`);
+    }
+
+    setConnectorType(item.connector_type);
+    setConnectorConfigText(connectorConfigTemplate(item.connector_type));
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+    await loadConnectorInsights();
+    await loadConnectorReliability();
+    setBusyAction(null);
+  }
+
   return (
     <section className="panel stack">
       <h2>Flow Builder v2</h2>
@@ -3720,6 +3779,17 @@ export function FlowBuilderClient() {
                     }}
                   >
                     Focus
+                  </button>
+                  <button
+                    className="button secondary"
+                    disabled={busyAction !== null || item.recommendation === "healthy"}
+                    onClick={() => void runConnectorRecommendation(item)}
+                  >
+                    {busyAction === `connector_recommend_${item.connector_type}`
+                      ? "Running..."
+                      : item.recommendation === "healthy"
+                        ? "Healthy"
+                        : "Run Recommendation"}
                   </button>
                 </li>
               ))}

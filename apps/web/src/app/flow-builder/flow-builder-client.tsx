@@ -124,6 +124,16 @@ type ConnectorDelivery = {
   updated_at: string;
 };
 
+type ConnectorDeliverySummary = {
+  total: number;
+  queued: number;
+  retrying: number;
+  delivered: number;
+  dead_lettered: number;
+  due_now: number;
+  earliest_next_attempt_at: string | null;
+};
+
 type ProjectMemberRole = "owner" | "admin" | "builder" | "reviewer" | "viewer";
 
 type ApiKeyScope =
@@ -212,6 +222,16 @@ const FAILURE_REASON_OPTIONS: FailureReasonCode[] = [
   "wrong_class",
   "other",
 ];
+
+const EMPTY_CONNECTOR_SUMMARY: ConnectorDeliverySummary = {
+  total: 0,
+  queued: 0,
+  retrying: 0,
+  delivered: 0,
+  dead_lettered: 0,
+  due_now: 0,
+  earliest_next_attempt_at: null,
+};
 
 const TEMPLATE_GRAPH: { name: string; graph: FlowGraph } = {
   name: "Document Intake",
@@ -537,6 +557,7 @@ export function FlowBuilderClient() {
   const [connectorProcessLimit, setConnectorProcessLimit] = useState("10");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
+  const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
   const [runs, setRuns] = useState<RunRecordV2[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
@@ -1542,6 +1563,7 @@ export function FlowBuilderClient() {
   const loadConnectorDeliveries = useCallback(async () => {
     if (!selectedProjectId) {
       setConnectorDeliveries([]);
+      setConnectorSummary(EMPTY_CONNECTOR_SUMMARY);
       return;
     }
 
@@ -1552,16 +1574,19 @@ export function FlowBuilderClient() {
     });
     const payload = (await response.json()) as {
       deliveries?: Array<{ id: string; status: ConnectorDelivery["status"]; attempts?: unknown[] } & ConnectorDelivery>;
+      summary?: ConnectorDeliverySummary;
       error?: string;
     };
 
     if (!response.ok) {
       setError(payload.error || "Unable to load connector deliveries.");
       setConnectorDeliveries([]);
+      setConnectorSummary(EMPTY_CONNECTOR_SUMMARY);
       return;
     }
 
     setConnectorDeliveries(payload.deliveries ?? []);
+    setConnectorSummary(payload.summary ?? EMPTY_CONNECTOR_SUMMARY);
   }, [authHeaders, connectorType, selectedProjectId]);
 
   useEffect(() => {
@@ -2565,6 +2590,18 @@ export function FlowBuilderClient() {
 
         <article className="card stack">
           <h3>Connector History</h3>
+          <p className="muted">
+            total {connectorSummary.total} | due now {connectorSummary.due_now} | dead-letter {connectorSummary.dead_lettered}
+          </p>
+          <p className="muted">
+            queued {connectorSummary.queued} | retrying {connectorSummary.retrying} | delivered {connectorSummary.delivered}
+          </p>
+          <p className="muted">
+            earliest retry:{" "}
+            {connectorSummary.earliest_next_attempt_at
+              ? new Date(connectorSummary.earliest_next_attempt_at).toLocaleString()
+              : "n/a"}
+          </p>
           {connectorDeliveries.length === 0 ? (
             <p className="muted">No deliveries yet.</p>
           ) : (

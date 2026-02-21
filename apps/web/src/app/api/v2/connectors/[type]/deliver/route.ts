@@ -7,6 +7,7 @@ import {
   processConnectorDelivery,
   processConnectorDeliveryQueue,
   redriveConnectorDelivery,
+  summarizeConnectorDeliveries,
 } from "@/lib/data-store-v2";
 import {
   assertJsonBodySize,
@@ -74,6 +75,10 @@ export async function GET(request: Request, { params }: Params) {
     status: status as "queued" | "retrying" | "delivered" | "dead_lettered" | undefined,
     limit,
   });
+  const summary = await summarizeConnectorDeliveries({
+    projectId,
+    connectorType: type,
+  });
 
   const items = await Promise.all(
     deliveries.map(async (delivery) => ({
@@ -85,6 +90,7 @@ export async function GET(request: Request, { params }: Params) {
   return NextResponse.json({
     connector_type: type,
     project_id: projectId,
+    summary,
     deliveries: items,
   });
 }

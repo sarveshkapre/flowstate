@@ -1661,6 +1661,66 @@ export async function listConnectorDeliveries(filters: {
     .slice(0, limit);
 }
 
+export async function summarizeConnectorDeliveries(input: {
+  projectId: string;
+  connectorType?: string;
+}) {
+  const state = await readState();
+  const normalizedType = input.connectorType?.trim().toLowerCase();
+  const nowMs = Date.now();
+  let earliestNextAttemptAt: string | null = null;
+
+  const summary = {
+    total: 0,
+    queued: 0,
+    retrying: 0,
+    delivered: 0,
+    dead_lettered: 0,
+    due_now: 0,
+  };
+
+  for (const delivery of state.connector_deliveries) {
+    if (delivery.project_id !== input.projectId) {
+      continue;
+    }
+    if (normalizedType && delivery.connector_type !== normalizedType) {
+      continue;
+    }
+
+    summary.total += 1;
+    if (delivery.status === "queued") {
+      summary.queued += 1;
+    } else if (delivery.status === "retrying") {
+      summary.retrying += 1;
+    } else if (delivery.status === "delivered") {
+      summary.delivered += 1;
+    } else if (delivery.status === "dead_lettered") {
+      summary.dead_lettered += 1;
+    }
+
+    if (
+      isConnectorDeliveryDue({
+        status: delivery.status as ConnectorDeliveryStatus,
+        nextAttemptAt: delivery.next_attempt_at,
+        nowMs,
+      })
+    ) {
+      summary.due_now += 1;
+    }
+
+    if (delivery.status === "retrying" && delivery.next_attempt_at) {
+      if (!earliestNextAttemptAt || Date.parse(delivery.next_attempt_at) < Date.parse(earliestNextAttemptAt)) {
+        earliestNextAttemptAt = delivery.next_attempt_at;
+      }
+    }
+  }
+
+  return {
+    ...summary,
+    earliest_next_attempt_at: earliestNextAttemptAt,
+  };
+}
+
 export async function listConnectorDeliveryAttempts(deliveryId: string) {
   const state = await readState();
   return state.connector_delivery_attempts

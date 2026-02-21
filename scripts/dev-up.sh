@@ -23,6 +23,7 @@ CONNECTOR_BACKPRESSURE_DRAFTS_PID_FILE="$PID_DIR/connector-backpressure-drafts.p
 CONNECTOR_GUARDIAN_PID_FILE="$PID_DIR/connector-guardian.pid"
 CONNECTOR_REDRIVE_PID_FILE="$PID_DIR/connector-redrive.pid"
 REVIEW_ALERTS_PID_FILE="$PID_DIR/review-alerts.pid"
+WEB_NEXT_LOCK_FILE="$ROOT_DIR/apps/web/.next/dev/lock"
 
 print_error() {
   printf "\033[31m%s\033[0m\n" "$1" >&2
@@ -104,6 +105,20 @@ start_service() {
   print_info "$name started (pid $pid)"
 }
 
+clear_stale_web_next_lock() {
+  if [[ ! -f "$WEB_NEXT_LOCK_FILE" ]]; then
+    return
+  fi
+
+  # Only clear the lock when no Next.js dev process for this workspace is active.
+  if pgrep -f "$ROOT_DIR/node_modules/.bin/next dev" >/dev/null 2>&1; then
+    return
+  fi
+
+  rm -f "$WEB_NEXT_LOCK_FILE"
+  print_info "Cleared stale Next.js dev lock at $WEB_NEXT_LOCK_FILE"
+}
+
 ensure_env_file
 
 OPENAI_API_KEY_VALUE="${OPENAI_API_KEY:-}"
@@ -130,6 +145,7 @@ REVIEW_ALERTS_ENABLED="$(read_env_value FLOWSTATE_ENABLE_REVIEW_ALERTS || true)"
 REVIEW_ALERTS_ENABLED_NORMALIZED="$(printf '%s' "$REVIEW_ALERTS_ENABLED" | tr '[:upper:]' '[:lower:]')"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
+clear_stale_web_next_lock
 
 start_service \
   "web" \

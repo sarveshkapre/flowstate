@@ -20,6 +20,7 @@ test("parseConnectorGuardianConfig applies defaults", () => {
   assert.equal(config.riskThreshold, 20);
   assert.equal(config.maxActionsPerProject, 2);
   assert.equal(config.actionLimit, 10);
+  assert.equal(config.cooldownMinutes, 10);
   assert.equal(config.minDeadLetterMinutes, 15);
   assert.equal(config.allowProcessQueue, true);
   assert.equal(config.allowRedriveDeadLetters, true);
@@ -35,6 +36,7 @@ test("parseConnectorGuardianConfig normalizes values and ignores unsupported con
     FLOWSTATE_CONNECTOR_GUARDIAN_RISK_THRESHOLD: "45.5",
     FLOWSTATE_CONNECTOR_GUARDIAN_MAX_ACTIONS_PER_PROJECT: "99",
     FLOWSTATE_CONNECTOR_GUARDIAN_ACTION_LIMIT: "500",
+    FLOWSTATE_CONNECTOR_GUARDIAN_COOLDOWN_MINUTES: "0",
     FLOWSTATE_CONNECTOR_GUARDIAN_MIN_DEAD_LETTER_MINUTES: "0",
     FLOWSTATE_CONNECTOR_GUARDIAN_ALLOW_PROCESS_QUEUE: "false",
     FLOWSTATE_CONNECTOR_GUARDIAN_ALLOW_REDRIVE_DEAD_LETTERS: "0",
@@ -48,6 +50,7 @@ test("parseConnectorGuardianConfig normalizes values and ignores unsupported con
   assert.equal(config.riskThreshold, 45.5);
   assert.equal(config.maxActionsPerProject, 20);
   assert.equal(config.actionLimit, 100);
+  assert.equal(config.cooldownMinutes, 10);
   assert.equal(config.minDeadLetterMinutes, 15);
   assert.equal(config.allowProcessQueue, false);
   assert.equal(config.allowRedriveDeadLetters, false);
@@ -99,6 +102,7 @@ test("runConnectorGuardianOnce executes top recommendations above threshold", as
   assert.equal(requestBodies.length, 1);
   assert.equal(requestBodies[0]?.projectId, "proj-1");
   assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook", "jira", "slack"]);
+  assert.equal(requestBodies[0]?.cooldownMinutes, 10);
 });
 
 test("runConnectorGuardianOnce skips projects with no actionable recommendations", async () => {

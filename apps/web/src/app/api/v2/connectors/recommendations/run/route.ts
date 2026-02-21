@@ -2,16 +2,22 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  getConnectorDelivery,
   listConnectorDeliveries,
   listConnectorDeliveryAttempts,
+  listV2AuditEvents,
   processConnectorDeliveryQueue,
   redriveConnectorDeliveryBatch,
   summarizeConnectorDeliveries,
 } from "@/lib/data-store-v2";
+import { toConnectorActionTimelineEvent } from "@/lib/v2/connector-action-timeline";
 import { requirePermission } from "@/lib/v2/auth";
 import { computeConnectorInsights } from "@/lib/v2/connector-insights";
 import { rankConnectorReliability } from "@/lib/v2/connector-reliability";
-import { selectConnectorRecommendationActions } from "@/lib/v2/connector-recommendations";
+import {
+  filterConnectorRecommendationCooldown,
+  selectConnectorRecommendationActions,
+} from "@/lib/v2/connector-recommendations";
 import { connectorTypeSchema } from "@/lib/v2/request-security";
 import { SUPPORTED_CONNECTOR_TYPES } from "@/lib/v2/connectors";
 
@@ -23,6 +29,7 @@ const runRecommendationsSchema = z.object({
   minDeadLetterMinutes: z.number().int().nonnegative().max(7 * 24 * 60).default(15),
   riskThreshold: z.number().positive().max(500).default(20),
   maxActions: z.number().int().positive().max(20).default(3),
+  cooldownMinutes: z.number().int().nonnegative().max(24 * 60).default(0),
   allowProcessQueue: z.boolean().default(true),
   allowRedriveDeadLetters: z.boolean().default(true),
 });
@@ -90,6 +97,53 @@ export async function POST(request: Request) {
     allowRedriveDeadLetters: parsed.data.allowRedriveDeadLetters,
   });
 
+  const latestActionAtByConnector: Record<string, string | undefined> = {};
+  if (parsed.data.cooldownMinutes > 0) {
+    const recentAuditEvents = await listV2AuditEvents(1000);
+    const fallbackByDeliveryId = new Map<string, { project_id: string | null; connector_type: string | null }>();
+
+    for (const event of recentAuditEvents) {
+      const mappedDirect = toConnectorActionTimelineEvent({ event });
+      if (!mappedDirect) {
+        continue;
+      }
+
+      let mapped = mappedDirect;
+      if (mapped.project_id === null || mapped.connector_type === null) {
+        if (mapped.delivery_id) {
+          if (!fallbackByDeliveryId.has(mapped.delivery_id)) {
+            const delivery = await getConnectorDelivery(mapped.delivery_id);
+            fallbackByDeliveryId.set(mapped.delivery_id, {
+              project_id: delivery?.project_id ?? null,
+              connector_type: delivery?.connector_type ?? null,
+            });
+          }
+          const fallback = fallbackByDeliveryId.get(mapped.delivery_id);
+          if (fallback) {
+            mapped = toConnectorActionTimelineEvent({ event, fallback }) ?? mapped;
+          }
+        }
+      }
+
+      if (mapped.project_id !== parsed.data.projectId || !mapped.connector_type) {
+        continue;
+      }
+
+      const previous = latestActionAtByConnector[mapped.connector_type];
+      if (!previous || Date.parse(mapped.created_at) > Date.parse(previous)) {
+        latestActionAtByConnector[mapped.connector_type] = mapped.created_at;
+      }
+    }
+  }
+
+  const cooldownFiltered = filterConnectorRecommendationCooldown({
+    actions: selected,
+    latestActionAtByConnector,
+    cooldownMinutes: parsed.data.cooldownMinutes,
+  });
+  const eligibleActions = cooldownFiltered.eligible;
+  const skippedActions = cooldownFiltered.skipped;
+
   const actor = auth.actor.email ?? "api-key";
   const actionResults: Array<{
     connector_type: string;
@@ -100,7 +154,7 @@ export async function POST(request: Request) {
     delivery_ids: string[];
   }> = [];
 
-  for (const action of selected) {
+  for (const action of eligibleActions) {
     if (action.recommendation === "process_queue") {
       const process = await processConnectorDeliveryQueue({
         projectId: parsed.data.projectId,
@@ -155,7 +209,9 @@ export async function POST(request: Request) {
     connector_types: connectorTypes,
     risk_threshold: parsed.data.riskThreshold,
     max_actions: parsed.data.maxActions,
-    selected_actions: selected,
+    cooldown_minutes: parsed.data.cooldownMinutes,
+    selected_actions: eligibleActions,
+    skipped_actions: skippedActions,
     action_results: actionResults,
   });
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { selectConnectorRecommendationActions } from "./connector-recommendations.ts";
+import { filterConnectorRecommendationCooldown, selectConnectorRecommendationActions } from "./connector-recommendations.ts";
 
 test("selectConnectorRecommendationActions picks high-risk non-healthy recommendations", () => {
   const selected = selectConnectorRecommendationActions({
@@ -129,4 +129,26 @@ test("selectConnectorRecommendationActions respects flags, threshold, and max ac
   assert.equal(selected.length, 1);
   assert.equal(selected[0]?.connector_type, "jira");
   assert.equal(selected[0]?.recommendation, "redrive_dead_letters");
+});
+
+test("filterConnectorRecommendationCooldown skips connectors inside cooldown window", () => {
+  const result = filterConnectorRecommendationCooldown({
+    nowMs: Date.parse("2026-02-21T12:30:00.000Z"),
+    cooldownMinutes: 15,
+    actions: [
+      { connector_type: "jira", recommendation: "redrive_dead_letters", risk_score: 40 },
+      { connector_type: "slack", recommendation: "process_queue", risk_score: 35 },
+    ],
+    latestActionAtByConnector: {
+      jira: "2026-02-21T12:20:00.000Z",
+      slack: "2026-02-21T11:00:00.000Z",
+    },
+  });
+
+  assert.equal(result.eligible.length, 1);
+  assert.equal(result.eligible[0]?.connector_type, "slack");
+  assert.equal(result.skipped.length, 1);
+  assert.equal(result.skipped[0]?.connector_type, "jira");
+  assert.equal(result.skipped[0]?.reason, "cooldown_active");
+  assert.ok((result.skipped[0]?.retry_after_seconds ?? 0) > 0);
 });

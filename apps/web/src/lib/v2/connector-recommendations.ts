@@ -6,6 +6,17 @@ export type ConnectorRecommendationAction = {
   risk_score: number;
 };
 
+export type ConnectorRecommendationSkipReason = "cooldown_active";
+
+export type ConnectorRecommendationSkippedAction = {
+  connector_type: string;
+  recommendation: Exclude<ConnectorReliabilityRecommendation, "healthy">;
+  risk_score: number;
+  reason: ConnectorRecommendationSkipReason;
+  last_action_at: string;
+  retry_after_seconds: number;
+};
+
 export function selectConnectorRecommendationActions(input: {
   connectors: ConnectorReliabilityItem[];
   riskThreshold: number;
@@ -48,4 +59,58 @@ export function selectConnectorRecommendationActions(input: {
   }
 
   return selected;
+}
+
+export function filterConnectorRecommendationCooldown(input: {
+  actions: ConnectorRecommendationAction[];
+  latestActionAtByConnector: Record<string, string | undefined>;
+  cooldownMinutes: number;
+  nowMs?: number;
+}) {
+  const cooldownMinutes = Math.max(0, input.cooldownMinutes);
+  if (cooldownMinutes === 0) {
+    return {
+      eligible: input.actions,
+      skipped: [] as ConnectorRecommendationSkippedAction[],
+    };
+  }
+
+  const nowMs = input.nowMs ?? Date.now();
+  const cooldownMs = cooldownMinutes * 60 * 1000;
+  const eligible: ConnectorRecommendationAction[] = [];
+  const skipped: ConnectorRecommendationSkippedAction[] = [];
+
+  for (const action of input.actions) {
+    const lastActionAt = input.latestActionAtByConnector[action.connector_type];
+    if (!lastActionAt) {
+      eligible.push(action);
+      continue;
+    }
+
+    const lastActionMs = Date.parse(lastActionAt);
+    if (Number.isNaN(lastActionMs)) {
+      eligible.push(action);
+      continue;
+    }
+
+    const elapsedMs = Math.max(0, nowMs - lastActionMs);
+    if (elapsedMs >= cooldownMs) {
+      eligible.push(action);
+      continue;
+    }
+
+    skipped.push({
+      connector_type: action.connector_type,
+      recommendation: action.recommendation,
+      risk_score: action.risk_score,
+      reason: "cooldown_active",
+      last_action_at: lastActionAt,
+      retry_after_seconds: Math.max(1, Math.ceil((cooldownMs - elapsedMs) / 1000)),
+    });
+  }
+
+  return {
+    eligible,
+    skipped,
+  };
 }

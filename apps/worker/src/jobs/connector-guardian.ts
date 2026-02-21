@@ -12,6 +12,7 @@ export type ConnectorGuardianConfig = {
   riskThreshold: number;
   maxActionsPerProject: number;
   actionLimit: number;
+  cooldownMinutes: number;
   minDeadLetterMinutes: number;
   allowProcessQueue: boolean;
   allowRedriveDeadLetters: boolean;
@@ -41,6 +42,7 @@ const DEFAULT_LOOKBACK_HOURS = 24;
 const DEFAULT_RISK_THRESHOLD = 20;
 const DEFAULT_MAX_ACTIONS_PER_PROJECT = 2;
 const DEFAULT_ACTION_LIMIT = 10;
+const DEFAULT_COOLDOWN_MINUTES = 10;
 const DEFAULT_MIN_DEAD_LETTER_MINUTES = 15;
 
 function parseCsv(value: string | undefined) {
@@ -207,6 +209,11 @@ export function parseConnectorGuardianConfig(env: NodeJS.ProcessEnv = process.en
       20,
     ),
     actionLimit: parsePositiveInt(env.FLOWSTATE_CONNECTOR_GUARDIAN_ACTION_LIMIT, DEFAULT_ACTION_LIMIT, 100),
+    cooldownMinutes: parsePositiveInt(
+      env.FLOWSTATE_CONNECTOR_GUARDIAN_COOLDOWN_MINUTES,
+      DEFAULT_COOLDOWN_MINUTES,
+      24 * 60,
+    ),
     minDeadLetterMinutes: parsePositiveInt(
       env.FLOWSTATE_CONNECTOR_GUARDIAN_MIN_DEAD_LETTER_MINUTES,
       DEFAULT_MIN_DEAD_LETTER_MINUTES,
@@ -252,6 +259,7 @@ export async function runConnectorGuardianOnce(input: {
         minDeadLetterMinutes: input.config.minDeadLetterMinutes,
         riskThreshold: input.config.riskThreshold,
         maxActions: input.config.maxActionsPerProject,
+        cooldownMinutes: input.config.cooldownMinutes,
         allowProcessQueue: input.config.allowProcessQueue,
         allowRedriveDeadLetters: input.config.allowRedriveDeadLetters,
       }),

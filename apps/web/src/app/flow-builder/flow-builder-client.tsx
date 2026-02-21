@@ -785,6 +785,7 @@ export function FlowBuilderClient() {
   const [connectorRedriveAllMinDeadLetterCount, setConnectorRedriveAllMinDeadLetterCount] = useState("1");
   const [connectorRecommendationRiskThreshold, setConnectorRecommendationRiskThreshold] = useState("20");
   const [connectorRecommendationMaxActions, setConnectorRecommendationMaxActions] = useState("3");
+  const [connectorRecommendationCooldownMinutes, setConnectorRecommendationCooldownMinutes] = useState("10");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -2735,6 +2736,7 @@ export function FlowBuilderClient() {
     const parsedMinAge = Number(connectorBatchRedriveMinAgeMinutes);
     const parsedRiskThreshold = Number(connectorRecommendationRiskThreshold);
     const parsedMaxActions = Number(connectorRecommendationMaxActions);
+    const parsedCooldownMinutes = Number(connectorRecommendationCooldownMinutes);
 
     const lookbackHours =
       Number.isFinite(parsedLookback) && parsedLookback > 0 ? Math.min(Math.floor(parsedLookback), 24 * 30) : 24;
@@ -2742,6 +2744,8 @@ export function FlowBuilderClient() {
     const minDeadLetterMinutes = Number.isFinite(parsedMinAge) && parsedMinAge >= 0 ? Math.floor(parsedMinAge) : 15;
     const riskThreshold = Number.isFinite(parsedRiskThreshold) && parsedRiskThreshold > 0 ? parsedRiskThreshold : 20;
     const maxActions = Number.isFinite(parsedMaxActions) && parsedMaxActions > 0 ? Math.floor(parsedMaxActions) : 3;
+    const cooldownMinutes =
+      Number.isFinite(parsedCooldownMinutes) && parsedCooldownMinutes >= 0 ? Math.floor(parsedCooldownMinutes) : 10;
 
     setBusyAction("connector_recommendations_run_top");
     const response = await fetch("/api/v2/connectors/recommendations/run", {
@@ -2755,6 +2759,7 @@ export function FlowBuilderClient() {
         minDeadLetterMinutes,
         riskThreshold,
         maxActions,
+        cooldownMinutes,
       }),
     });
     const result = (await response.json()) as Record<string, unknown>;
@@ -2767,7 +2772,8 @@ export function FlowBuilderClient() {
     }
 
     const actionResults = Array.isArray(result.action_results) ? result.action_results : [];
-    setSuccess(`Executed ${actionResults.length} top connector recommendation(s).`);
+    const skippedActions = Array.isArray(result.skipped_actions) ? result.skipped_actions : [];
+    setSuccess(`Executed ${actionResults.length} top connector recommendation(s) with ${skippedActions.length} cooldown skip(s).`);
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     await loadConnectorInsights();
@@ -3820,6 +3826,13 @@ export function FlowBuilderClient() {
               <input
                 value={connectorRecommendationMaxActions}
                 onChange={(event) => setConnectorRecommendationMaxActions(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Recommendation Cooldown (minutes)</span>
+              <input
+                value={connectorRecommendationCooldownMinutes}
+                onChange={(event) => setConnectorRecommendationCooldownMinutes(event.target.value)}
               />
             </label>
             <label className="field">

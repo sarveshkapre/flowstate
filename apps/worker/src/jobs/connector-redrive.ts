@@ -23,7 +23,7 @@ export type ConnectorRedriveResult = {
   failures: string[];
 };
 
-const DEFAULT_TYPES = ["webhook", "slack", "jira"];
+const DEFAULT_TYPES = ["webhook", "slack", "jira", "sqs", "db"];
 const DEFAULT_POLL_MS = 60_000;
 const DEFAULT_REDRIVE_LIMIT = 10;
 const DEFAULT_MIN_DEAD_LETTER = 3;

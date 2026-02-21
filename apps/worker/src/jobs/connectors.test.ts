@@ -14,7 +14,7 @@ test("parseConnectorPumpConfig applies defaults", () => {
   const config = parseConnectorPumpConfig({});
 
   assert.equal(config.apiBaseUrl, "http://localhost:3000");
-  assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira"]);
+  assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira", "sqs", "db"]);
   assert.equal(config.limit, 25);
   assert.equal(config.pollMs, 5000);
   assert.deepEqual(config.projectIds, []);

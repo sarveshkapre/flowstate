@@ -18,7 +18,7 @@ export type ConnectorPumpResult = {
   failures: string[];
 };
 
-const DEFAULT_TYPES = ["webhook", "slack", "jira"];
+const DEFAULT_TYPES = ["webhook", "slack", "jira", "sqs", "db"];
 const DEFAULT_LIMIT = 25;
 const DEFAULT_POLL_MS = 5_000;
 

@@ -14,7 +14,7 @@ test("parseConnectorRedriveConfig applies defaults", () => {
   const config = parseConnectorRedriveConfig({});
 
   assert.equal(config.apiBaseUrl, "http://localhost:3000");
-  assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira"]);
+  assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira", "sqs", "db"]);
   assert.equal(config.redriveLimit, 10);
   assert.equal(config.minDeadLetterCount, 3);
   assert.equal(config.minDeadLetterMinutes, 15);

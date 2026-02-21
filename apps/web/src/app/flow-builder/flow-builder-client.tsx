@@ -428,6 +428,31 @@ function connectorConfigTemplate(type: string) {
     );
   }
 
+  if (normalized === "sqs" || normalized === "sink_sqs" || normalized === "aws_sqs") {
+    return JSON.stringify(
+      {
+        queueUrl: "https://sqs.us-east-1.amazonaws.com/123456789012/flowstate-events",
+        region: "us-east-1",
+        accessKeyId: "AKIA...",
+        secretAccessKey: "aws_secret_access_key",
+      },
+      null,
+      2,
+    );
+  }
+
+  if (normalized === "db" || normalized === "sink_db" || normalized === "database") {
+    return JSON.stringify(
+      {
+        ingestUrl: "https://data.company.com/ingest/flowstate",
+        table: "flowstate_events",
+        apiKey: "db_ingest_token",
+      },
+      null,
+      2,
+    );
+  }
+
   return JSON.stringify(
     {
       targetUrl: "https://example.com/webhook",
@@ -3216,7 +3241,7 @@ export function FlowBuilderClient() {
         <article className="card stack">
           <h3>Connector Delivery Lab</h3>
           <p className="muted">
-            Validate connector config and deliver events to webhook/slack/jira transports. You can still simulate failures
+            Validate connector config and deliver events to webhook/slack/jira/sqs/db transports. You can still simulate failures
             using `__simulateFailureCount` or `__simulateAlwaysFail` in payload.
           </p>
 

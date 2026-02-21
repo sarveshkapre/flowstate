@@ -572,6 +572,16 @@ export const connectorBackpressurePolicyDraftRecordSchema = z.object({
       }),
     )
     .default({}),
+  required_approvals: z.number().int().positive().max(10).default(1),
+  approvals: z
+    .array(
+      z.object({
+        actor: z.string(),
+        approved_at: z.string(),
+      }),
+    )
+    .default([]),
+  activate_at: z.string().nullable().default(null),
   created_by: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),

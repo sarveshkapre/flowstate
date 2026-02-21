@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector backpressure drafts now support approval thresholds and activation-time gates with an approve endpoint and Flow Builder controls, preventing premature apply of high-impact policy changes.
 - 2026-02-21: Connector backpressure draft workflow shipped (save/load/apply draft via API and Flow Builder), enabling staged threshold edits before promoting to active policy.
 - 2026-02-21: Connector backpressure policy simulation shipped (project API + Flow Builder preview), enabling pre-apply impact checks for throttled connector count and per-connector effective-limit deltas.
 - 2026-02-21: Worker connector pump/redrive automation now defaults to project backpressure policies (with env opt-out), so saved per-connector overrides are applied consistently in unattended operations.
@@ -88,4 +89,4 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 ## Risks And Blockers
 - Scope growth across "general-purpose CV" surfaces.
 - Need to keep v1 compatibility while accelerating v2 rollout.
-- Need multi-approver and scheduled activation controls for policy drafts in regulated production environments.
+- Need automated due-draft activation worker with notifications/escalation when approval windows lapse.

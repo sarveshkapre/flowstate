@@ -75,6 +75,7 @@ import {
 import { summarizeReviewQueues } from "@/lib/v2/review-ops";
 import { dispatchConnectorDelivery } from "@/lib/v2/connector-runtime";
 import { canonicalConnectorType } from "@/lib/v2/connectors";
+import { computeConnectorBackpressureDraftReadiness } from "@/lib/v2/connector-backpressure-draft";
 
 type DbStateV2 = {
   projects: ProjectRecord[];
@@ -1612,6 +1613,8 @@ export async function upsertConnectorBackpressurePolicyDraft(input: {
   maxRetrying?: number;
   maxDueNow?: number;
   minLimit?: number;
+  requiredApprovals?: number;
+  activateAt?: string | null;
   connectorOverrides?: Record<
     string,
     {
@@ -1632,6 +1635,7 @@ export async function upsertConnectorBackpressurePolicyDraft(input: {
     const existing =
       state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === input.projectId) ?? null;
     const now = new Date().toISOString();
+    const activateAtMs = input.activateAt ? Date.parse(input.activateAt) : Number.NaN;
 
     const policy = connectorBackpressurePolicyDraftRecordSchema.parse({
       id: existing?.id ?? randomUUID(),
@@ -1655,6 +1659,14 @@ export async function upsertConnectorBackpressurePolicyDraft(input: {
               overrides: input.connectorOverrides,
               existingOverrides: existing?.connector_overrides,
             }),
+      required_approvals: clampPositiveInt(input.requiredApprovals ?? existing?.required_approvals, 1, 10),
+      approvals: existing?.approvals ?? [],
+      activate_at:
+        input.activateAt === undefined
+          ? existing?.activate_at ?? null
+          : Number.isFinite(activateAtMs)
+            ? new Date(activateAtMs).toISOString()
+            : null,
       created_by: input.actor ?? existing?.created_by ?? null,
       created_at: existing?.created_at ?? now,
       updated_at: now,
@@ -1668,6 +1680,40 @@ export async function upsertConnectorBackpressurePolicyDraft(input: {
     }
 
     return policy;
+  });
+}
+
+export async function approveConnectorBackpressurePolicyDraft(input: {
+  projectId: string;
+  actor: string;
+}) {
+  return withWriteLock(async (state) => {
+    const existing =
+      state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === input.projectId) ?? null;
+    if (!existing) {
+      throw new Error("Backpressure policy draft not found");
+    }
+
+    const actor = input.actor.trim().toLowerCase();
+    if (!actor) {
+      throw new Error("Draft approval actor is required");
+    }
+
+    const now = new Date().toISOString();
+    const deduped = [
+      ...existing.approvals.filter((approval) => approval.actor.trim().toLowerCase() !== actor),
+      { actor, approved_at: now },
+    ];
+
+    const updated = connectorBackpressurePolicyDraftRecordSchema.parse({
+      ...existing,
+      approvals: deduped,
+      updated_at: now,
+    });
+
+    const index = state.connector_backpressure_policy_drafts.findIndex((item) => item.project_id === input.projectId);
+    state.connector_backpressure_policy_drafts[index] = updated;
+    return updated;
   });
 }
 
@@ -1687,6 +1733,17 @@ export async function applyConnectorBackpressurePolicyDraft(input: { projectId: 
   const draft = await getConnectorBackpressurePolicyDraft(input.projectId);
   if (!draft) {
     throw new Error("Backpressure policy draft not found");
+  }
+
+  const readiness = computeConnectorBackpressureDraftReadiness({
+    draft,
+    actor: input.actor ?? null,
+  });
+  if (!readiness.activation_ready) {
+    throw new Error("Backpressure policy draft activation time not reached");
+  }
+  if (readiness.approvals_remaining > 0) {
+    throw new Error(`Backpressure policy draft requires ${readiness.approvals_remaining} more approval(s)`);
   }
 
   const policy = await upsertConnectorBackpressurePolicy({

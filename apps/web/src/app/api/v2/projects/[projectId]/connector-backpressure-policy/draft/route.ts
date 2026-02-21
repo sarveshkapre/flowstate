@@ -18,6 +18,8 @@ const updateDraftSchema = z
     maxRetrying: z.coerce.number().int().positive().max(10_000).optional(),
     maxDueNow: z.coerce.number().int().positive().max(10_000).optional(),
     minLimit: z.coerce.number().int().positive().max(100).optional(),
+    requiredApprovals: z.coerce.number().int().positive().max(10).optional(),
+    activateAt: z.string().datetime().nullable().optional(),
     connectorOverrides: z
       .record(
         z.string(),
@@ -81,6 +83,8 @@ export async function PUT(request: Request, { params }: Params) {
       maxRetrying: parsed.data.maxRetrying,
       maxDueNow: parsed.data.maxDueNow,
       minLimit: parsed.data.minLimit,
+      requiredApprovals: parsed.data.requiredApprovals,
+      activateAt: parsed.data.activateAt,
       connectorOverrides: parsed.data.connectorOverrides,
       actor: auth.actor.email ?? "api-key",
     });

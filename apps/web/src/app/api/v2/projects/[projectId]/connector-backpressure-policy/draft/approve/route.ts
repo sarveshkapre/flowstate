@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { applyConnectorBackpressurePolicyDraft, getProject } from "@/lib/data-store-v2";
+import { approveConnectorBackpressurePolicyDraft, getProject } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
 
 type Params = {
@@ -25,20 +25,15 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    const policy = await applyConnectorBackpressurePolicyDraft({
+    const draft = await approveConnectorBackpressurePolicyDraft({
       projectId,
       actor: auth.actor.email ?? "api-key",
     });
 
-    return NextResponse.json({ policy, draft_cleared: true });
+    return NextResponse.json({ draft });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to apply connector backpressure draft";
-    const status =
-      message === "Backpressure policy draft not found"
-        ? 404
-        : message.includes("activation time not reached") || message.includes("requires")
-          ? 409
-          : 500;
+    const message = error instanceof Error ? error.message : "Unable to approve connector backpressure draft";
+    const status = message === "Backpressure policy draft not found" ? 404 : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

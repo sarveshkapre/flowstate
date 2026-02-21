@@ -425,6 +425,9 @@ type ConnectorBackpressurePolicyDraft = {
   max_due_now: number;
   min_limit: number;
   connector_overrides: Record<string, ConnectorBackpressurePolicyOverride>;
+  required_approvals: number;
+  approvals: Array<{ actor: string; approved_at: string }>;
+  activate_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -677,6 +680,24 @@ function connectorPressureTierLabel(tier: ConnectorBackpressureSuggestionItem["p
     return "medium pressure";
   }
   return "low pressure";
+}
+
+function toDateTimeLocalValue(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 function connectorTopRiskDrivers(item: ConnectorReliabilityItem, max = 2) {
@@ -1165,6 +1186,8 @@ export function FlowBuilderClient() {
   const [connectorBackpressurePolicySimulation, setConnectorBackpressurePolicySimulation] =
     useState<ConnectorBackpressurePolicySimulation | null>(null);
   const [connectorBackpressureDraft, setConnectorBackpressureDraft] = useState<ConnectorBackpressurePolicyDraft | null>(null);
+  const [connectorBackpressureDraftRequiredApprovals, setConnectorBackpressureDraftRequiredApprovals] = useState("1");
+  const [connectorBackpressureDraftActivateAt, setConnectorBackpressureDraftActivateAt] = useState("");
   const [connectorBackpressureInsightsLookbackHours, setConnectorBackpressureInsightsLookbackHours] = useState("24");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
@@ -1601,6 +1624,8 @@ export function FlowBuilderClient() {
         setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
         setConnectorBackpressurePolicySimulation(null);
         setConnectorBackpressureDraft(null);
+        setConnectorBackpressureDraftRequiredApprovals("1");
+        setConnectorBackpressureDraftActivateAt("");
         return;
       }
 
@@ -1626,6 +1651,8 @@ export function FlowBuilderClient() {
         setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
         setConnectorBackpressurePolicySimulation(null);
         setConnectorBackpressureDraft(null);
+        setConnectorBackpressureDraftRequiredApprovals("1");
+        setConnectorBackpressureDraftActivateAt("");
         return;
       }
 
@@ -1638,6 +1665,8 @@ export function FlowBuilderClient() {
     async (projectId: string) => {
       if (!projectId) {
         setConnectorBackpressureDraft(null);
+        setConnectorBackpressureDraftRequiredApprovals("1");
+        setConnectorBackpressureDraftActivateAt("");
         return;
       }
 
@@ -1653,10 +1682,14 @@ export function FlowBuilderClient() {
       if (!response.ok) {
         setError(payload.error || "Unable to load connector backpressure draft.");
         setConnectorBackpressureDraft(null);
+        setConnectorBackpressureDraftRequiredApprovals("1");
+        setConnectorBackpressureDraftActivateAt("");
         return;
       }
 
       setConnectorBackpressureDraft(payload.draft ?? null);
+      setConnectorBackpressureDraftRequiredApprovals(String(payload.draft?.required_approvals ?? 1));
+      setConnectorBackpressureDraftActivateAt(toDateTimeLocalValue(payload.draft?.activate_at));
     },
     [authHeaders],
   );
@@ -1975,6 +2008,8 @@ export function FlowBuilderClient() {
       setConnectorBackpressureOutcomes(EMPTY_BACKPRESSURE_OUTCOME_TREND);
       setConnectorBackpressurePolicySimulation(null);
       setConnectorBackpressureDraft(null);
+      setConnectorBackpressureDraftRequiredApprovals("1");
+      setConnectorBackpressureDraftActivateAt("");
       setConnectorBackpressureInsightsLookbackHours("24");
       setConnectorReliabilityIncludeTrend(true);
       setConnectorReliabilityTrendLookbackHours("24");
@@ -2760,6 +2795,21 @@ export function FlowBuilderClient() {
     if (!parsed) {
       return;
     }
+    const parsedRequiredApprovals = Number(connectorBackpressureDraftRequiredApprovals);
+    if (!Number.isFinite(parsedRequiredApprovals) || parsedRequiredApprovals <= 0) {
+      setError("Draft required approvals must be a positive number.");
+      return;
+    }
+    const requiredApprovals = Math.min(Math.floor(parsedRequiredApprovals), 10);
+    let activateAt: string | null = null;
+    if (connectorBackpressureDraftActivateAt.trim()) {
+      const activationMs = Date.parse(connectorBackpressureDraftActivateAt.trim());
+      if (!Number.isFinite(activationMs)) {
+        setError("Draft activation time must be a valid datetime.");
+        return;
+      }
+      activateAt = new Date(activationMs).toISOString();
+    }
 
     setBusyAction("connector_backpressure_draft_save");
     const response = await fetch(`/api/v2/projects/${encodeURIComponent(selectedProjectId)}/connector-backpressure-policy/draft`, {
@@ -2770,6 +2820,8 @@ export function FlowBuilderClient() {
         maxRetrying: parsed.maxRetrying,
         maxDueNow: parsed.maxDueNow,
         minLimit: parsed.minLimit,
+        requiredApprovals,
+        activateAt,
         connectorOverrides: parsed.connectorOverrides,
       }),
     });
@@ -2786,6 +2838,8 @@ export function FlowBuilderClient() {
     }
 
     setConnectorBackpressureDraft(result.draft);
+    setConnectorBackpressureDraftRequiredApprovals(String(result.draft.required_approvals));
+    setConnectorBackpressureDraftActivateAt(toDateTimeLocalValue(result.draft.activate_at));
     setSuccess("Connector backpressure draft saved.");
     setConnectorResult(JSON.stringify(result, null, 2));
     setBusyAction(null);
@@ -2798,7 +2852,43 @@ export function FlowBuilderClient() {
     }
 
     applyBackpressurePolicyToEditor(connectorBackpressureDraft);
+    setConnectorBackpressureDraftRequiredApprovals(String(connectorBackpressureDraft.required_approvals));
+    setConnectorBackpressureDraftActivateAt(toDateTimeLocalValue(connectorBackpressureDraft.activate_at));
     setSuccess("Loaded connector backpressure draft into editor.");
+  }
+
+  async function approveConnectorBackpressurePolicyDraft() {
+    if (!selectedProjectId) {
+      setError("Select a project before approving connector backpressure draft.");
+      return;
+    }
+
+    setBusyAction("connector_backpressure_draft_approve");
+    const response = await fetch(
+      `/api/v2/projects/${encodeURIComponent(selectedProjectId)}/connector-backpressure-policy/draft/approve`,
+      {
+        method: "POST",
+        headers: authHeaders(true),
+      },
+    );
+    const result = (await response.json()) as {
+      draft?: ConnectorBackpressurePolicyDraft;
+      error?: string;
+    };
+
+    if (!response.ok || !result.draft) {
+      setError(typeof result.error === "string" ? result.error : "Unable to approve connector backpressure draft.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setConnectorBackpressureDraft(result.draft);
+    setSuccess(
+      `Draft approval recorded (${result.draft.approvals.length}/${result.draft.required_approvals}).`,
+    );
+    setConnectorResult(JSON.stringify(result, null, 2));
+    setBusyAction(null);
   }
 
   async function applyConnectorBackpressurePolicyDraft() {
@@ -2826,6 +2916,8 @@ export function FlowBuilderClient() {
 
     setSuccess("Connector backpressure draft applied.");
     setConnectorBackpressureDraft(null);
+    setConnectorBackpressureDraftRequiredApprovals("1");
+    setConnectorBackpressureDraftActivateAt("");
     setConnectorBackpressurePolicySimulation(null);
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorBackpressurePolicy(selectedProjectId);
@@ -5191,6 +5283,24 @@ export function FlowBuilderClient() {
             </ul>
           </div>
 
+          <div className="grid two-col">
+            <label className="field">
+              <span>Draft Required Approvals</span>
+              <input
+                value={connectorBackpressureDraftRequiredApprovals}
+                onChange={(event) => setConnectorBackpressureDraftRequiredApprovals(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Draft Activate At (optional)</span>
+              <input
+                type="datetime-local"
+                value={connectorBackpressureDraftActivateAt}
+                onChange={(event) => setConnectorBackpressureDraftActivateAt(event.target.value)}
+              />
+            </label>
+          </div>
+
           <div className="field">
             <span>Recommendation Connector Scope</span>
             <div className="row wrap">
@@ -5246,6 +5356,9 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" onClick={() => loadConnectorBackpressureDraftIntoEditor()}>
               Load Draft Into Editor
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void approveConnectorBackpressurePolicyDraft()}>
+              {busyAction === "connector_backpressure_draft_approve" ? "Approving Draft..." : "Approve Backpressure Draft"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void applyConnectorBackpressurePolicyDraft()}>
               {busyAction === "connector_backpressure_draft_apply" ? "Applying Draft..." : "Apply Backpressure Draft"}
@@ -5350,11 +5463,19 @@ export function FlowBuilderClient() {
               {connectorBackpressureOutcomes.delta.total_deliveries}
             </p>
             {connectorBackpressureDraft ? (
-              <p className="muted">
-                draft saved {new Date(connectorBackpressureDraft.updated_at).toLocaleString()} by{" "}
-                {connectorBackpressureDraft.created_by ?? "system"} | overrides{" "}
-                {Object.keys(connectorBackpressureDraft.connector_overrides).length}
-              </p>
+              <div className="stack">
+                <p className="muted">
+                  draft saved {new Date(connectorBackpressureDraft.updated_at).toLocaleString()} by{" "}
+                  {connectorBackpressureDraft.created_by ?? "system"} | overrides{" "}
+                  {Object.keys(connectorBackpressureDraft.connector_overrides).length}
+                </p>
+                <p className="muted">
+                  approvals {connectorBackpressureDraft.approvals.length}/{connectorBackpressureDraft.required_approvals} | activate at{" "}
+                  {connectorBackpressureDraft.activate_at
+                    ? new Date(connectorBackpressureDraft.activate_at).toLocaleString()
+                    : "immediate"}
+                </p>
+              </div>
             ) : (
               <p className="muted">No saved backpressure draft.</p>
             )}

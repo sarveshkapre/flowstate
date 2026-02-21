@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { processConnectorDeliveryQueue } from "@/lib/data-store-v2";
+import { processConnectorDeliveryQueue, summarizeConnectorDeliveries } from "@/lib/data-store-v2";
+import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import { requirePermission } from "@/lib/v2/auth";
 import { connectorTypeSchema } from "@/lib/v2/request-security";
 import { SUPPORTED_CONNECTOR_TYPES } from "@/lib/v2/connectors";
@@ -10,6 +11,14 @@ const processAllSchema = z.object({
   projectId: z.string().min(1),
   limit: z.number().int().positive().max(100).default(10),
   connectorTypes: z.array(connectorTypeSchema).min(1).max(20).optional(),
+  backpressure: z
+    .object({
+      enabled: z.boolean().default(false),
+      maxRetrying: z.number().int().positive().max(10_000).optional(),
+      maxDueNow: z.number().int().positive().max(10_000).optional(),
+      minLimit: z.number().int().positive().max(100).default(1),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -33,22 +42,42 @@ export async function POST(request: Request) {
   const connectorTypes = parsed.data.connectorTypes ?? [...SUPPORTED_CONNECTOR_TYPES];
   const results: Array<{
     connector_type: string;
+    requested_limit: number;
+    effective_limit: number;
+    throttled: boolean;
+    throttle_reason: "retrying_limit" | "due_now_limit" | null;
+    backpressure: ReturnType<typeof resolveConnectorProcessBackpressure>;
     processed_count: number;
     delivery_ids: string[];
   }> = [];
   let processedCount = 0;
 
   for (const connectorType of connectorTypes) {
+    const summary = await summarizeConnectorDeliveries({
+      projectId: parsed.data.projectId,
+      connectorType,
+    });
+    const backpressure = resolveConnectorProcessBackpressure({
+      requestedLimit: parsed.data.limit,
+      summary,
+      config: parsed.data.backpressure,
+    });
+
     const result = await processConnectorDeliveryQueue({
       projectId: parsed.data.projectId,
       connectorType,
-      limit: parsed.data.limit,
+      limit: backpressure.effective_limit,
       actor: auth.actor.email ?? "api-key",
     });
 
     processedCount += result.processed_count;
     results.push({
       connector_type: connectorType,
+      requested_limit: backpressure.requested_limit,
+      effective_limit: backpressure.effective_limit,
+      throttled: backpressure.throttled,
+      throttle_reason: backpressure.reason,
+      backpressure,
       processed_count: result.processed_count,
       delivery_ids: result.deliveries.map((delivery) => delivery.id),
     });
@@ -57,6 +86,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     project_id: parsed.data.projectId,
     connector_types: connectorTypes,
+    requested_limit: parsed.data.limit,
+    backpressure_enabled: parsed.data.backpressure?.enabled === true,
     processed_count: processedCount,
     per_connector: results,
   });

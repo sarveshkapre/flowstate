@@ -927,6 +927,10 @@ export function FlowBuilderClient() {
   const [connectorIdempotencyKey, setConnectorIdempotencyKey] = useState("");
   const [connectorMaxAttempts, setConnectorMaxAttempts] = useState("3");
   const [connectorProcessLimit, setConnectorProcessLimit] = useState("10");
+  const [connectorProcessBackpressureEnabled, setConnectorProcessBackpressureEnabled] = useState(true);
+  const [connectorProcessBackpressureMaxRetrying, setConnectorProcessBackpressureMaxRetrying] = useState("50");
+  const [connectorProcessBackpressureMaxDueNow, setConnectorProcessBackpressureMaxDueNow] = useState("100");
+  const [connectorProcessBackpressureMinLimit, setConnectorProcessBackpressureMinLimit] = useState("1");
   const [connectorBatchRedriveLimit, setConnectorBatchRedriveLimit] = useState("10");
   const [connectorBatchRedriveMinAgeMinutes, setConnectorBatchRedriveMinAgeMinutes] = useState("15");
   const [connectorRedriveAllMinDeadLetterCount, setConnectorRedriveAllMinDeadLetterCount] = useState("1");
@@ -1614,6 +1618,10 @@ export function FlowBuilderClient() {
       setConnectorRecommendationPreviewSkipped([]);
       setConnectorReliabilityIncludeTrend(true);
       setConnectorReliabilityTrendLookbackHours("24");
+      setConnectorProcessBackpressureEnabled(true);
+      setConnectorProcessBackpressureMaxRetrying("50");
+      setConnectorProcessBackpressureMaxDueNow("100");
+      setConnectorProcessBackpressureMinLimit("1");
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
@@ -2573,7 +2581,7 @@ export function FlowBuilderClient() {
     }
 
     const query = `/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver?projectId=${encodeURIComponent(selectedProjectId)}&limit=20`;
-    const response = await fetch(`/api/v2/connectors/reliability?${query.toString()}`, {
+    const response = await fetch(query, {
       cache: "no-store",
       headers: authHeaders(false),
     });
@@ -2593,6 +2601,19 @@ export function FlowBuilderClient() {
     setConnectorDeliveries(payload.deliveries ?? []);
     setConnectorSummary(payload.summary ?? EMPTY_CONNECTOR_SUMMARY);
   }, [authHeaders, connectorType, selectedProjectId]);
+
+  function buildConnectorProcessBackpressure() {
+    const parsedMaxRetrying = Number(connectorProcessBackpressureMaxRetrying);
+    const parsedMaxDueNow = Number(connectorProcessBackpressureMaxDueNow);
+    const parsedMinLimit = Number(connectorProcessBackpressureMinLimit);
+
+    return {
+      enabled: connectorProcessBackpressureEnabled,
+      maxRetrying: Number.isFinite(parsedMaxRetrying) && parsedMaxRetrying > 0 ? Math.floor(parsedMaxRetrying) : 50,
+      maxDueNow: Number.isFinite(parsedMaxDueNow) && parsedMaxDueNow > 0 ? Math.floor(parsedMaxDueNow) : 100,
+      minLimit: Number.isFinite(parsedMinLimit) && parsedMinLimit > 0 ? Math.floor(parsedMinLimit) : 1,
+    };
+  }
 
   const loadConnectorInsights = useCallback(async () => {
     if (!selectedProjectId) {
@@ -2796,6 +2817,7 @@ export function FlowBuilderClient() {
       body: JSON.stringify({
         projectId: selectedProjectId,
         limit,
+        backpressure: buildConnectorProcessBackpressure(),
       }),
     });
     const result = (await response.json()) as Record<string, unknown>;
@@ -2833,6 +2855,7 @@ export function FlowBuilderClient() {
         projectId: selectedProjectId,
         limit,
         connectorTypes: CONNECTOR_TYPES,
+        backpressure: buildConnectorProcessBackpressure(),
       }),
     });
     const result = (await response.json()) as Record<string, unknown>;
@@ -3065,6 +3088,7 @@ export function FlowBuilderClient() {
         limit: item.recommendation === "process_queue" ? processLimit : redriveLimit,
         minDeadLetterMinutes,
         processAfterRedrive: true,
+        backpressure: buildConnectorProcessBackpressure(),
       }),
     });
     const result = (await response.json()) as Record<string, unknown>;
@@ -4235,6 +4259,40 @@ export function FlowBuilderClient() {
             <label className="field">
               <span>Queue Process Limit</span>
               <input value={connectorProcessLimit} onChange={(event) => setConnectorProcessLimit(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Process Backpressure</span>
+              <select
+                value={connectorProcessBackpressureEnabled ? "enabled" : "disabled"}
+                onChange={(event) => setConnectorProcessBackpressureEnabled(event.target.value === "enabled")}
+              >
+                <option value="enabled">enabled</option>
+                <option value="disabled">disabled</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Backpressure Max Retrying</span>
+              <input
+                value={connectorProcessBackpressureMaxRetrying}
+                onChange={(event) => setConnectorProcessBackpressureMaxRetrying(event.target.value)}
+                disabled={!connectorProcessBackpressureEnabled}
+              />
+            </label>
+            <label className="field">
+              <span>Backpressure Max Due Now</span>
+              <input
+                value={connectorProcessBackpressureMaxDueNow}
+                onChange={(event) => setConnectorProcessBackpressureMaxDueNow(event.target.value)}
+                disabled={!connectorProcessBackpressureEnabled}
+              />
+            </label>
+            <label className="field">
+              <span>Backpressure Min Limit</span>
+              <input
+                value={connectorProcessBackpressureMinLimit}
+                onChange={(event) => setConnectorProcessBackpressureMinLimit(event.target.value)}
+                disabled={!connectorProcessBackpressureEnabled}
+              />
             </label>
             <label className="field">
               <span>Batch Redrive Limit</span>

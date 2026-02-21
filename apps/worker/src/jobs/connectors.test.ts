@@ -16,6 +16,10 @@ test("parseConnectorPumpConfig applies defaults", () => {
   assert.equal(config.apiBaseUrl, "http://localhost:3000");
   assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira", "sqs", "db"]);
   assert.equal(config.limit, 25);
+  assert.equal(config.backpressureEnabled, true);
+  assert.equal(config.backpressureMaxRetrying, 50);
+  assert.equal(config.backpressureMaxDueNow, 100);
+  assert.equal(config.backpressureMinLimit, 1);
   assert.equal(config.pollMs, 5000);
   assert.deepEqual(config.projectIds, []);
 });
@@ -25,6 +29,10 @@ test("parseConnectorPumpConfig normalizes custom values and clamps limits", () =
     FLOWSTATE_LOCAL_API_BASE: "http://localhost:3100/",
     FLOWSTATE_CONNECTOR_PUMP_TYPES: "Webhook, jira, webhook",
     FLOWSTATE_CONNECTOR_PUMP_LIMIT: "999",
+    FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_ENABLED: "false",
+    FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_RETRYING: "999999",
+    FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_DUE_NOW: "250",
+    FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MIN_LIMIT: "300",
     FLOWSTATE_CONNECTOR_PUMP_POLL_MS: "0",
     FLOWSTATE_CONNECTOR_PUMP_PROJECT_IDS: " p1, p2 ,p1 ",
   });
@@ -32,6 +40,10 @@ test("parseConnectorPumpConfig normalizes custom values and clamps limits", () =
   assert.equal(config.apiBaseUrl, "http://localhost:3100");
   assert.deepEqual(config.connectorTypes, ["webhook", "jira"]);
   assert.equal(config.limit, 100);
+  assert.equal(config.backpressureEnabled, false);
+  assert.equal(config.backpressureMaxRetrying, 10_000);
+  assert.equal(config.backpressureMaxDueNow, 250);
+  assert.equal(config.backpressureMinLimit, 100);
   assert.equal(config.pollMs, 5000);
   assert.deepEqual(config.projectIds, ["p1", "p2"]);
 });
@@ -76,6 +88,12 @@ test("pumpConnectorQueuesOnce uses explicit project IDs without listing projects
   assert.equal(requestBodies.length, 2);
   assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook", "slack"]);
   assert.equal(requestBodies[0]?.limit, 7);
+  assert.deepEqual(requestBodies[0]?.backpressure, {
+    enabled: true,
+    maxRetrying: 50,
+    maxDueNow: 100,
+    minLimit: 1,
+  });
 });
 
 test("pumpConnectorQueuesOnce lists projects and keeps going on per-project failures", async () => {

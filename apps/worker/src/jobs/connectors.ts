@@ -4,6 +4,10 @@ export type ConnectorPumpConfig = {
   apiBaseUrl: string;
   connectorTypes: string[];
   limit: number;
+  backpressureEnabled: boolean;
+  backpressureMaxRetrying: number;
+  backpressureMaxDueNow: number;
+  backpressureMinLimit: number;
   pollMs: number;
   projectIds: string[];
   organizationId: string | null;
@@ -22,6 +26,9 @@ const DEFAULT_TYPES = ["webhook", "slack", "jira", "sqs", "db"];
 const SUPPORTED_CONNECTOR_TYPES = new Set(DEFAULT_TYPES);
 const DEFAULT_LIMIT = 25;
 const DEFAULT_POLL_MS = 5_000;
+const DEFAULT_BACKPRESSURE_MAX_RETRYING = 50;
+const DEFAULT_BACKPRESSURE_MAX_DUE_NOW = 100;
+const DEFAULT_BACKPRESSURE_MIN_LIMIT = 1;
 
 function parseCsv(value: string | undefined) {
   if (!value) {
@@ -40,6 +47,22 @@ function unique(values: string[]) {
 
 function normalizeProjectIds(value: string | undefined) {
   return unique(parseCsv(value).map((id) => id.replace(/\s+/g, "")));
+}
+
+function parseBoolean(input: string | undefined, fallback = true) {
+  if (!input) {
+    return fallback;
+  }
+
+  const normalized = input.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
 }
 
 function parsePositiveInt(input: string | undefined, fallback: number, max: number) {
@@ -89,6 +112,22 @@ export function parseConnectorPumpConfig(env: NodeJS.ProcessEnv = process.env): 
     apiBaseUrl: normalizeBaseUrl(env.FLOWSTATE_LOCAL_API_BASE),
     connectorTypes: connectorTypes.length > 0 ? connectorTypes : DEFAULT_TYPES,
     limit: parsePositiveInt(env.FLOWSTATE_CONNECTOR_PUMP_LIMIT, DEFAULT_LIMIT, 100),
+    backpressureEnabled: parseBoolean(env.FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_ENABLED, true),
+    backpressureMaxRetrying: parsePositiveInt(
+      env.FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_RETRYING,
+      DEFAULT_BACKPRESSURE_MAX_RETRYING,
+      10_000,
+    ),
+    backpressureMaxDueNow: parsePositiveInt(
+      env.FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_DUE_NOW,
+      DEFAULT_BACKPRESSURE_MAX_DUE_NOW,
+      10_000,
+    ),
+    backpressureMinLimit: parsePositiveInt(
+      env.FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MIN_LIMIT,
+      DEFAULT_BACKPRESSURE_MIN_LIMIT,
+      100,
+    ),
     pollMs: parsePositiveInt(env.FLOWSTATE_CONNECTOR_PUMP_POLL_MS, DEFAULT_POLL_MS, 300_000),
     projectIds: normalizeProjectIds(env.FLOWSTATE_CONNECTOR_PUMP_PROJECT_IDS),
     organizationId: env.FLOWSTATE_CONNECTOR_PUMP_ORGANIZATION_ID?.trim() || null,
@@ -168,6 +207,12 @@ export async function pumpConnectorQueuesOnce(input: {
         projectId,
         connectorTypes: input.config.connectorTypes,
         limit: input.config.limit,
+        backpressure: {
+          enabled: input.config.backpressureEnabled,
+          maxRetrying: input.config.backpressureMaxRetrying,
+          maxDueNow: input.config.backpressureMaxDueNow,
+          minLimit: input.config.backpressureMinLimit,
+        },
       }),
     });
 

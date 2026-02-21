@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector queue backpressure controls shipped across process APIs, Flow Builder controls, and worker pump defaults, adding adaptive throttling based on retry/due-now pressure for safer high-throughput dispatch.
 - 2026-02-21: Connector Guardian dry-run controls shipped across env defaults, project policy API, Flow Builder policy UI, and worker execution, enabling shadow-mode rollout before live remediation.
 - 2026-02-21: Flow Builder now supports reliability trend controls (enable/disable + baseline lookback window), allowing operators to tune regression detection sensitivity per project session.
 - 2026-02-21: Reliability radar now includes trend intelligence (current vs prior window risk delta with improving/worsening labels), helping teams detect regressions earlier.
@@ -79,4 +80,4 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 ## Risks And Blockers
 - Scope growth across "general-purpose CV" surfaces.
 - Need to keep v1 compatibility while accelerating v2 rollout.
-- Need async delivery queue + backpressure controls for high-throughput connector dispatch.
+- Need production telemetry feedback loop for tuning connector backpressure thresholds by connector type.

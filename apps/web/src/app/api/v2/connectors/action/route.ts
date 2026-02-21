@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { processConnectorDeliveryQueue, redriveConnectorDeliveryBatch } from "@/lib/data-store-v2";
+import { processConnectorDeliveryQueue, redriveConnectorDeliveryBatch, summarizeConnectorDeliveries } from "@/lib/data-store-v2";
+import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import { requirePermission } from "@/lib/v2/auth";
 import { connectorTypeSchema } from "@/lib/v2/request-security";
 
@@ -12,6 +13,14 @@ const actionSchema = z.object({
   limit: z.number().int().positive().max(100).default(10),
   minDeadLetterMinutes: z.number().int().nonnegative().max(7 * 24 * 60).default(15),
   processAfterRedrive: z.boolean().default(true),
+  backpressure: z
+    .object({
+      enabled: z.boolean().default(false),
+      maxRetrying: z.number().int().positive().max(10_000).optional(),
+      maxDueNow: z.number().int().positive().max(10_000).optional(),
+      minLimit: z.number().int().positive().max(100).default(1),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -35,10 +44,20 @@ export async function POST(request: Request) {
   const actor = auth.actor.email ?? "api-key";
 
   if (parsed.data.action === "process_queue") {
+    const summary = await summarizeConnectorDeliveries({
+      projectId: parsed.data.projectId,
+      connectorType: parsed.data.connectorType,
+    });
+    const backpressure = resolveConnectorProcessBackpressure({
+      requestedLimit: parsed.data.limit,
+      summary,
+      config: parsed.data.backpressure,
+    });
+
     const result = await processConnectorDeliveryQueue({
       projectId: parsed.data.projectId,
       connectorType: parsed.data.connectorType,
-      limit: parsed.data.limit,
+      limit: backpressure.effective_limit,
       actor,
     });
 
@@ -46,6 +65,11 @@ export async function POST(request: Request) {
       project_id: parsed.data.projectId,
       connector_type: parsed.data.connectorType,
       action: parsed.data.action,
+      requested_limit: backpressure.requested_limit,
+      effective_limit: backpressure.effective_limit,
+      throttled: backpressure.throttled,
+      throttle_reason: backpressure.reason,
+      backpressure,
       processed_count: result.processed_count,
       delivery_ids: result.deliveries.map((delivery) => delivery.id),
     });
@@ -60,11 +84,22 @@ export async function POST(request: Request) {
   });
 
   let processedCount = 0;
+  let processBackpressure: ReturnType<typeof resolveConnectorProcessBackpressure> | null = null;
   if (parsed.data.processAfterRedrive && redrive.redriven_count > 0) {
+    const summary = await summarizeConnectorDeliveries({
+      projectId: parsed.data.projectId,
+      connectorType: parsed.data.connectorType,
+    });
+    processBackpressure = resolveConnectorProcessBackpressure({
+      requestedLimit: redrive.redriven_count,
+      summary,
+      config: parsed.data.backpressure,
+    });
+
     const processed = await processConnectorDeliveryQueue({
       projectId: parsed.data.projectId,
       connectorType: parsed.data.connectorType,
-      limit: redrive.redriven_count,
+      limit: processBackpressure.effective_limit,
       actor,
     });
     processedCount = processed.processed_count;
@@ -75,6 +110,11 @@ export async function POST(request: Request) {
     connector_type: parsed.data.connectorType,
     action: parsed.data.action,
     redriven_count: redrive.redriven_count,
+    requested_process_limit: processBackpressure?.requested_limit ?? 0,
+    effective_process_limit: processBackpressure?.effective_limit ?? 0,
+    process_throttled: processBackpressure?.throttled ?? false,
+    process_throttle_reason: processBackpressure?.reason ?? null,
+    process_backpressure: processBackpressure,
     processed_count: processedCount,
     delivery_ids: redrive.deliveries.map((delivery) => delivery.id),
   });

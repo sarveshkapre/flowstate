@@ -10,6 +10,7 @@ import {
   redriveConnectorDelivery,
   summarizeConnectorDeliveries,
 } from "@/lib/data-store-v2";
+import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import {
   assertJsonBodySize,
   connectorTypeSchema,
@@ -34,6 +35,14 @@ const deliverConnectorSchema = z.object({
 const processQueueSchema = z.object({
   projectId: z.string().min(1),
   limit: z.number().int().positive().max(100).default(10),
+  backpressure: z
+    .object({
+      enabled: z.boolean().default(false),
+      maxRetrying: z.number().int().positive().max(10_000).optional(),
+      maxDueNow: z.number().int().positive().max(10_000).optional(),
+      minLimit: z.number().int().positive().max(100).default(1),
+    })
+    .optional(),
 });
 
 const redriveSchema = z.object({
@@ -187,16 +196,31 @@ export async function PATCH(request: Request, { params }: Params) {
       return auth.response;
     }
 
+    const summary = await summarizeConnectorDeliveries({
+      projectId: parsed.data.projectId,
+      connectorType: type,
+    });
+    const backpressure = resolveConnectorProcessBackpressure({
+      requestedLimit: parsed.data.limit,
+      summary,
+      config: parsed.data.backpressure,
+    });
+
     const result = await processConnectorDeliveryQueue({
       projectId: parsed.data.projectId,
       connectorType: type,
-      limit: parsed.data.limit,
+      limit: backpressure.effective_limit,
       actor: auth.actor.email ?? "api-key",
     });
 
     return NextResponse.json({
       connector_type: type,
       project_id: parsed.data.projectId,
+      requested_limit: backpressure.requested_limit,
+      effective_limit: backpressure.effective_limit,
+      throttled: backpressure.throttled,
+      throttle_reason: backpressure.reason,
+      backpressure,
       processed_count: result.processed_count,
       deliveries: result.deliveries,
     });

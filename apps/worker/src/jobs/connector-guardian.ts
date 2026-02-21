@@ -31,8 +31,6 @@ export type ConnectorGuardianResult = {
 type Recommendation = "healthy" | "process_queue" | "redrive_dead_letters";
 
 type ConnectorReliabilityItem = {
-  connector_type: string;
-  risk_score: number;
   recommendation: Recommendation;
 };
 
@@ -128,7 +126,7 @@ function authHeaders(config: ConnectorGuardianConfig) {
   return headers;
 }
 
-function asConnectorReliabilityItems(value: unknown): ConnectorReliabilityItem[] {
+function asConnectorActionResults(value: unknown): ConnectorReliabilityItem[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -139,22 +137,14 @@ function asConnectorReliabilityItems(value: unknown): ConnectorReliabilityItem[]
         return null;
       }
       const record = item as Record<string, unknown>;
-      const connectorType = typeof record.connector_type === "string" ? record.connector_type : "";
-      const riskScore = typeof record.risk_score === "number" && Number.isFinite(record.risk_score) ? record.risk_score : 0;
       const recommendation = record.recommendation;
-      if (
-        !connectorType ||
-        !SUPPORTED_CONNECTOR_TYPES.has(connectorType) ||
-        !["healthy", "process_queue", "redrive_dead_letters"].includes(String(recommendation))
-      ) {
+      if (!["healthy", "process_queue", "redrive_dead_letters"].includes(String(recommendation))) {
         return null;
       }
 
       return {
-        connector_type: connectorType,
-        risk_score: riskScore,
         recommendation: recommendation as Recommendation,
-      } satisfies ConnectorReliabilityItem;
+      };
     })
     .filter((item): item is ConnectorReliabilityItem => item !== null);
 }
@@ -248,84 +238,50 @@ export async function runConnectorGuardianOnce(input: {
   let skipped = 0;
 
   for (const projectId of projectIds) {
-    const reliabilityUrl = new URL("/api/v2/connectors/reliability", input.config.apiBaseUrl);
-    reliabilityUrl.searchParams.set("projectId", projectId);
-    reliabilityUrl.searchParams.set("lookbackHours", String(input.config.lookbackHours));
-    reliabilityUrl.searchParams.set("limit", "200");
-    reliabilityUrl.searchParams.set("connectorTypes", input.config.connectorTypes.join(","));
+    connectorCount += input.config.connectorTypes.length;
 
-    const reliabilityResponse = await fetchImpl(reliabilityUrl, {
-      method: "GET",
+    const runUrl = new URL("/api/v2/connectors/recommendations/run", input.config.apiBaseUrl);
+    const runResponse = await fetchImpl(runUrl, {
+      method: "POST",
       headers: authHeaders(input.config),
+      body: JSON.stringify({
+        projectId,
+        connectorTypes: input.config.connectorTypes,
+        lookbackHours: input.config.lookbackHours,
+        limit: input.config.actionLimit,
+        minDeadLetterMinutes: input.config.minDeadLetterMinutes,
+        riskThreshold: input.config.riskThreshold,
+        maxActions: input.config.maxActionsPerProject,
+        allowProcessQueue: input.config.allowProcessQueue,
+        allowRedriveDeadLetters: input.config.allowRedriveDeadLetters,
+      }),
     });
-    const reliabilityPayload = await parseJson(reliabilityResponse);
+    const runPayload = await parseJson(runResponse);
 
-    if (!reliabilityResponse.ok) {
-      const reason =
-        typeof reliabilityPayload.error === "string" ? reliabilityPayload.error : `status ${reliabilityResponse.status}`;
-      failures.push(`${projectId}: failed to load connector reliability (${reason})`);
+    if (!runResponse.ok) {
+      const reason = typeof runPayload.error === "string" ? runPayload.error : `status ${runResponse.status}`;
+      failures.push(`${projectId}: failed to run connector recommendations (${reason})`);
       continue;
     }
 
-    const connectors = asConnectorReliabilityItems(reliabilityPayload.connectors);
-    connectorCount += connectors.length;
+    const selected = Array.isArray(runPayload.selected_actions) ? runPayload.selected_actions : [];
+    const actionResults = asConnectorActionResults(runPayload.action_results);
+    candidateCount += selected.length;
 
-    const candidates = connectors
-      .filter((connector) => {
-        if (connector.risk_score < input.config.riskThreshold) {
-          return false;
-        }
-
-        if (connector.recommendation === "process_queue") {
-          return input.config.allowProcessQueue;
-        }
-        if (connector.recommendation === "redrive_dead_letters") {
-          return input.config.allowRedriveDeadLetters;
-        }
-
-        return false;
-      })
-      .slice(0, input.config.maxActionsPerProject);
-
-    if (candidates.length === 0) {
+    if (actionResults.length === 0) {
       skipped += 1;
       continue;
     }
 
-    candidateCount += candidates.length;
-
-    for (const candidate of candidates) {
-      const actionUrl = new URL("/api/v2/connectors/action", input.config.apiBaseUrl);
-      const actionResponse = await fetchImpl(actionUrl, {
-        method: "POST",
-        headers: authHeaders(input.config),
-        body: JSON.stringify({
-          projectId,
-          connectorType: candidate.connector_type,
-          action: candidate.recommendation,
-          limit: input.config.actionLimit,
-          minDeadLetterMinutes: input.config.minDeadLetterMinutes,
-          processAfterRedrive: true,
-        }),
-      });
-      const actionPayload = await parseJson(actionResponse);
-
-      if (!actionResponse.ok) {
-        const reason = typeof actionPayload.error === "string" ? actionPayload.error : `status ${actionResponse.status}`;
-        failures.push(`${projectId}/${candidate.connector_type}: failed to execute recommendation (${reason})`);
-        continue;
-      }
-
+    for (const action of actionResults) {
       actionedCount += 1;
-      if (candidate.recommendation === "process_queue") {
+      if (action.recommendation === "process_queue") {
         processActions += 1;
-      } else if (candidate.recommendation === "redrive_dead_letters") {
+      } else if (action.recommendation === "redrive_dead_letters") {
         redriveActions += 1;
       }
-      logger.info(
-        `[connector-guardian] actioned ${candidate.recommendation} for ${projectId}/${candidate.connector_type} risk=${candidate.risk_score.toFixed(2)}`,
-      );
     }
+    logger.info(`[connector-guardian] actioned ${actionResults.length} recommendation(s) for ${projectId}`);
   }
 
   return {

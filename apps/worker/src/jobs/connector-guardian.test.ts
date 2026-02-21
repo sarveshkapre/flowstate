@@ -55,7 +55,7 @@ test("parseConnectorGuardianConfig normalizes values and ignores unsupported con
 
 test("runConnectorGuardianOnce executes top recommendations above threshold", async () => {
   const seenRequests: Array<{ method?: string; url: string }> = [];
-  const actionBodies: Array<Record<string, unknown>> = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
   const config = parseConnectorGuardianConfig({
     FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1",
     FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook,jira,slack",
@@ -68,20 +68,19 @@ test("runConnectorGuardianOnce executes top recommendations above threshold", as
       const request = { method: init?.method, url: String(url) };
       seenRequests.push(request);
 
-      if (request.method === "GET") {
-        return jsonResponse(200, {
-          connectors: [
-            { connector_type: "webhook", risk_score: 55, recommendation: "redrive_dead_letters" },
-            { connector_type: "jira", risk_score: 22, recommendation: "process_queue" },
-            { connector_type: "slack", risk_score: 4, recommendation: "healthy" },
-          ],
-        });
-      }
-
       if (typeof init?.body === "string") {
-        actionBodies.push(JSON.parse(init.body) as Record<string, unknown>);
+        requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
       }
-      return jsonResponse(200, { ok: true });
+      return jsonResponse(200, {
+        selected_actions: [
+          { connector_type: "webhook", recommendation: "redrive_dead_letters", risk_score: 55 },
+          { connector_type: "jira", recommendation: "process_queue", risk_score: 22 },
+        ],
+        action_results: [
+          { connector_type: "webhook", recommendation: "redrive_dead_letters" },
+          { connector_type: "jira", recommendation: "process_queue" },
+        ],
+      });
     },
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
   });
@@ -94,30 +93,24 @@ test("runConnectorGuardianOnce executes top recommendations above threshold", as
   assert.equal(result.redrive_actions, 1);
   assert.equal(result.skipped_count, 0);
   assert.deepEqual(result.failures, []);
-  assert.equal(seenRequests.length, 3);
-  assert.ok(seenRequests[0]?.url.includes("/api/v2/connectors/reliability"));
-  assert.ok(seenRequests[1]?.url.endsWith("/api/v2/connectors/action"));
-  assert.ok(seenRequests[2]?.url.endsWith("/api/v2/connectors/action"));
-  assert.equal(actionBodies.length, 2);
+  assert.equal(seenRequests.length, 1);
+  assert.equal(seenRequests[0]?.method, "POST");
+  assert.ok(seenRequests[0]?.url.endsWith("/api/v2/connectors/recommendations/run"));
+  assert.equal(requestBodies.length, 1);
+  assert.equal(requestBodies[0]?.projectId, "proj-1");
+  assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook", "jira", "slack"]);
 });
 
 test("runConnectorGuardianOnce skips projects with no actionable recommendations", async () => {
   const config = parseConnectorGuardianConfig({
     FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1",
+    FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook",
     FLOWSTATE_CONNECTOR_GUARDIAN_RISK_THRESHOLD: "50",
   });
 
   const result = await runConnectorGuardianOnce({
     config,
-    fetchImpl: async (_url, init) => {
-      if (init?.method === "GET") {
-        return jsonResponse(200, {
-          connectors: [{ connector_type: "webhook", risk_score: 12, recommendation: "process_queue" }],
-        });
-      }
-
-      return jsonResponse(500, { error: "should not execute actions" });
-    },
+    fetchImpl: async () => jsonResponse(200, { selected_actions: [], action_results: [] }),
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
   });
 
@@ -130,38 +123,39 @@ test("runConnectorGuardianOnce skips projects with no actionable recommendations
 });
 
 test("runConnectorGuardianOnce continues after action failures", async () => {
-  let actionCalls = 0;
+  let requestCall = 0;
   const config = parseConnectorGuardianConfig({
-    FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1",
+    FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1,proj-2",
     FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook,jira",
     FLOWSTATE_CONNECTOR_GUARDIAN_RISK_THRESHOLD: "10",
   });
 
   const result = await runConnectorGuardianOnce({
     config,
-    fetchImpl: async (_url, init) => {
-      if (init?.method === "GET") {
-        return jsonResponse(200, {
-          connectors: [
-            { connector_type: "webhook", risk_score: 55, recommendation: "redrive_dead_letters" },
-            { connector_type: "jira", risk_score: 35, recommendation: "process_queue" },
-          ],
-        });
+    fetchImpl: async () => {
+      requestCall += 1;
+      if (requestCall === 1) {
+        return jsonResponse(500, { error: "run failed" });
       }
 
-      actionCalls += 1;
-      if (actionCalls === 1) {
-        return jsonResponse(500, { error: "action failed" });
-      }
-      return jsonResponse(200, { ok: true });
+      return jsonResponse(200, {
+        selected_actions: [
+          { connector_type: "webhook", recommendation: "redrive_dead_letters", risk_score: 55 },
+          { connector_type: "jira", recommendation: "process_queue", risk_score: 35 },
+        ],
+        action_results: [
+          { connector_type: "webhook", recommendation: "redrive_dead_letters" },
+          { connector_type: "jira", recommendation: "process_queue" },
+        ],
+      });
     },
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
   });
 
-  assert.equal(result.project_count, 1);
-  assert.equal(result.connector_count, 2);
+  assert.equal(result.project_count, 2);
+  assert.equal(result.connector_count, 4);
   assert.equal(result.candidate_count, 2);
-  assert.equal(result.actioned_count, 1);
+  assert.equal(result.actioned_count, 2);
   assert.equal(result.failures.length, 1);
-  assert.ok(result.failures[0]?.includes("failed to execute recommendation"));
+  assert.ok(result.failures[0]?.includes("failed to run connector recommendations"));
 });

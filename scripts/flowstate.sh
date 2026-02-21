@@ -9,6 +9,7 @@ WEB_PID_FILE="$PID_DIR/web.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
 WATCHER_PID_FILE="$PID_DIR/inbox-watcher.pid"
 CONNECTOR_PUMP_PID_FILE="$PID_DIR/connector-pump.pid"
+CONNECTOR_GUARDIAN_PID_FILE="$PID_DIR/connector-guardian.pid"
 CONNECTOR_REDRIVE_PID_FILE="$PID_DIR/connector-redrive.pid"
 REVIEW_ALERTS_PID_FILE="$PID_DIR/review-alerts.pid"
 
@@ -71,6 +72,9 @@ show_logs() {
     connector-pump)
       tail -n "$tail_lines" "$LOG_DIR/connector-pump.log"
       ;;
+    connector-guardian)
+      tail -n "$tail_lines" "$LOG_DIR/connector-guardian.log"
+      ;;
     connector-redrive)
       tail -n "$tail_lines" "$LOG_DIR/connector-redrive.log"
       ;;
@@ -89,6 +93,9 @@ show_logs() {
       printf "\n"
       print_info "connector-pump log"
       tail -n "$tail_lines" "$LOG_DIR/connector-pump.log" || true
+      printf "\n"
+      print_info "connector-guardian log"
+      tail -n "$tail_lines" "$LOG_DIR/connector-guardian.log" || true
       printf "\n"
       print_info "connector-redrive log"
       tail -n "$tail_lines" "$LOG_DIR/connector-redrive.log" || true
@@ -112,7 +119,7 @@ Usage:
   scripts/flowstate.sh stop
   scripts/flowstate.sh restart
   scripts/flowstate.sh status
-  scripts/flowstate.sh logs [web|worker|watcher|connector-pump|connector-redrive|review-alerts|all]
+  scripts/flowstate.sh logs [web|worker|watcher|connector-pump|connector-guardian|connector-redrive|review-alerts|all]
 USAGE
 }
 
@@ -135,6 +142,7 @@ case "$COMMAND" in
     status_line "worker" "$WORKER_PID_FILE"
     status_line "inbox-watcher" "$WATCHER_PID_FILE"
     status_line "connector-pump" "$CONNECTOR_PUMP_PID_FILE"
+    status_line "connector-guardian" "$CONNECTOR_GUARDIAN_PID_FILE"
     status_line "connector-redrive" "$CONNECTOR_REDRIVE_PID_FILE"
     status_line "review-alerts" "$REVIEW_ALERTS_PID_FILE"
     ;;

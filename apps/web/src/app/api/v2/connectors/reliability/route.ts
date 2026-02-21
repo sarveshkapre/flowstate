@@ -8,12 +8,14 @@ import {
 } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
 import { computeConnectorInsights } from "@/lib/v2/connector-insights";
-import { rankConnectorReliability } from "@/lib/v2/connector-reliability";
+import { rankConnectorReliability, resolveConnectorReliabilityTrend } from "@/lib/v2/connector-reliability";
 import { canonicalConnectorType, SUPPORTED_CONNECTOR_TYPES } from "@/lib/v2/connectors";
 
 const querySchema = z.object({
   projectId: z.string().min(1),
   lookbackHours: z.coerce.number().int().positive().max(24 * 30).default(24),
+  trendLookbackHours: z.coerce.number().int().positive().max(24 * 30).optional(),
+  includeTrend: z.coerce.boolean().default(true),
   limit: z.coerce.number().int().positive().max(500).default(200),
   connectorTypes: z.string().optional(),
 });
@@ -43,6 +45,8 @@ export async function GET(request: Request) {
   const parsedQuery = querySchema.safeParse({
     projectId: url.searchParams.get("projectId"),
     lookbackHours: url.searchParams.get("lookbackHours") || undefined,
+    trendLookbackHours: url.searchParams.get("trendLookbackHours") || undefined,
+    includeTrend: url.searchParams.get("includeTrend") || undefined,
     limit: url.searchParams.get("limit") || undefined,
     connectorTypes: url.searchParams.get("connectorTypes") || undefined,
   });
@@ -65,6 +69,11 @@ export async function GET(request: Request) {
   if (!auth.ok) {
     return auth.response;
   }
+
+  const nowMs = Date.now();
+  const currentLookbackHours = parsedQuery.data.lookbackHours;
+  const trendLookbackHours = parsedQuery.data.trendLookbackHours ?? currentLookbackHours;
+  const trendReferenceMs = nowMs - currentLookbackHours * 60 * 60 * 1000;
 
   const records = await Promise.all(
     connectorTypes.map(async (connectorType) => {
@@ -90,24 +99,64 @@ export async function GET(request: Request) {
       const insights = computeConnectorInsights({
         deliveries,
         attemptsByDeliveryId: Object.fromEntries(attemptsEntries),
-        lookbackHours: parsedQuery.data.lookbackHours,
+        lookbackHours: currentLookbackHours,
+        nowMs,
       });
+
+      const baselineInsights = parsedQuery.data.includeTrend
+        ? computeConnectorInsights({
+            deliveries,
+            attemptsByDeliveryId: Object.fromEntries(attemptsEntries),
+            lookbackHours: trendLookbackHours,
+            nowMs: trendReferenceMs,
+          })
+        : null;
 
       return {
         connector_type: connectorType,
         summary,
         insights,
+        baseline_insights: baselineInsights,
       };
     }),
   );
 
-  const ranked = rankConnectorReliability(records);
+  const ranked = rankConnectorReliability(
+    records.map((record) => ({
+      connector_type: record.connector_type,
+      summary: record.summary,
+      insights: record.insights,
+    })),
+  );
+
+  let connectors = ranked;
+  if (parsedQuery.data.includeTrend) {
+    const rankedBaseline = rankConnectorReliability(
+      records.map((record) => ({
+        connector_type: record.connector_type,
+        summary: record.summary,
+        insights: record.baseline_insights ?? record.insights,
+      })),
+    );
+    const baselineByConnector = new Map<string, number>(
+      rankedBaseline.map((item) => [item.connector_type, item.risk_score] as const),
+    );
+    connectors = ranked.map((item) => ({
+      ...item,
+      ...resolveConnectorReliabilityTrend({
+        riskScore: item.risk_score,
+        baselineRiskScore: baselineByConnector.get(item.connector_type) ?? 0,
+      }),
+    }));
+  }
 
   return NextResponse.json({
     project_id: parsedQuery.data.projectId,
-    lookback_hours: parsedQuery.data.lookbackHours,
+    lookback_hours: currentLookbackHours,
+    trend_lookback_hours: parsedQuery.data.includeTrend ? trendLookbackHours : null,
+    include_trend: parsedQuery.data.includeTrend,
     connector_types: connectorTypes,
     generated_at: new Date().toISOString(),
-    connectors: ranked,
+    connectors,
   });
 }

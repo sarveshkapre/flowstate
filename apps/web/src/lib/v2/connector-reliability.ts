@@ -11,6 +11,7 @@ type ConnectorDeliverySummary = {
 };
 
 export type ConnectorReliabilityRecommendation = "healthy" | "process_queue" | "redrive_dead_letters";
+export type ConnectorReliabilityTrend = "improving" | "worsening" | "stable";
 
 export type ConnectorReliabilityReason =
   | "dead_letters_present"
@@ -41,6 +42,12 @@ export type ConnectorReliabilityItem = {
   risk_breakdown: ConnectorRiskBreakdown;
   summary: ConnectorDeliverySummary;
   insights: ConnectorInsights;
+};
+
+export type ConnectorReliabilityTrendComparison = {
+  baseline_risk_score: number;
+  risk_delta: number;
+  risk_trend: ConnectorReliabilityTrend;
 };
 
 type ReliabilityInput = {
@@ -123,6 +130,28 @@ function computeRiskReasons(input: ReliabilityInput): ConnectorReliabilityReason
   }
 
   return reasons;
+}
+
+export function resolveConnectorReliabilityTrend(input: {
+  riskScore: number;
+  baselineRiskScore: number;
+  stableDelta?: number;
+}): ConnectorReliabilityTrendComparison {
+  const stableDelta = Math.max(0, input.stableDelta ?? 3);
+  const delta = round(input.riskScore - input.baselineRiskScore, 2);
+  let trend: ConnectorReliabilityTrend = "stable";
+
+  if (delta > stableDelta) {
+    trend = "worsening";
+  } else if (delta < -stableDelta) {
+    trend = "improving";
+  }
+
+  return {
+    baseline_risk_score: round(Math.max(0, input.baselineRiskScore), 2),
+    risk_delta: delta,
+    risk_trend: trend,
+  };
 }
 
 export function rankConnectorReliability(inputs: ReliabilityInput[]): ConnectorReliabilityItem[] {

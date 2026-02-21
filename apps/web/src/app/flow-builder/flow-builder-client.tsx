@@ -178,6 +178,9 @@ type ConnectorRiskBreakdown = {
 type ConnectorReliabilityItem = {
   connector_type: string;
   risk_score: number;
+  baseline_risk_score?: number;
+  risk_delta?: number;
+  risk_trend?: "improving" | "worsening" | "stable";
   recommendation: ConnectorReliabilityRecommendation;
   risk_reasons: ConnectorReliabilityReason[];
   risk_breakdown: ConnectorRiskBreakdown;
@@ -4439,10 +4442,15 @@ export function FlowBuilderClient() {
               {connectorReliability.map((item) => {
                 const topDrivers = connectorTopRiskDrivers(item);
                 const reasonLabels = item.risk_reasons.map((reason) => connectorRiskReasonLabel(reason));
+                const trendLabel =
+                  typeof item.risk_delta === "number" && typeof item.baseline_risk_score === "number" && item.risk_trend
+                    ? `${item.risk_trend} ${item.risk_delta >= 0 ? "+" : ""}${item.risk_delta.toFixed(2)} vs baseline ${item.baseline_risk_score.toFixed(2)}`
+                    : null;
                 return (
                   <li key={item.connector_type}>
                   <strong>{item.connector_type}</strong> - risk {item.risk_score.toFixed(2)} -{" "}
                   {connectorRecommendationLabel(item.recommendation)}
+                  {trendLabel ? ` | ${trendLabel}` : ""}
                   {item.insights.top_errors[0] ? ` - top error ${item.insights.top_errors[0].message}` : ""}
                   {" | "}
                   dead-letter {item.summary.dead_lettered} | due now {item.summary.due_now}

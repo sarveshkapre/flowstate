@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { rankConnectorReliability } from "./connector-reliability.ts";
+import { rankConnectorReliability, resolveConnectorReliabilityTrend } from "./connector-reliability.ts";
 
 test("rankConnectorReliability prioritizes dead-letter and retry pressure", () => {
   const ranked = rankConnectorReliability([
@@ -92,4 +92,30 @@ test("rankConnectorReliability marks healthy connectors with no queue pressure",
   assert.equal(ranked[0]?.recommendation, "healthy");
   assert.equal(ranked[0]?.risk_score, ranked[0]?.risk_breakdown.total);
   assert.deepEqual(ranked[0]?.risk_reasons, []);
+});
+
+test("resolveConnectorReliabilityTrend marks worsening and improving states with delta", () => {
+  const worsening = resolveConnectorReliabilityTrend({
+    riskScore: 42,
+    baselineRiskScore: 30,
+  });
+  assert.equal(worsening.risk_delta, 12);
+  assert.equal(worsening.risk_trend, "worsening");
+
+  const improving = resolveConnectorReliabilityTrend({
+    riskScore: 14,
+    baselineRiskScore: 25,
+  });
+  assert.equal(improving.risk_delta, -11);
+  assert.equal(improving.risk_trend, "improving");
+});
+
+test("resolveConnectorReliabilityTrend marks small movement as stable", () => {
+  const stable = resolveConnectorReliabilityTrend({
+    riskScore: 20.2,
+    baselineRiskScore: 18.4,
+  });
+
+  assert.equal(stable.risk_delta, 1.8);
+  assert.equal(stable.risk_trend, "stable");
 });

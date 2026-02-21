@@ -7,6 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "watch:inbox": "tsx src/watch/inbox.ts",
     "watch:connectors": "tsx src/watch/connectors.ts",
+    "watch:connector-guardian": "tsx src/watch/connector-guardian.ts",
     "watch:connector-redrive": "tsx src/watch/connector-redrive.ts",
     "watch:review-alerts": "tsx src/watch/review-alerts.ts",
     "build": "tsc -p tsconfig.json",

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getFlowV2, getFlowVersion, readDatasetVersionLines } from "@/lib/data-store-v2";
 import { executeFlowVersionRun } from "@/lib/v2/flow-runtime";
 import { requirePermission } from "@/lib/v2/auth";
+import { evaluatePromotionGates } from "@/lib/v2/replay-promotion";
 
 const replaySchema = z.object({
   projectId: z.string().min(1),
@@ -213,77 +214,15 @@ export async function POST(request: Request) {
     .sort((a, b) => a.field.localeCompare(b.field));
   const minFieldAccuracy = field_accuracy.length > 0 ? Math.min(...field_accuracy.map((item) => item.accuracy)) : null;
 
-  const gateInput = parsed.data.promotionGates;
-  const promotionGates: Array<{
-    gate: "min_candidate_success_rate" | "max_changed_vs_baseline_rate" | "min_field_accuracy" | "min_expected_samples";
-    threshold: number;
-    actual: number | null;
-    comparator: ">=" | "<=";
-    passed: boolean;
-    reason: string | null;
-  }> = [];
-
-  function pushGate(input: {
-    gate: "min_candidate_success_rate" | "max_changed_vs_baseline_rate" | "min_field_accuracy" | "min_expected_samples";
-    threshold: number;
-    actual: number | null;
-    comparator: ">=" | "<=";
-    reason?: string;
-  }) {
-    const passed =
-      input.actual !== null &&
-      (input.comparator === ">=" ? input.actual >= input.threshold : input.actual <= input.threshold);
-
-    promotionGates.push({
-      gate: input.gate,
-      threshold: Number(input.threshold.toFixed(4)),
-      actual: input.actual === null ? null : Number(input.actual.toFixed(4)),
-      comparator: input.comparator,
-      passed,
-      reason: input.reason ?? null,
-    });
-  }
-
-  if (gateInput?.minCandidateSuccessRate !== undefined) {
-    pushGate({
-      gate: "min_candidate_success_rate",
-      threshold: gateInput.minCandidateSuccessRate,
-      actual: Number((candidateSuccessCount / comparedCount).toFixed(4)),
-      comparator: ">=",
-    });
-  }
-
-  if (gateInput?.maxChangedVsBaselineRate !== undefined) {
-    pushGate({
-      gate: "max_changed_vs_baseline_rate",
-      threshold: gateInput.maxChangedVsBaselineRate,
-      actual: changedVsBaselineRate,
-      comparator: "<=",
-      reason: baselineVersion ? undefined : "Baseline flow version required for this gate",
-    });
-  }
-
-  if (gateInput?.minFieldAccuracy !== undefined) {
-    pushGate({
-      gate: "min_field_accuracy",
-      threshold: gateInput.minFieldAccuracy,
-      actual: minFieldAccuracy,
-      comparator: ">=",
-      reason: comparedWithExpectedCount > 0 ? undefined : "No expected fields present in replay dataset",
-    });
-  }
-
-  if (gateInput?.minComparedWithExpectedCount !== undefined) {
-    pushGate({
-      gate: "min_expected_samples",
-      threshold: gateInput.minComparedWithExpectedCount,
-      actual: comparedWithExpectedCount,
-      comparator: ">=",
-    });
-  }
-
-  const hasPromotionGates = promotionGates.length > 0;
-  const promotionPassed = hasPromotionGates ? promotionGates.every((gate) => gate.passed) : null;
+  const promotion = evaluatePromotionGates({
+    thresholds: parsed.data.promotionGates,
+    metrics: {
+      candidateSuccessRate: Number((candidateSuccessCount / comparedCount).toFixed(4)),
+      changedVsBaselineRate,
+      minFieldAccuracy,
+      comparedWithExpectedCount,
+    },
+  });
 
   return NextResponse.json({
     replay_count: runs.length,
@@ -299,10 +238,10 @@ export async function POST(request: Request) {
       min_field_accuracy: minFieldAccuracy,
       field_accuracy,
     },
-    promotion: hasPromotionGates
+    promotion: promotion.enabled
       ? {
-          passed: promotionPassed,
-          gates: promotionGates,
+          passed: promotion.passed,
+          gates: promotion.gates,
         }
       : null,
     runs,

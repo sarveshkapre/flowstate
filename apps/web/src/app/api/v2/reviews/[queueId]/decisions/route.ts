@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { createReviewDecision, getRunV2, listReviewDecisions } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
+import { isQueueProjectMatch } from "@/lib/v2/review-queue";
 
 type Params = {
   params: Promise<{ queueId: string }>;
@@ -64,7 +65,7 @@ export async function POST(request: Request, { params }: Params) {
     return auth.response;
   }
 
-  if (parsed.data.projectId !== run.project_id) {
+  if (!isQueueProjectMatch(parsed.data.projectId, run.project_id)) {
     return NextResponse.json({ error: "projectId does not match queue project" }, { status: 400 });
   }
 

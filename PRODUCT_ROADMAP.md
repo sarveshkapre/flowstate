@@ -23,9 +23,10 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 
 ## Pending Features
 - Production connector transport integrations (Slack/Jira/SQS/DB) beyond simulation mode.
-- Real automated test coverage for v2 review/evidence and replay promotion gate paths.
+- Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Automated Node test coverage added for replay promotion gate evaluation and queue/decision ownership guard logic.
 - 2026-02-21: Evidence Studio shipped in Flow Builder v2 with queue-scoped review decisions and drag-to-annotate evidence region capture.
 - 2026-02-21: v2 review/evidence API integrity hardening shipped (queue-project consistency and decision-to-queue ownership checks).
 - 2026-02-21: Legacy v1 API endpoints hardened with shared role/permission checks and stricter route-level validation.

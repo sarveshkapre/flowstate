@@ -366,6 +366,7 @@ const NODE_TYPES: FlowNodeType[] = [
 
 const ROLE_OPTIONS: ProjectMemberRole[] = ["owner", "admin", "builder", "reviewer", "viewer"];
 const CONNECTOR_TYPES = [...SUPPORTED_CONNECTOR_TYPES];
+const CONNECTOR_TYPE_SET = new Set<string>(CONNECTOR_TYPES);
 
 const API_KEY_SCOPES: ApiKeyScope[] = [
   "manage_projects",
@@ -867,6 +868,9 @@ export function FlowBuilderClient() {
   const [connectorRecommendationRiskThreshold, setConnectorRecommendationRiskThreshold] = useState("20");
   const [connectorRecommendationMaxActions, setConnectorRecommendationMaxActions] = useState("3");
   const [connectorRecommendationCooldownMinutes, setConnectorRecommendationCooldownMinutes] = useState("10");
+  const [connectorRecommendationConnectorTypes, setConnectorRecommendationConnectorTypes] = useState<string[]>([
+    ...CONNECTOR_TYPES,
+  ]);
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -1528,6 +1532,7 @@ export function FlowBuilderClient() {
       setConnectorActionTimelineSummary(EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY);
       setConnectorActionTimelineEventType("all");
       setConnectorActionTimelineRedriveOnly(false);
+      setConnectorRecommendationConnectorTypes([...CONNECTOR_TYPES]);
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
@@ -2485,7 +2490,7 @@ export function FlowBuilderClient() {
     }
 
     const query = `/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver?projectId=${encodeURIComponent(selectedProjectId)}&limit=20`;
-    const response = await fetch(query, {
+    const response = await fetch(`/api/v2/connectors/reliability?${query.toString()}`, {
       cache: "no-store",
       headers: authHeaders(false),
     });
@@ -2543,8 +2548,18 @@ export function FlowBuilderClient() {
     const parsedLookback = Number(connectorInsightsLookbackHours);
     const lookbackHours =
       Number.isFinite(parsedLookback) && parsedLookback > 0 ? Math.min(Math.floor(parsedLookback), 24 * 30) : 24;
-    const query = `/api/v2/connectors/reliability?projectId=${encodeURIComponent(selectedProjectId)}&lookbackHours=${lookbackHours}&limit=200`;
-    const response = await fetch(query, {
+    const scopedConnectorTypes = connectorRecommendationConnectorTypes.filter(
+      (type): type is (typeof CONNECTOR_TYPES)[number] => CONNECTOR_TYPE_SET.has(type),
+    );
+    const query = new URLSearchParams({
+      projectId: selectedProjectId,
+      lookbackHours: String(lookbackHours),
+      limit: "200",
+    });
+    if (scopedConnectorTypes.length > 0) {
+      query.set("connectorTypes", scopedConnectorTypes.join(","));
+    }
+    const response = await fetch(`/api/v2/connectors/reliability?${query.toString()}`, {
       cache: "no-store",
       headers: authHeaders(false),
     });
@@ -2560,7 +2575,7 @@ export function FlowBuilderClient() {
     }
 
     setConnectorReliability(Array.isArray(payload.connectors) ? payload.connectors : []);
-  }, [authHeaders, connectorInsightsLookbackHours, selectedProjectId]);
+  }, [authHeaders, connectorInsightsLookbackHours, connectorRecommendationConnectorTypes, selectedProjectId]);
 
   const loadConnectorActionTimeline = useCallback(async () => {
     if (!selectedProjectId) {
@@ -3004,17 +3019,35 @@ export function FlowBuilderClient() {
     const maxActions = Number.isFinite(parsedMaxActions) && parsedMaxActions > 0 ? Math.floor(parsedMaxActions) : 3;
     const cooldownMinutes =
       Number.isFinite(parsedCooldownMinutes) && parsedCooldownMinutes >= 0 ? Math.floor(parsedCooldownMinutes) : 10;
+    const connectorTypes = connectorRecommendationConnectorTypes.filter(
+      (type): type is (typeof CONNECTOR_TYPES)[number] => CONNECTOR_TYPE_SET.has(type),
+    );
+    if (connectorTypes.length === 0) {
+      setError("Select at least one connector type for recommendation scope.");
+      return null;
+    }
 
     return {
       projectId: selectedProjectId,
       lookbackHours,
-      connectorTypes: CONNECTOR_TYPES,
+      connectorTypes,
       limit,
       minDeadLetterMinutes,
       riskThreshold,
       maxActions,
       cooldownMinutes,
     };
+  }
+
+  function toggleRecommendationConnectorType(type: string, checked: boolean) {
+    setConnectorRecommendationConnectorTypes((current) => {
+      const next = checked ? [...new Set([...current, type])] : current.filter((value) => value !== type);
+      if (next.length === 0) {
+        setError("At least one connector type must stay selected.");
+        return current;
+      }
+      return next;
+    });
   }
 
   async function runTopConnectorRecommendations() {
@@ -4164,6 +4197,22 @@ export function FlowBuilderClient() {
                 <option value="redrive_only">redrive only</option>
               </select>
             </label>
+          </div>
+
+          <div className="field">
+            <span>Recommendation Connector Scope</span>
+            <div className="row wrap">
+              {CONNECTOR_TYPES.map((type) => (
+                <label key={type} className="row" style={{ gap: "0.35rem", alignItems: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={connectorRecommendationConnectorTypes.includes(type)}
+                    onChange={(event) => toggleRecommendationConnectorType(type, event.target.checked)}
+                  />
+                  <span>{type}</span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <div className="row wrap">

@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Top recommendations/radar now support scoped connector-type selection in Flow Builder, allowing safer staged remediation by integration instead of whole-project automation.
 - 2026-02-21: Connector Recovery Radar now includes explainable risk scoring (reason codes + weighted breakdown drivers), improving operator trust and decision speed for automated remediation.
 - 2026-02-21: Connector Automation Timeline filtering shipped (event-type and redrive-only filters in API + Flow Builder), enabling faster triage of specific remediation pathways.
 - 2026-02-21: Top recommendation dry-run mode shipped with Flow Builder preview controls, allowing operators to inspect candidate connector actions and cooldown skips before executing remediation.

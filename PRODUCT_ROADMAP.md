@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Flow Builder now supports reliability trend controls (enable/disable + baseline lookback window), allowing operators to tune regression detection sensitivity per project session.
 - 2026-02-21: Reliability radar now includes trend intelligence (current vs prior window risk delta with improving/worsening labels), helping teams detect regressions earlier.
 - 2026-02-21: Top recommendation preview UX now renders structured selected/skipped actions with reason labels and cooldown retry timing, reducing operator guesswork before execution.
 - 2026-02-21: Top recommendations/radar now support scoped connector-type selection in Flow Builder, allowing safer staged remediation by integration instead of whole-project automation.

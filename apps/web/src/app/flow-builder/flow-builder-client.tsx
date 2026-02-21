@@ -945,6 +945,8 @@ export function FlowBuilderClient() {
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
   const [connectorInsightsLookbackHours, setConnectorInsightsLookbackHours] = useState("24");
+  const [connectorReliabilityIncludeTrend, setConnectorReliabilityIncludeTrend] = useState(true);
+  const [connectorReliabilityTrendLookbackHours, setConnectorReliabilityTrendLookbackHours] = useState("24");
   const [connectorInsights, setConnectorInsights] = useState<ConnectorInsights>(EMPTY_CONNECTOR_INSIGHTS);
   const [connectorReliability, setConnectorReliability] = useState<ConnectorReliabilityItem[]>([]);
   const [connectorActionTimeline, setConnectorActionTimeline] = useState<ConnectorActionTimelineEvent[]>([]);
@@ -1605,6 +1607,8 @@ export function FlowBuilderClient() {
       setConnectorRecommendationConnectorTypes([...CONNECTOR_TYPES]);
       setConnectorRecommendationPreviewSelected([]);
       setConnectorRecommendationPreviewSkipped([]);
+      setConnectorReliabilityIncludeTrend(true);
+      setConnectorReliabilityTrendLookbackHours("24");
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
@@ -2618,16 +2622,23 @@ export function FlowBuilderClient() {
     }
 
     const parsedLookback = Number(connectorInsightsLookbackHours);
+    const parsedTrendLookback = Number(connectorReliabilityTrendLookbackHours);
     const lookbackHours =
       Number.isFinite(parsedLookback) && parsedLookback > 0 ? Math.min(Math.floor(parsedLookback), 24 * 30) : 24;
+    const trendLookbackHours =
+      Number.isFinite(parsedTrendLookback) && parsedTrendLookback > 0 ? Math.min(Math.floor(parsedTrendLookback), 24 * 30) : 24;
     const scopedConnectorTypes = connectorRecommendationConnectorTypes.filter(
       (type): type is (typeof CONNECTOR_TYPES)[number] => CONNECTOR_TYPE_SET.has(type),
     );
     const query = new URLSearchParams({
       projectId: selectedProjectId,
       lookbackHours: String(lookbackHours),
+      includeTrend: connectorReliabilityIncludeTrend ? "true" : "false",
       limit: "200",
     });
+    if (connectorReliabilityIncludeTrend) {
+      query.set("trendLookbackHours", String(trendLookbackHours));
+    }
     if (scopedConnectorTypes.length > 0) {
       query.set("connectorTypes", scopedConnectorTypes.join(","));
     }
@@ -2647,7 +2658,14 @@ export function FlowBuilderClient() {
     }
 
     setConnectorReliability(Array.isArray(payload.connectors) ? payload.connectors : []);
-  }, [authHeaders, connectorInsightsLookbackHours, connectorRecommendationConnectorTypes, selectedProjectId]);
+  }, [
+    authHeaders,
+    connectorInsightsLookbackHours,
+    connectorRecommendationConnectorTypes,
+    connectorReliabilityIncludeTrend,
+    connectorReliabilityTrendLookbackHours,
+    selectedProjectId,
+  ]);
 
   const loadConnectorActionTimeline = useCallback(async () => {
     if (!selectedProjectId) {
@@ -4253,6 +4271,24 @@ export function FlowBuilderClient() {
             <label className="field">
               <span>Insights Lookback (hours)</span>
               <input value={connectorInsightsLookbackHours} onChange={(event) => setConnectorInsightsLookbackHours(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Reliability Trend</span>
+              <select
+                value={connectorReliabilityIncludeTrend ? "enabled" : "disabled"}
+                onChange={(event) => setConnectorReliabilityIncludeTrend(event.target.value === "enabled")}
+              >
+                <option value="enabled">enabled</option>
+                <option value="disabled">disabled</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Trend Baseline Lookback (hours)</span>
+              <input
+                value={connectorReliabilityTrendLookbackHours}
+                onChange={(event) => setConnectorReliabilityTrendLookbackHours(event.target.value)}
+                disabled={!connectorReliabilityIncludeTrend}
+              />
             </label>
             <label className="field">
               <span>Timeline Event Limit</span>

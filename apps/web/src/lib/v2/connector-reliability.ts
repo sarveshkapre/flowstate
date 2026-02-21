@@ -12,10 +12,33 @@ type ConnectorDeliverySummary = {
 
 export type ConnectorReliabilityRecommendation = "healthy" | "process_queue" | "redrive_dead_letters";
 
+export type ConnectorReliabilityReason =
+  | "dead_letters_present"
+  | "retries_due_now"
+  | "queue_backlog"
+  | "low_delivery_success"
+  | "low_attempt_success"
+  | "high_error_volume"
+  | "high_attempt_count";
+
+export type ConnectorRiskBreakdown = {
+  dead_letter_pressure: number;
+  due_now_pressure: number;
+  retry_pressure: number;
+  queued_pressure: number;
+  max_attempt_pressure: number;
+  delivery_failure_pressure: number;
+  attempt_failure_pressure: number;
+  error_pressure: number;
+  total: number;
+};
+
 export type ConnectorReliabilityItem = {
   connector_type: string;
   risk_score: number;
   recommendation: ConnectorReliabilityRecommendation;
+  risk_reasons: ConnectorReliabilityReason[];
+  risk_breakdown: ConnectorRiskBreakdown;
   summary: ConnectorDeliverySummary;
   insights: ConnectorInsights;
 };
@@ -40,33 +63,82 @@ function recommendAction(summary: ConnectorDeliverySummary): ConnectorReliabilit
   return "healthy";
 }
 
-function computeRiskScore(input: ReliabilityInput) {
+function computeRiskBreakdown(input: ReliabilityInput): ConnectorRiskBreakdown {
   const deliveryFailure = 1 - input.insights.delivery_success_rate;
   const attemptFailure = input.insights.attempt_success_rate === null ? 0 : 1 - input.insights.attempt_success_rate;
   const errorPressure = Math.min(input.insights.top_errors.reduce((sum, entry) => sum + entry.count, 0), 50);
 
-  const weighted =
-    input.summary.dead_lettered * 10 +
-    input.summary.due_now * 6 +
-    input.summary.retrying * 4 +
-    input.summary.queued * 2 +
-    input.insights.max_attempts_observed * 1.5 +
-    deliveryFailure * 40 +
-    attemptFailure * 20 +
-    errorPressure * 0.5;
+  const breakdown = {
+    dead_letter_pressure: round(input.summary.dead_lettered * 10, 2),
+    due_now_pressure: round(input.summary.due_now * 6, 2),
+    retry_pressure: round(input.summary.retrying * 4, 2),
+    queued_pressure: round(input.summary.queued * 2, 2),
+    max_attempt_pressure: round(input.insights.max_attempts_observed * 1.5, 2),
+    delivery_failure_pressure: round(deliveryFailure * 40, 2),
+    attempt_failure_pressure: round(attemptFailure * 20, 2),
+    error_pressure: round(errorPressure * 0.5, 2),
+    total: 0,
+  } satisfies Omit<ConnectorRiskBreakdown, "total"> & { total: number };
 
-  return round(Math.max(0, weighted), 2);
+  breakdown.total = round(
+    Math.max(
+      0,
+      breakdown.dead_letter_pressure +
+        breakdown.due_now_pressure +
+        breakdown.retry_pressure +
+        breakdown.queued_pressure +
+        breakdown.max_attempt_pressure +
+        breakdown.delivery_failure_pressure +
+        breakdown.attempt_failure_pressure +
+        breakdown.error_pressure,
+    ),
+    2,
+  );
+
+  return breakdown;
+}
+
+function computeRiskReasons(input: ReliabilityInput): ConnectorReliabilityReason[] {
+  const reasons: ConnectorReliabilityReason[] = [];
+  if (input.summary.dead_lettered > 0) {
+    reasons.push("dead_letters_present");
+  }
+  if (input.summary.due_now > 0 || input.summary.retrying > 0) {
+    reasons.push("retries_due_now");
+  }
+  if (input.summary.queued > 0) {
+    reasons.push("queue_backlog");
+  }
+  if (input.insights.delivery_success_rate < 0.95) {
+    reasons.push("low_delivery_success");
+  }
+  if (input.insights.attempt_success_rate !== null && input.insights.attempt_success_rate < 0.9) {
+    reasons.push("low_attempt_success");
+  }
+  if (input.insights.top_errors.reduce((sum, entry) => sum + entry.count, 0) >= 5) {
+    reasons.push("high_error_volume");
+  }
+  if (input.insights.max_attempts_observed >= 3) {
+    reasons.push("high_attempt_count");
+  }
+
+  return reasons;
 }
 
 export function rankConnectorReliability(inputs: ReliabilityInput[]): ConnectorReliabilityItem[] {
   return inputs
-    .map((input) => ({
+    .map((input) => {
+      const riskBreakdown = computeRiskBreakdown(input);
+      return {
       connector_type: input.connector_type,
-      risk_score: computeRiskScore(input),
+      risk_score: riskBreakdown.total,
       recommendation: recommendAction(input.summary),
+      risk_reasons: computeRiskReasons(input),
+      risk_breakdown: riskBreakdown,
       summary: input.summary,
       insights: input.insights,
-    }))
+      };
+    })
     .sort((left, right) => {
       if (right.risk_score !== left.risk_score) {
         return right.risk_score - left.risk_score;

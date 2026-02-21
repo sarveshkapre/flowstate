@@ -1,9 +1,14 @@
-import type { ConnectorReliabilityItem, ConnectorReliabilityRecommendation } from "@/lib/v2/connector-reliability";
+import type {
+  ConnectorReliabilityItem,
+  ConnectorReliabilityReason,
+  ConnectorReliabilityRecommendation,
+} from "@/lib/v2/connector-reliability";
 
 export type ConnectorRecommendationAction = {
   connector_type: string;
   recommendation: Exclude<ConnectorReliabilityRecommendation, "healthy">;
   risk_score: number;
+  risk_reasons: ConnectorReliabilityReason[];
 };
 
 export type ConnectorRecommendationSkipReason = "cooldown_active";
@@ -12,6 +17,7 @@ export type ConnectorRecommendationSkippedAction = {
   connector_type: string;
   recommendation: Exclude<ConnectorReliabilityRecommendation, "healthy">;
   risk_score: number;
+  risk_reasons: ConnectorReliabilityReason[];
   reason: ConnectorRecommendationSkipReason;
   last_action_at: string;
   retry_after_seconds: number;
@@ -51,6 +57,7 @@ export function selectConnectorRecommendationActions(input: {
       connector_type: connector.connector_type,
       recommendation: connector.recommendation,
       risk_score: connector.risk_score,
+      risk_reasons: connector.risk_reasons,
     });
 
     if (selected.length >= maxActions) {
@@ -103,6 +110,7 @@ export function filterConnectorRecommendationCooldown(input: {
       connector_type: action.connector_type,
       recommendation: action.recommendation,
       risk_score: action.risk_score,
+      risk_reasons: action.risk_reasons,
       reason: "cooldown_active",
       last_action_at: lastActionAt,
       retry_after_seconds: Math.max(1, Math.ceil((cooldownMs - elapsedMs) / 1000)),

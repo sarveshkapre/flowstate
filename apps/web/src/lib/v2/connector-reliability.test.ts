@@ -56,6 +56,10 @@ test("rankConnectorReliability prioritizes dead-letter and retry pressure", () =
   assert.equal(ranked[0]?.recommendation, "redrive_dead_letters");
   assert.equal(ranked[1]?.recommendation, "process_queue");
   assert.ok((ranked[0]?.risk_score ?? 0) > (ranked[1]?.risk_score ?? 0));
+  assert.equal(ranked[0]?.risk_score, ranked[0]?.risk_breakdown.total);
+  assert.ok((ranked[0]?.risk_reasons ?? []).includes("dead_letters_present"));
+  assert.ok((ranked[0]?.risk_reasons ?? []).includes("low_delivery_success"));
+  assert.ok((ranked[0]?.risk_reasons ?? []).includes("high_attempt_count"));
 });
 
 test("rankConnectorReliability marks healthy connectors with no queue pressure", () => {
@@ -86,4 +90,6 @@ test("rankConnectorReliability marks healthy connectors with no queue pressure",
 
   assert.equal(ranked[0]?.connector_type, "webhook");
   assert.equal(ranked[0]?.recommendation, "healthy");
+  assert.equal(ranked[0]?.risk_score, ranked[0]?.risk_breakdown.total);
+  assert.deepEqual(ranked[0]?.risk_reasons, []);
 });

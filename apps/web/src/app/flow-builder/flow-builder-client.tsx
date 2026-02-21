@@ -154,11 +154,33 @@ type ConnectorInsights = {
 };
 
 type ConnectorReliabilityRecommendation = "healthy" | "process_queue" | "redrive_dead_letters";
+type ConnectorReliabilityReason =
+  | "dead_letters_present"
+  | "retries_due_now"
+  | "queue_backlog"
+  | "low_delivery_success"
+  | "low_attempt_success"
+  | "high_error_volume"
+  | "high_attempt_count";
+
+type ConnectorRiskBreakdown = {
+  dead_letter_pressure: number;
+  due_now_pressure: number;
+  retry_pressure: number;
+  queued_pressure: number;
+  max_attempt_pressure: number;
+  delivery_failure_pressure: number;
+  attempt_failure_pressure: number;
+  error_pressure: number;
+  total: number;
+};
 
 type ConnectorReliabilityItem = {
   connector_type: string;
   risk_score: number;
   recommendation: ConnectorReliabilityRecommendation;
+  risk_reasons: ConnectorReliabilityReason[];
+  risk_breakdown: ConnectorRiskBreakdown;
   summary: ConnectorDeliverySummary;
   insights: ConnectorInsights;
 };
@@ -411,6 +433,47 @@ function connectorRecommendationLabel(recommendation: ConnectorReliabilityRecomm
     return "Process queue";
   }
   return "Healthy";
+}
+
+function connectorRiskReasonLabel(reason: ConnectorReliabilityReason) {
+  if (reason === "dead_letters_present") {
+    return "dead letters";
+  }
+  if (reason === "retries_due_now") {
+    return "retries due";
+  }
+  if (reason === "queue_backlog") {
+    return "queue backlog";
+  }
+  if (reason === "low_delivery_success") {
+    return "low delivery success";
+  }
+  if (reason === "low_attempt_success") {
+    return "low attempt success";
+  }
+  if (reason === "high_error_volume") {
+    return "high error volume";
+  }
+  return "high attempt count";
+}
+
+function connectorTopRiskDrivers(item: ConnectorReliabilityItem, max = 2) {
+  const entries = [
+    { label: "dead letters", value: item.risk_breakdown.dead_letter_pressure },
+    { label: "due retries", value: item.risk_breakdown.due_now_pressure },
+    { label: "retry backlog", value: item.risk_breakdown.retry_pressure },
+    { label: "queue backlog", value: item.risk_breakdown.queued_pressure },
+    { label: "attempt count", value: item.risk_breakdown.max_attempt_pressure },
+    { label: "delivery failures", value: item.risk_breakdown.delivery_failure_pressure },
+    { label: "attempt failures", value: item.risk_breakdown.attempt_failure_pressure },
+    { label: "error volume", value: item.risk_breakdown.error_pressure },
+  ]
+    .filter((entry) => entry.value > 0)
+    .sort((left, right) => right.value - left.value)
+    .slice(0, max)
+    .map((entry) => `${entry.label} (${entry.value.toFixed(1)})`);
+
+  return entries;
 }
 
 function connectorTimelineEventLabel(eventType: ConnectorActionTimelineEvent["event_type"]) {
@@ -4212,13 +4275,18 @@ export function FlowBuilderClient() {
             <p className="muted">No connector reliability data yet.</p>
           ) : (
             <ul className="list">
-              {connectorReliability.map((item) => (
-                <li key={item.connector_type}>
+              {connectorReliability.map((item) => {
+                const topDrivers = connectorTopRiskDrivers(item);
+                const reasonLabels = item.risk_reasons.map((reason) => connectorRiskReasonLabel(reason));
+                return (
+                  <li key={item.connector_type}>
                   <strong>{item.connector_type}</strong> - risk {item.risk_score.toFixed(2)} -{" "}
                   {connectorRecommendationLabel(item.recommendation)}
                   {item.insights.top_errors[0] ? ` - top error ${item.insights.top_errors[0].message}` : ""}
                   {" | "}
                   dead-letter {item.summary.dead_lettered} | due now {item.summary.due_now}
+                  {reasonLabels.length > 0 ? ` | reasons ${reasonLabels.join(", ")}` : ""}
+                  {topDrivers.length > 0 ? ` | drivers ${topDrivers.join(", ")}` : ""}
                   <button
                     className="button secondary"
                     disabled={busyAction !== null}
@@ -4241,8 +4309,9 @@ export function FlowBuilderClient() {
                         ? "Healthy"
                         : "Run Recommendation"}
                   </button>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </article>

@@ -417,6 +417,19 @@ type ConnectorBackpressurePolicy = {
   updated_at: string;
 };
 
+type ConnectorBackpressurePolicyDraft = {
+  id: string;
+  project_id: string;
+  is_enabled: boolean;
+  max_retrying: number;
+  max_due_now: number;
+  min_limit: number;
+  connector_overrides: Record<string, ConnectorBackpressurePolicyOverride>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type ActiveLearningCandidate = {
   run: RunRecordV2;
   score: number;
@@ -1151,6 +1164,7 @@ export function FlowBuilderClient() {
   );
   const [connectorBackpressurePolicySimulation, setConnectorBackpressurePolicySimulation] =
     useState<ConnectorBackpressurePolicySimulation | null>(null);
+  const [connectorBackpressureDraft, setConnectorBackpressureDraft] = useState<ConnectorBackpressurePolicyDraft | null>(null);
   const [connectorBackpressureInsightsLookbackHours, setConnectorBackpressureInsightsLookbackHours] = useState("24");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
@@ -1554,6 +1568,29 @@ export function FlowBuilderClient() {
     [authHeaders],
   );
 
+  function applyBackpressurePolicyToEditor(input: {
+    is_enabled: boolean;
+    max_retrying: number;
+    max_due_now: number;
+    min_limit: number;
+    connector_overrides: Record<string, ConnectorBackpressurePolicyOverride>;
+  }) {
+    setConnectorProcessBackpressureEnabled(input.is_enabled);
+    setConnectorProcessBackpressureMaxRetrying(String(input.max_retrying));
+    setConnectorProcessBackpressureMaxDueNow(String(input.max_due_now));
+    setConnectorProcessBackpressureMinLimit(String(input.min_limit));
+    setConnectorBackpressureOverrides(
+      createConnectorBackpressureOverrideDrafts({
+        defaultEnabled: input.is_enabled,
+        defaultMaxRetrying: input.max_retrying,
+        defaultMaxDueNow: input.max_due_now,
+        defaultMinLimit: input.min_limit,
+        overrides: input.connector_overrides,
+      }),
+    );
+    setConnectorBackpressurePolicySimulation(null);
+  }
+
   const loadConnectorBackpressurePolicy = useCallback(
     async (projectId: string) => {
       if (!projectId) {
@@ -1563,6 +1600,7 @@ export function FlowBuilderClient() {
         setConnectorProcessBackpressureMinLimit("1");
         setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
         setConnectorBackpressurePolicySimulation(null);
+        setConnectorBackpressureDraft(null);
         return;
       }
 
@@ -1587,22 +1625,38 @@ export function FlowBuilderClient() {
         setConnectorProcessBackpressureMinLimit("1");
         setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
         setConnectorBackpressurePolicySimulation(null);
+        setConnectorBackpressureDraft(null);
         return;
       }
 
-      setConnectorProcessBackpressureEnabled(payload.policy.is_enabled);
-      setConnectorProcessBackpressureMaxRetrying(String(payload.policy.max_retrying));
-      setConnectorProcessBackpressureMaxDueNow(String(payload.policy.max_due_now));
-      setConnectorProcessBackpressureMinLimit(String(payload.policy.min_limit));
-      setConnectorBackpressureOverrides(
-        createConnectorBackpressureOverrideDrafts({
-          defaultEnabled: payload.policy.is_enabled,
-          defaultMaxRetrying: payload.policy.max_retrying,
-          defaultMaxDueNow: payload.policy.max_due_now,
-          defaultMinLimit: payload.policy.min_limit,
-          overrides: payload.policy.connector_overrides,
-        }),
-      );
+      applyBackpressurePolicyToEditor(payload.policy);
+    },
+    [authHeaders],
+  );
+
+  const loadConnectorBackpressureDraft = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setConnectorBackpressureDraft(null);
+        return;
+      }
+
+      const response = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}/connector-backpressure-policy/draft`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as {
+        draft?: ConnectorBackpressurePolicyDraft | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load connector backpressure draft.");
+        setConnectorBackpressureDraft(null);
+        return;
+      }
+
+      setConnectorBackpressureDraft(payload.draft ?? null);
     },
     [authHeaders],
   );
@@ -1920,6 +1974,7 @@ export function FlowBuilderClient() {
       setConnectorBackpressurePolicyUpdates([]);
       setConnectorBackpressureOutcomes(EMPTY_BACKPRESSURE_OUTCOME_TREND);
       setConnectorBackpressurePolicySimulation(null);
+      setConnectorBackpressureDraft(null);
       setConnectorBackpressureInsightsLookbackHours("24");
       setConnectorReliabilityIncludeTrend(true);
       setConnectorReliabilityTrendLookbackHours("24");
@@ -1955,11 +2010,13 @@ export function FlowBuilderClient() {
     void loadReviewAlertPolicy(selectedProjectId);
     void loadConnectorGuardianPolicy(selectedProjectId);
     void loadConnectorBackpressurePolicy(selectedProjectId);
+    void loadConnectorBackpressureDraft(selectedProjectId);
     void loadReviewQueues(selectedProjectId);
     void loadActiveLearning(selectedProjectId);
     void loadMembersAndKeys(selectedProjectId);
   }, [
     loadActiveLearning,
+    loadConnectorBackpressureDraft,
     loadConnectorBackpressurePolicy,
     loadConnectorGuardianPolicy,
     loadDatasets,
@@ -2688,6 +2745,91 @@ export function FlowBuilderClient() {
     setConnectorBackpressurePolicySimulation(null);
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorBackpressurePolicy(selectedProjectId);
+    await loadConnectorBackpressureDraft(selectedProjectId);
+    await loadConnectorBackpressureInsights(selectedProjectId);
+    setBusyAction(null);
+  }
+
+  async function saveConnectorBackpressurePolicyDraft() {
+    if (!selectedProjectId) {
+      setError("Select a project before saving connector backpressure draft.");
+      return;
+    }
+
+    const parsed = parseConnectorBackpressurePolicyInputs();
+    if (!parsed) {
+      return;
+    }
+
+    setBusyAction("connector_backpressure_draft_save");
+    const response = await fetch(`/api/v2/projects/${encodeURIComponent(selectedProjectId)}/connector-backpressure-policy/draft`, {
+      method: "PUT",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        isEnabled: connectorProcessBackpressureEnabled,
+        maxRetrying: parsed.maxRetrying,
+        maxDueNow: parsed.maxDueNow,
+        minLimit: parsed.minLimit,
+        connectorOverrides: parsed.connectorOverrides,
+      }),
+    });
+    const result = (await response.json()) as {
+      draft?: ConnectorBackpressurePolicyDraft;
+      error?: string;
+    };
+
+    if (!response.ok || !result.draft) {
+      setError(typeof result.error === "string" ? result.error : "Unable to save connector backpressure draft.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setConnectorBackpressureDraft(result.draft);
+    setSuccess("Connector backpressure draft saved.");
+    setConnectorResult(JSON.stringify(result, null, 2));
+    setBusyAction(null);
+  }
+
+  function loadConnectorBackpressureDraftIntoEditor() {
+    if (!connectorBackpressureDraft) {
+      setInfo("No connector backpressure draft available.");
+      return;
+    }
+
+    applyBackpressurePolicyToEditor(connectorBackpressureDraft);
+    setSuccess("Loaded connector backpressure draft into editor.");
+  }
+
+  async function applyConnectorBackpressurePolicyDraft() {
+    if (!selectedProjectId) {
+      setError("Select a project before applying connector backpressure draft.");
+      return;
+    }
+
+    setBusyAction("connector_backpressure_draft_apply");
+    const response = await fetch(
+      `/api/v2/projects/${encodeURIComponent(selectedProjectId)}/connector-backpressure-policy/draft/apply`,
+      {
+        method: "POST",
+        headers: authHeaders(true),
+      },
+    );
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Unable to apply connector backpressure draft.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Connector backpressure draft applied.");
+    setConnectorBackpressureDraft(null);
+    setConnectorBackpressurePolicySimulation(null);
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorBackpressurePolicy(selectedProjectId);
+    await loadConnectorBackpressureDraft(selectedProjectId);
     await loadConnectorBackpressureInsights(selectedProjectId);
     setBusyAction(null);
   }
@@ -5099,6 +5241,15 @@ export function FlowBuilderClient() {
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void previewConnectorBackpressurePolicy()}>
               {busyAction === "connector_backpressure_policy_preview" ? "Previewing..." : "Preview Policy Impact"}
             </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void saveConnectorBackpressurePolicyDraft()}>
+              {busyAction === "connector_backpressure_draft_save" ? "Saving Draft..." : "Save Backpressure Draft"}
+            </button>
+            <button className="button secondary" onClick={() => loadConnectorBackpressureDraftIntoEditor()}>
+              Load Draft Into Editor
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void applyConnectorBackpressurePolicyDraft()}>
+              {busyAction === "connector_backpressure_draft_apply" ? "Applying Draft..." : "Apply Backpressure Draft"}
+            </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void saveConnectorBackpressurePolicy()}>
               {busyAction === "connector_backpressure_policy_save" ? "Saving..." : "Save Backpressure Policy"}
             </button>
@@ -5198,6 +5349,15 @@ export function FlowBuilderClient() {
               {(connectorBackpressureOutcomes.delta.dead_letter_rate * 100).toFixed(1)} pts | delta deliveries{" "}
               {connectorBackpressureOutcomes.delta.total_deliveries}
             </p>
+            {connectorBackpressureDraft ? (
+              <p className="muted">
+                draft saved {new Date(connectorBackpressureDraft.updated_at).toLocaleString()} by{" "}
+                {connectorBackpressureDraft.created_by ?? "system"} | overrides{" "}
+                {Object.keys(connectorBackpressureDraft.connector_overrides).length}
+              </p>
+            ) : (
+              <p className="muted">No saved backpressure draft.</p>
+            )}
             {connectorBackpressurePolicyUpdates.length > 0 ? (
               <ul className="list">
                 {connectorBackpressurePolicyUpdates.map((update) => (

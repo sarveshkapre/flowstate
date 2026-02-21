@@ -44,6 +44,8 @@ import {
   type ReviewAlertPolicyRecord,
   connectorBackpressurePolicyRecordSchema,
   type ConnectorBackpressurePolicyRecord,
+  connectorBackpressurePolicyDraftRecordSchema,
+  type ConnectorBackpressurePolicyDraftRecord,
   connectorGuardianPolicyRecordSchema,
   type ConnectorGuardianPolicyRecord,
   reviewDecisionRecordSchema,
@@ -91,6 +93,7 @@ type DbStateV2 = {
   eval_packs: EvalPackRecord[];
   review_alert_policies: ReviewAlertPolicyRecord[];
   connector_backpressure_policies: ConnectorBackpressurePolicyRecord[];
+  connector_backpressure_policy_drafts: ConnectorBackpressurePolicyDraftRecord[];
   connector_guardian_policies: ConnectorGuardianPolicyRecord[];
   connector_deliveries: ConnectorDeliveryRecord[];
   connector_delivery_attempts: ConnectorDeliveryAttemptRecord[];
@@ -119,6 +122,7 @@ const DEFAULT_STATE: DbStateV2 = {
   eval_packs: [],
   review_alert_policies: [],
   connector_backpressure_policies: [],
+  connector_backpressure_policy_drafts: [],
   connector_guardian_policies: [],
   connector_deliveries: [],
   connector_delivery_attempts: [],
@@ -274,6 +278,9 @@ async function readState(): Promise<DbStateV2> {
     review_alert_policies: (parsed.review_alert_policies ?? []).map((item) => reviewAlertPolicyRecordSchema.parse(item)),
     connector_backpressure_policies: (parsed.connector_backpressure_policies ?? []).map((item) =>
       connectorBackpressurePolicyRecordSchema.parse(item),
+    ),
+    connector_backpressure_policy_drafts: (parsed.connector_backpressure_policy_drafts ?? []).map((item) =>
+      connectorBackpressurePolicyDraftRecordSchema.parse(item),
     ),
     connector_guardian_policies: (parsed.connector_guardian_policies ?? []).map((item) =>
       connectorGuardianPolicyRecordSchema.parse({
@@ -1424,6 +1431,11 @@ export async function getConnectorBackpressurePolicy(projectId: string) {
   return state.connector_backpressure_policies.find((policy) => policy.project_id === projectId) ?? null;
 }
 
+export async function getConnectorBackpressurePolicyDraft(projectId: string) {
+  const state = await readState();
+  return state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === projectId) ?? null;
+}
+
 export async function upsertConnectorGuardianPolicy(input: {
   projectId: string;
   isEnabled?: boolean;
@@ -1592,6 +1604,116 @@ export async function upsertConnectorBackpressurePolicy(input: {
 
     return policy;
   });
+}
+
+export async function upsertConnectorBackpressurePolicyDraft(input: {
+  projectId: string;
+  isEnabled?: boolean;
+  maxRetrying?: number;
+  maxDueNow?: number;
+  minLimit?: number;
+  connectorOverrides?: Record<
+    string,
+    {
+      isEnabled: boolean;
+      maxRetrying: number;
+      maxDueNow: number;
+      minLimit: number;
+    }
+  >;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const project = state.projects.find((item) => item.id === input.projectId);
+    if (!project) {
+      throw new Error("Project not found");
+    }
+
+    const existing =
+      state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === input.projectId) ?? null;
+    const now = new Date().toISOString();
+
+    const policy = connectorBackpressurePolicyDraftRecordSchema.parse({
+      id: existing?.id ?? randomUUID(),
+      project_id: input.projectId,
+      is_enabled: input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.isEnabled,
+      max_retrying: clampPositiveInt(
+        input.maxRetrying ?? existing?.max_retrying,
+        CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxRetrying,
+        10_000,
+      ),
+      max_due_now: clampPositiveInt(
+        input.maxDueNow ?? existing?.max_due_now,
+        CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxDueNow,
+        10_000,
+      ),
+      min_limit: clampPositiveInt(input.minLimit ?? existing?.min_limit, CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit, 100),
+      connector_overrides:
+        input.connectorOverrides === undefined
+          ? existing?.connector_overrides ?? {}
+          : normalizeConnectorBackpressureOverrides({
+              overrides: input.connectorOverrides,
+              existingOverrides: existing?.connector_overrides,
+            }),
+      created_by: input.actor ?? existing?.created_by ?? null,
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    });
+
+    const existingIndex = state.connector_backpressure_policy_drafts.findIndex((item) => item.project_id === input.projectId);
+    if (existingIndex >= 0) {
+      state.connector_backpressure_policy_drafts[existingIndex] = policy;
+    } else {
+      state.connector_backpressure_policy_drafts.unshift(policy);
+    }
+
+    return policy;
+  });
+}
+
+export async function deleteConnectorBackpressurePolicyDraft(input: { projectId: string }) {
+  return withWriteLock(async (state) => {
+    const existingIndex = state.connector_backpressure_policy_drafts.findIndex((item) => item.project_id === input.projectId);
+    if (existingIndex < 0) {
+      return false;
+    }
+
+    state.connector_backpressure_policy_drafts.splice(existingIndex, 1);
+    return true;
+  });
+}
+
+export async function applyConnectorBackpressurePolicyDraft(input: { projectId: string; actor?: string }) {
+  const draft = await getConnectorBackpressurePolicyDraft(input.projectId);
+  if (!draft) {
+    throw new Error("Backpressure policy draft not found");
+  }
+
+  const policy = await upsertConnectorBackpressurePolicy({
+    projectId: input.projectId,
+    isEnabled: draft.is_enabled,
+    maxRetrying: draft.max_retrying,
+    maxDueNow: draft.max_due_now,
+    minLimit: draft.min_limit,
+    connectorOverrides: Object.fromEntries(
+      Object.entries(draft.connector_overrides).map(([connectorType, override]) => [
+        connectorType,
+        {
+          isEnabled: override.is_enabled,
+          maxRetrying: override.max_retrying,
+          maxDueNow: override.max_due_now,
+          minLimit: override.min_limit,
+        },
+      ]),
+    ),
+    actor: input.actor,
+  });
+
+  await deleteConnectorBackpressurePolicyDraft({
+    projectId: input.projectId,
+  });
+
+  return policy;
 }
 
 export async function createEvalPack(input: {

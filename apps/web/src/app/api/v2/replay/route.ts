@@ -12,6 +12,14 @@ const replaySchema = z.object({
   baselineFlowVersionId: z.string().min(1).optional(),
   datasetVersionId: z.string().min(1),
   limit: z.number().int().positive().max(1000).optional(),
+  promotionGates: z
+    .object({
+      minCandidateSuccessRate: z.number().min(0).max(1).optional(),
+      maxChangedVsBaselineRate: z.number().min(0).max(1).optional(),
+      minFieldAccuracy: z.number().min(0).max(1).optional(),
+      minComparedWithExpectedCount: z.number().int().nonnegative().max(5000).optional(),
+    })
+    .optional(),
 });
 
 type JsonRecord = Record<string, unknown>;
@@ -194,6 +202,7 @@ export async function POST(request: Request) {
   }
 
   const comparedCount = runs.length || 1;
+  const changedVsBaselineRate = baselineVersion ? Number((changedVsBaselineCount / comparedCount).toFixed(4)) : null;
   const field_accuracy = Array.from(fieldStats.entries())
     .map(([field, stats]) => ({
       field,
@@ -202,6 +211,79 @@ export async function POST(request: Request) {
       accuracy: Number((stats.correct / Math.max(stats.total, 1)).toFixed(4)),
     }))
     .sort((a, b) => a.field.localeCompare(b.field));
+  const minFieldAccuracy = field_accuracy.length > 0 ? Math.min(...field_accuracy.map((item) => item.accuracy)) : null;
+
+  const gateInput = parsed.data.promotionGates;
+  const promotionGates: Array<{
+    gate: "min_candidate_success_rate" | "max_changed_vs_baseline_rate" | "min_field_accuracy" | "min_expected_samples";
+    threshold: number;
+    actual: number | null;
+    comparator: ">=" | "<=";
+    passed: boolean;
+    reason: string | null;
+  }> = [];
+
+  function pushGate(input: {
+    gate: "min_candidate_success_rate" | "max_changed_vs_baseline_rate" | "min_field_accuracy" | "min_expected_samples";
+    threshold: number;
+    actual: number | null;
+    comparator: ">=" | "<=";
+    reason?: string;
+  }) {
+    const passed =
+      input.actual !== null &&
+      (input.comparator === ">=" ? input.actual >= input.threshold : input.actual <= input.threshold);
+
+    promotionGates.push({
+      gate: input.gate,
+      threshold: Number(input.threshold.toFixed(4)),
+      actual: input.actual === null ? null : Number(input.actual.toFixed(4)),
+      comparator: input.comparator,
+      passed,
+      reason: input.reason ?? null,
+    });
+  }
+
+  if (gateInput?.minCandidateSuccessRate !== undefined) {
+    pushGate({
+      gate: "min_candidate_success_rate",
+      threshold: gateInput.minCandidateSuccessRate,
+      actual: Number((candidateSuccessCount / comparedCount).toFixed(4)),
+      comparator: ">=",
+    });
+  }
+
+  if (gateInput?.maxChangedVsBaselineRate !== undefined) {
+    pushGate({
+      gate: "max_changed_vs_baseline_rate",
+      threshold: gateInput.maxChangedVsBaselineRate,
+      actual: changedVsBaselineRate,
+      comparator: "<=",
+      reason: baselineVersion ? undefined : "Baseline flow version required for this gate",
+    });
+  }
+
+  if (gateInput?.minFieldAccuracy !== undefined) {
+    pushGate({
+      gate: "min_field_accuracy",
+      threshold: gateInput.minFieldAccuracy,
+      actual: minFieldAccuracy,
+      comparator: ">=",
+      reason: comparedWithExpectedCount > 0 ? undefined : "No expected fields present in replay dataset",
+    });
+  }
+
+  if (gateInput?.minComparedWithExpectedCount !== undefined) {
+    pushGate({
+      gate: "min_expected_samples",
+      threshold: gateInput.minComparedWithExpectedCount,
+      actual: comparedWithExpectedCount,
+      comparator: ">=",
+    });
+  }
+
+  const hasPromotionGates = promotionGates.length > 0;
+  const promotionPassed = hasPromotionGates ? promotionGates.every((gate) => gate.passed) : null;
 
   return NextResponse.json({
     replay_count: runs.length,
@@ -212,9 +294,17 @@ export async function POST(request: Request) {
       candidate_success_rate: Number((candidateSuccessCount / comparedCount).toFixed(4)),
       baseline_success_rate: baselineVersion ? Number((baselineSuccessCount / comparedCount).toFixed(4)) : null,
       changed_vs_baseline_count: baselineVersion ? changedVsBaselineCount : null,
+      changed_vs_baseline_rate: changedVsBaselineRate,
       compared_with_expected_count: comparedWithExpectedCount,
+      min_field_accuracy: minFieldAccuracy,
       field_accuracy,
     },
+    promotion: hasPromotionGates
+      ? {
+          passed: promotionPassed,
+          gates: promotionGates,
+        }
+      : null,
     runs,
   });
 }

@@ -393,6 +393,10 @@ export function FlowBuilderClient() {
     '{"vendor":"Acme","total":42.12,"expected":{"vendor":"Acme","total":42.12}}\n{"vendor":"Globex","total":18.5,"expected":{"vendor":"Globex","total":18.5}}',
   );
   const [replayLimit, setReplayLimit] = useState("20");
+  const [promotionMinCandidateSuccess, setPromotionMinCandidateSuccess] = useState("0.95");
+  const [promotionMaxChangedVsBaseline, setPromotionMaxChangedVsBaseline] = useState("0.1");
+  const [promotionMinFieldAccuracy, setPromotionMinFieldAccuracy] = useState("0.9");
+  const [promotionMinExpectedSamples, setPromotionMinExpectedSamples] = useState("10");
   const [replayResult, setReplayResult] = useState<string>("");
   const [connectorType, setConnectorType] = useState("webhook");
   const [connectorPayloadText, setConnectorPayloadText] = useState('{"event":"ticket.created","severity":"high"}');
@@ -1073,6 +1077,43 @@ export function FlowBuilderClient() {
 
     const parsedLimit = Number(replayLimit);
     const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : undefined;
+    const promotionGates: Record<string, number> = {};
+
+    if (promotionMinCandidateSuccess.trim()) {
+      const value = Number(promotionMinCandidateSuccess);
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        setError("Min candidate success must be a number between 0 and 1.");
+        return;
+      }
+      promotionGates.minCandidateSuccessRate = value;
+    }
+
+    if (promotionMaxChangedVsBaseline.trim()) {
+      const value = Number(promotionMaxChangedVsBaseline);
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        setError("Max changed-vs-baseline rate must be a number between 0 and 1.");
+        return;
+      }
+      promotionGates.maxChangedVsBaselineRate = value;
+    }
+
+    if (promotionMinFieldAccuracy.trim()) {
+      const value = Number(promotionMinFieldAccuracy);
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        setError("Min field accuracy must be a number between 0 and 1.");
+        return;
+      }
+      promotionGates.minFieldAccuracy = value;
+    }
+
+    if (promotionMinExpectedSamples.trim()) {
+      const value = Number(promotionMinExpectedSamples);
+      if (!Number.isFinite(value) || value < 0) {
+        setError("Min expected samples must be zero or a positive number.");
+        return;
+      }
+      promotionGates.minComparedWithExpectedCount = Math.floor(value);
+    }
 
     setBusyAction("replay");
     const response = await fetch("/api/v2/replay", {
@@ -1085,6 +1126,7 @@ export function FlowBuilderClient() {
         baselineFlowVersionId: baselineVersionId || undefined,
         datasetVersionId: selectedDatasetVersionId,
         limit: safeLimit,
+        promotionGates: Object.keys(promotionGates).length > 0 ? promotionGates : undefined,
       }),
     });
     const payload = (await response.json()) as Record<string, unknown>;
@@ -1096,7 +1138,17 @@ export function FlowBuilderClient() {
       return;
     }
 
-    setSuccess("Replay completed.");
+    const promotion = payload.promotion as { passed?: unknown } | null | undefined;
+    if (promotion && typeof promotion === "object" && typeof promotion.passed === "boolean") {
+      if (promotion.passed) {
+        setSuccess("Replay completed. Promotion gates passed.");
+      } else {
+        setError("Replay completed. Promotion gates failed.");
+      }
+    } else {
+      setSuccess("Replay completed.");
+    }
+
     setReplayResult(JSON.stringify(payload, null, 2));
     setBusyAction(null);
   }
@@ -1731,6 +1783,38 @@ export function FlowBuilderClient() {
             <span>Replay Limit</span>
             <input value={replayLimit} onChange={(event) => setReplayLimit(event.target.value)} />
           </label>
+
+          <div className="grid two-col">
+            <label className="field small">
+              <span>Gate: Min Candidate Success</span>
+              <input
+                value={promotionMinCandidateSuccess}
+                onChange={(event) => setPromotionMinCandidateSuccess(event.target.value)}
+              />
+            </label>
+            <label className="field small">
+              <span>Gate: Max Changed-vs-Baseline</span>
+              <input
+                value={promotionMaxChangedVsBaseline}
+                onChange={(event) => setPromotionMaxChangedVsBaseline(event.target.value)}
+              />
+            </label>
+            <label className="field small">
+              <span>Gate: Min Field Accuracy</span>
+              <input value={promotionMinFieldAccuracy} onChange={(event) => setPromotionMinFieldAccuracy(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Gate: Min Expected Samples</span>
+              <input
+                value={promotionMinExpectedSamples}
+                onChange={(event) => setPromotionMinExpectedSamples(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <p className="muted">
+            Gates evaluate replay output for promotion readiness. Use empty values to disable specific gates.
+          </p>
 
           <button className="button" disabled={busyAction !== null} onClick={() => void runReplay()}>
             {busyAction === "replay" ? "Running..." : "Run Replay"}

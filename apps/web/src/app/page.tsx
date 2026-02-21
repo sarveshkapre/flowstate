@@ -16,10 +16,10 @@ export default function HomePage() {
   return (
     <main className="page space-y-4">
       <section className="hero">
-        <h1>Flowstate</h1>
+        <h1>Home</h1>
         <div className="flex flex-wrap gap-2">
           {quickLinks.map((link) => (
-            <Button key={link.href} asChild size="sm">
+            <Button key={link.href} asChild size="sm" variant={link.href === "/upload" ? "default" : "outline"}>
               <Link href={link.href}>{link.label}</Link>
             </Button>
           ))}

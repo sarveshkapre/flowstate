@@ -6,14 +6,10 @@ export default function WorkflowsPage() {
   return (
     <main className="page">
       <PageHeader
-        eyebrow="Flowstate / Workflows"
-        title="Automate extraction decisions with reusable workflows."
-        description="Define document type, confidence thresholds, and optional webhook targets, then run on any uploaded artifact."
+        title="Workflows"
         links={[
           { href: "/", label: "Dashboard" },
-          { href: "/flow-builder", label: "Flow Builder v2" },
-          { href: "/upload", label: "Upload" },
-          { href: "/review", label: "Review Queue" },
+          { href: "/flow-builder", label: "Builder" },
         ]}
       />
 

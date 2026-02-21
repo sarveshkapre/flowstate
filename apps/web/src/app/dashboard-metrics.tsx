@@ -107,35 +107,38 @@ export function DashboardMetrics() {
 
   return (
     <section className="panel">
-      <h2>Live Metrics</h2>
+      <h2>Metrics</h2>
       <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader>
-            <CardTitle>Total Jobs</CardTitle>
+            <CardTitle>Jobs</CardTitle>
           </CardHeader>
           <CardContent><p className="metric">{summary.jobs}</p></CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Pending Review</CardTitle>
+            <CardTitle>Pending</CardTitle>
           </CardHeader>
           <CardContent><p className="metric">{summary.pending_review}</p></CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Avg Confidence</CardTitle>
+            <CardTitle>Confidence</CardTitle>
           </CardHeader>
           <CardContent><p className="metric">{summary.avg_confidence}</p></CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Invalid Results</CardTitle>
+            <CardTitle>Invalid</CardTitle>
           </CardHeader>
           <CardContent><p className="metric">{summary.invalid_count}</p></CardContent>
         </Card>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-3 lg:grid-cols-4">
         <Card>
           <CardHeader>
-            <CardTitle>Invoices / Receipts</CardTitle>
+            <CardTitle>Invoice / Receipt</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="metric">
@@ -145,7 +148,7 @@ export function DashboardMetrics() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Latest Drift Point</CardTitle>
+            <CardTitle>Drift</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="metric">{latestTrend ? latestTrend.avg_confidence : "-"}</p>
@@ -154,7 +157,7 @@ export function DashboardMetrics() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Top Issue Codes</CardTitle>
+            <CardTitle>Top Issues</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="muted">
@@ -164,7 +167,7 @@ export function DashboardMetrics() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Latest Eval Coverage</CardTitle>
+            <CardTitle>Eval</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="metric">{latestEval ? latestEval.avg_field_coverage : "-"}</p>

@@ -2294,6 +2294,42 @@ export function FlowBuilderClient() {
     setBusyAction(null);
   }
 
+  async function processAllConnectorQueues() {
+    if (!selectedProjectId) {
+      setError("Select a project before processing all connector queues.");
+      return;
+    }
+
+    const parsedLimit = Number(connectorProcessLimit);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 10;
+
+    setBusyAction("connector_process_all");
+    const response = await fetch("/api/v2/connectors/process", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        limit,
+        connectorTypes: CONNECTOR_TYPES,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Connector multi-queue processing failed.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    const processedCount = typeof result.processed_count === "number" ? result.processed_count : 0;
+    setSuccess(`Processed ${processedCount} queued connector deliveries across all connector types.`);
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+    await loadConnectorInsights();
+    setBusyAction(null);
+  }
+
   async function redriveConnectorDeliveryEntry(deliveryId: string) {
     if (!selectedProjectId) {
       setError("Select a project before redrive.");
@@ -3460,6 +3496,9 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void processConnectorQueue()}>
               {busyAction === "connector_process_queue" ? "Processing..." : "Process Queue"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void processAllConnectorQueues()}>
+              {busyAction === "connector_process_all" ? "Processing All..." : "Process All Connectors"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveConnectorBatch()}>
               {busyAction === "connector_redrive_batch" ? "Redriving..." : "Batch Redrive"}

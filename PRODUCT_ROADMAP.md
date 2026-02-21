@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Bulk connector queue operations shipped with a project-level process-all endpoint and Flow Builder control for one-click multi-connector draining.
 - 2026-02-21: Connector reliability insights shipped with a new v2 insights API and Flow Builder visibility into success rates, attempt efficiency, and top recurring delivery errors.
 - 2026-02-21: Connector test endpoint now supports live dispatch mode, enabling real transport smoke tests from Flow Builder before production rollout.
 - 2026-02-21: Review alert policy UX expanded with queue-limit and idempotency-window controls wired through policy save, preview, and manual dispatch.

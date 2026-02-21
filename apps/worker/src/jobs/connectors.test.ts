@@ -46,6 +46,7 @@ test("parseConnectorPumpConfig ignores unsupported connector types", () => {
 
 test("pumpConnectorQueuesOnce uses explicit project IDs without listing projects", async () => {
   const seenRequests: Array<{ method?: string; url: string }> = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
 
   const config = parseConnectorPumpConfig({
     FLOWSTATE_CONNECTOR_PUMP_TYPES: "webhook,slack",
@@ -57,6 +58,9 @@ test("pumpConnectorQueuesOnce uses explicit project IDs without listing projects
     config,
     fetchImpl: async (url, init) => {
       seenRequests.push({ method: init?.method, url: String(url) });
+      if (typeof init?.body === "string") {
+        requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      }
       return jsonResponse(200, { processed_count: 1 });
     },
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
@@ -64,15 +68,19 @@ test("pumpConnectorQueuesOnce uses explicit project IDs without listing projects
 
   assert.equal(result.project_count, 2);
   assert.equal(result.connector_count, 4);
-  assert.equal(result.processed_count, 4);
+  assert.equal(result.processed_count, 2);
   assert.deepEqual(result.failures, []);
-  assert.equal(seenRequests.length, 4);
-  assert.ok(seenRequests.every((request) => request.method === "PATCH"));
+  assert.equal(seenRequests.length, 2);
+  assert.ok(seenRequests.every((request) => request.method === "POST"));
+  assert.ok(seenRequests.every((request) => request.url.endsWith("/api/v2/connectors/process")));
+  assert.equal(requestBodies.length, 2);
+  assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook", "slack"]);
+  assert.equal(requestBodies[0]?.limit, 7);
 });
 
-test("pumpConnectorQueuesOnce lists projects and keeps going on per-connector failures", async () => {
+test("pumpConnectorQueuesOnce lists projects and keeps going on per-project failures", async () => {
   const seenRequests: Array<{ method?: string; url: string }> = [];
-  let patchCount = 0;
+  let postCount = 0;
 
   const config = parseConnectorPumpConfig({
     FLOWSTATE_CONNECTOR_PUMP_TYPES: "webhook",
@@ -91,8 +99,8 @@ test("pumpConnectorQueuesOnce lists projects and keeps going on per-connector fa
         });
       }
 
-      patchCount += 1;
-      if (patchCount === 1) {
+      postCount += 1;
+      if (postCount === 1) {
         return jsonResponse(200, { processed_count: 3 });
       }
 
@@ -107,4 +115,6 @@ test("pumpConnectorQueuesOnce lists projects and keeps going on per-connector fa
   assert.equal(result.failures.length, 1);
   assert.ok(result.failures[0]?.includes("connector unavailable"));
   assert.ok(seenRequests[0]?.url.includes("/api/v2/projects?organizationId=org_123"));
+  assert.ok(seenRequests[1]?.url.endsWith("/api/v2/connectors/process"));
+  assert.ok(seenRequests[2]?.url.endsWith("/api/v2/connectors/process"));
 });

@@ -157,34 +157,34 @@ export async function pumpConnectorQueuesOnce(input: {
   }
 
   for (const projectId of projectIds) {
-    for (const connectorType of input.config.connectorTypes) {
-      connectorCount += 1;
+    connectorCount += input.config.connectorTypes.length;
 
-      const url = new URL(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver`, input.config.apiBaseUrl);
-      url.searchParams.set("action", "process");
+    const url = new URL("/api/v2/connectors/process", input.config.apiBaseUrl);
 
-      const response = await fetchImpl(url, {
-        method: "PATCH",
-        headers: authHeaders(input.config),
-        body: JSON.stringify({
-          projectId,
-          limit: input.config.limit,
-        }),
-      });
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: authHeaders(input.config),
+      body: JSON.stringify({
+        projectId,
+        connectorTypes: input.config.connectorTypes,
+        limit: input.config.limit,
+      }),
+    });
 
-      const payload = await parseJson(response);
+    const payload = await parseJson(response);
 
-      if (!response.ok) {
-        const reason = typeof payload.error === "string" ? payload.error : `status ${response.status}`;
-        failures.push(`${projectId}/${connectorType}: ${reason}`);
-        continue;
-      }
+    if (!response.ok) {
+      const reason = typeof payload.error === "string" ? payload.error : `status ${response.status}`;
+      failures.push(`${projectId}: ${reason}`);
+      continue;
+    }
 
-      const processed = typeof payload.processed_count === "number" ? payload.processed_count : 0;
-      processedCount += processed;
-      if (processed > 0) {
-        logger.info(`[connector-pump] processed ${processed} delivery(s) for ${projectId}/${connectorType}`);
-      }
+    const processed = typeof payload.processed_count === "number" ? payload.processed_count : 0;
+    processedCount += processed;
+    if (processed > 0) {
+      logger.info(
+        `[connector-pump] processed ${processed} delivery(s) for ${projectId} across ${input.config.connectorTypes.length} connector types`,
+      );
     }
   }
 

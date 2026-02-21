@@ -57,6 +57,11 @@ import {
 } from "@flowstate/types";
 
 import { getOrganization } from "@/lib/data-store";
+import {
+  computeRetryBackoffMs,
+  isConnectorDeliveryDue,
+  type ConnectorDeliveryStatus,
+} from "@/lib/v2/connector-queue";
 import { dispatchConnectorDelivery } from "@/lib/v2/connector-runtime";
 
 type DbStateV2 = {
@@ -115,6 +120,7 @@ const DATA_DIR = process.env.FLOWSTATE_DATA_DIR
   : path.join(WORKSPACE_ROOT, ".flowstate-data");
 const DB_FILE = path.join(DATA_DIR, "db.v2.json");
 const DATASETS_DIR = path.join(DATA_DIR, "datasets-v2");
+const CONNECTOR_INPUTS_DIR = path.join(DATA_DIR, "connector-inputs-v2");
 const EDGE_HEARTBEAT_STALE_MS = Number(process.env.FLOWSTATE_EDGE_HEARTBEAT_STALE_MS || 60_000);
 const EDGE_COMMAND_LEASE_MS = Number(process.env.FLOWSTATE_EDGE_COMMAND_LEASE_MS || 30_000);
 const DB_READ_CACHE_MS = Number(process.env.FLOWSTATE_DB_READ_CACHE_MS || 250);
@@ -181,11 +187,46 @@ function withDerivedAgentStatus(agent: EdgeAgentRecord, nowMs = Date.now()): Edg
 async function ensureInfrastructure() {
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.mkdir(DATASETS_DIR, { recursive: true });
+  await fs.mkdir(CONNECTOR_INPUTS_DIR, { recursive: true });
 
   try {
     await fs.access(DB_FILE);
   } catch {
     await fs.writeFile(DB_FILE, JSON.stringify(DEFAULT_STATE, null, 2), "utf8");
+  }
+}
+
+type ConnectorDeliveryInputRecord = {
+  payload: unknown;
+  config?: unknown;
+  initialBackoffMs?: number;
+};
+
+function connectorInputFilePath(deliveryId: string) {
+  return path.join(CONNECTOR_INPUTS_DIR, `${deliveryId}.json`);
+}
+
+async function writeConnectorInput(input: {
+  deliveryId: string;
+  payload: unknown;
+  config?: unknown;
+  initialBackoffMs?: number;
+}) {
+  const record: ConnectorDeliveryInputRecord = {
+    payload: input.payload,
+    config: input.config ?? {},
+    initialBackoffMs: input.initialBackoffMs,
+  };
+  await fs.writeFile(connectorInputFilePath(input.deliveryId), JSON.stringify(record), "utf8");
+}
+
+async function readConnectorInput(deliveryId: string): Promise<ConnectorDeliveryInputRecord | null> {
+  try {
+    const raw = await fs.readFile(connectorInputFilePath(deliveryId), "utf8");
+    const parsed = JSON.parse(raw) as ConnectorDeliveryInputRecord;
+    return parsed;
+  } catch {
+    return null;
   }
 }
 
@@ -1217,7 +1258,157 @@ export async function listActiveLearningCandidatesV2(input: {
   return scored;
 }
 
-export async function processConnectorDelivery(input: {
+function createConnectorDeliveryRecord(input: {
+  projectId: string;
+  connectorType: string;
+  payload: unknown;
+  idempotencyKey?: string;
+  maxAttempts?: number;
+}) {
+  const now = new Date().toISOString();
+  const normalizedType = input.connectorType.trim().toLowerCase();
+  const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
+  const maxAttempts = Math.max(1, Math.min(input.maxAttempts ?? 3, 10));
+
+  const delivery = connectorDeliveryRecordSchema.parse({
+    id: randomUUID(),
+    project_id: input.projectId,
+    connector_type: normalizedType,
+    idempotency_key: normalizedIdempotencyKey,
+    payload_hash: hashPayload(input.payload),
+    status: "queued",
+    attempt_count: 0,
+    max_attempts: maxAttempts,
+    last_status_code: null,
+    last_error: null,
+    next_attempt_at: null,
+    dead_letter_reason: null,
+    delivered_at: null,
+    created_at: now,
+    updated_at: now,
+  });
+
+  return {
+    delivery,
+    normalizedType,
+    normalizedIdempotencyKey,
+  };
+}
+
+function listAttemptsForDelivery(state: DbStateV2, deliveryId: string) {
+  return state.connector_delivery_attempts
+    .filter((attempt) => attempt.delivery_id === deliveryId)
+    .sort((left, right) => left.attempt_number - right.attempt_number)
+    .map((attempt) => connectorDeliveryAttemptRecordSchema.parse(attempt));
+}
+
+async function executeConnectorAttempt(input: {
+  state: DbStateV2;
+  delivery: ConnectorDeliveryRecord;
+  payload: unknown;
+  config?: unknown;
+  initialBackoffMs: number;
+  actor?: string;
+}) {
+  if (!isConnectorDeliveryDue({ status: input.delivery.status as ConnectorDeliveryStatus, nextAttemptAt: input.delivery.next_attempt_at })) {
+    return null;
+  }
+
+  const attemptNow = new Date().toISOString();
+  const attemptNumber = input.delivery.attempt_count + 1;
+  const simulation = connectorSimulationFromPayload(input.payload);
+  const forceFailure = simulation.alwaysFail || attemptNumber <= simulation.failureCount;
+  const runtimeResult = forceFailure
+    ? {
+        success: false,
+        statusCode: simulation.statusCode,
+        errorMessage: simulation.errorMessage,
+        responseBody: null,
+      }
+    : await dispatchConnectorDelivery({
+        connectorTypeRaw: input.delivery.connector_type,
+        payload: input.payload,
+        config: input.config,
+      });
+
+  const failed = !runtimeResult.success;
+  const statusCode = runtimeResult.statusCode ?? (failed ? 503 : 200);
+  const errorMessage = failed ? runtimeResult.errorMessage ?? "Connector delivery failed" : null;
+
+  const attempt = connectorDeliveryAttemptRecordSchema.parse({
+    id: randomUUID(),
+    delivery_id: input.delivery.id,
+    attempt_number: attemptNumber,
+    success: !failed,
+    status_code: statusCode,
+    error_message: errorMessage,
+    response_body: runtimeResult.responseBody,
+    created_at: attemptNow,
+  });
+  input.state.connector_delivery_attempts.unshift(attempt);
+
+  input.delivery.attempt_count = attemptNumber;
+  input.delivery.last_status_code = statusCode;
+  input.delivery.last_error = errorMessage;
+  input.delivery.updated_at = attemptNow;
+
+  appendAuditEvent(input.state, {
+    eventType: "connector_delivery_attempted_v2",
+    actor: input.actor ?? "system",
+    metadata: {
+      delivery_id: input.delivery.id,
+      attempt_number: attempt.attempt_number,
+      success: attempt.success,
+      status_code: attempt.status_code,
+    },
+  });
+
+  if (!failed) {
+    input.delivery.status = "delivered";
+    input.delivery.next_attempt_at = null;
+    input.delivery.dead_letter_reason = null;
+    input.delivery.delivered_at = attemptNow;
+
+    appendAuditEvent(input.state, {
+      eventType: "connector_delivered_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        delivery_id: input.delivery.id,
+        attempts: attempt.attempt_number,
+        connector_type: input.delivery.connector_type,
+      },
+    });
+
+    return attempt;
+  }
+
+  if (attemptNumber >= input.delivery.max_attempts) {
+    input.delivery.status = "dead_lettered";
+    input.delivery.next_attempt_at = null;
+    input.delivery.dead_letter_reason = errorMessage ?? "Connector delivery exhausted retries";
+
+    appendAuditEvent(input.state, {
+      eventType: "connector_dead_lettered_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        delivery_id: input.delivery.id,
+        attempts: attempt.attempt_number,
+        connector_type: input.delivery.connector_type,
+        reason: input.delivery.dead_letter_reason,
+      },
+    });
+
+    return attempt;
+  }
+
+  input.delivery.status = "retrying";
+  const backoffMs = computeRetryBackoffMs(input.initialBackoffMs, attemptNumber);
+  input.delivery.next_attempt_at = new Date(Date.now() + backoffMs).toISOString();
+
+  return attempt;
+}
+
+export async function enqueueConnectorDelivery(input: {
   projectId: string;
   connectorType: string;
   payload: unknown;
@@ -1228,54 +1419,34 @@ export async function processConnectorDelivery(input: {
   actor?: string;
 }) {
   return withWriteLock(async (state) => {
-    const now = new Date().toISOString();
-    const normalizedType = input.connectorType.trim().toLowerCase();
-    const normalizedIdempotencyKey = input.idempotencyKey?.trim() || null;
-    const maxAttempts = Math.max(1, Math.min(input.maxAttempts ?? 3, 10));
-    const initialBackoffMs = Math.max(100, Math.min(input.initialBackoffMs ?? 500, 60_000));
-    const payloadHash = hashPayload(input.payload);
+    const { delivery, normalizedType, normalizedIdempotencyKey } = createConnectorDeliveryRecord(input);
 
     const existing =
       normalizedIdempotencyKey === null
         ? null
         : state.connector_deliveries.find(
-            (delivery) =>
-              delivery.project_id === input.projectId &&
-              delivery.connector_type === normalizedType &&
-              delivery.idempotency_key === normalizedIdempotencyKey,
+            (item) =>
+              item.project_id === input.projectId &&
+              item.connector_type === normalizedType &&
+              item.idempotency_key === normalizedIdempotencyKey,
           ) ?? null;
 
     if (existing) {
-      const attempts = state.connector_delivery_attempts
-        .filter((attempt) => attempt.delivery_id === existing.id)
-        .sort((left, right) => left.attempt_number - right.attempt_number);
-
       return {
         delivery: connectorDeliveryRecordSchema.parse(existing),
-        attempts: attempts.map((attempt) => connectorDeliveryAttemptRecordSchema.parse(attempt)),
+        attempts: listAttemptsForDelivery(state, existing.id),
         duplicate: true,
       };
     }
 
-    const delivery = connectorDeliveryRecordSchema.parse({
-      id: randomUUID(),
-      project_id: input.projectId,
-      connector_type: normalizedType,
-      idempotency_key: normalizedIdempotencyKey,
-      payload_hash: payloadHash,
-      status: "queued",
-      attempt_count: 0,
-      max_attempts: maxAttempts,
-      last_status_code: null,
-      last_error: null,
-      next_attempt_at: null,
-      dead_letter_reason: null,
-      delivered_at: null,
-      created_at: now,
-      updated_at: now,
+    state.connector_deliveries.unshift(delivery);
+    await writeConnectorInput({
+      deliveryId: delivery.id,
+      payload: input.payload,
+      config: input.config,
+      initialBackoffMs: input.initialBackoffMs,
     });
 
-    state.connector_deliveries.unshift(delivery);
     appendAuditEvent(state, {
       eventType: "connector_delivery_queued_v2",
       actor: input.actor ?? "system",
@@ -1286,106 +1457,181 @@ export async function processConnectorDelivery(input: {
       },
     });
 
-    const simulation = connectorSimulationFromPayload(input.payload);
-
-    for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber += 1) {
-      const attemptNow = new Date().toISOString();
-      const forceFailure = simulation.alwaysFail || attemptNumber <= simulation.failureCount;
-      const runtimeResult = forceFailure
-        ? {
-            success: false,
-            statusCode: simulation.statusCode,
-            errorMessage: simulation.errorMessage,
-            responseBody: null,
-          }
-        : await dispatchConnectorDelivery({
-            connectorTypeRaw: normalizedType,
-            payload: input.payload,
-            config: input.config,
-          });
-
-      const failThisAttempt = !runtimeResult.success;
-      const statusCode = runtimeResult.statusCode ?? (failThisAttempt ? 503 : 200);
-      const errorMessage = failThisAttempt ? runtimeResult.errorMessage ?? "Connector delivery failed" : null;
-
-      const attempt = connectorDeliveryAttemptRecordSchema.parse({
-        id: randomUUID(),
-        delivery_id: delivery.id,
-        attempt_number: attemptNumber,
-        success: !failThisAttempt,
-        status_code: statusCode,
-        error_message: errorMessage,
-        response_body: runtimeResult.responseBody,
-        created_at: attemptNow,
-      });
-      state.connector_delivery_attempts.unshift(attempt);
-
-      delivery.attempt_count = attemptNumber;
-      delivery.last_status_code = statusCode;
-      delivery.last_error = errorMessage;
-      delivery.updated_at = attemptNow;
-
-      appendAuditEvent(state, {
-        eventType: "connector_delivery_attempted_v2",
-        actor: input.actor ?? "system",
-        metadata: {
-          delivery_id: delivery.id,
-          attempt_number: attempt.attempt_number,
-          success: attempt.success,
-          status_code: attempt.status_code,
-        },
-      });
-
-      if (!failThisAttempt) {
-        delivery.status = "delivered";
-        delivery.next_attempt_at = null;
-        delivery.dead_letter_reason = null;
-        delivery.delivered_at = attemptNow;
-
-        appendAuditEvent(state, {
-          eventType: "connector_delivered_v2",
-          actor: input.actor ?? "system",
-          metadata: {
-            delivery_id: delivery.id,
-            attempts: attempt.attempt_number,
-            connector_type: delivery.connector_type,
-          },
-        });
-        break;
-      }
-
-      if (attemptNumber >= maxAttempts) {
-        delivery.status = "dead_lettered";
-        delivery.next_attempt_at = null;
-        delivery.dead_letter_reason = errorMessage ?? "Connector delivery exhausted retries";
-
-        appendAuditEvent(state, {
-          eventType: "connector_dead_lettered_v2",
-          actor: input.actor ?? "system",
-          metadata: {
-            delivery_id: delivery.id,
-            attempts: attempt.attempt_number,
-            connector_type: delivery.connector_type,
-            reason: delivery.dead_letter_reason,
-          },
-        });
-        break;
-      }
-
-      delivery.status = "retrying";
-      const backoffMs = initialBackoffMs * 2 ** (attemptNumber - 1);
-      delivery.next_attempt_at = new Date(Date.now() + backoffMs).toISOString();
-    }
-
-    const attempts = state.connector_delivery_attempts
-      .filter((attempt) => attempt.delivery_id === delivery.id)
-      .sort((left, right) => left.attempt_number - right.attempt_number);
-
     return {
       delivery: connectorDeliveryRecordSchema.parse(delivery),
-      attempts: attempts.map((attempt) => connectorDeliveryAttemptRecordSchema.parse(attempt)),
+      attempts: [] as ConnectorDeliveryAttemptRecord[],
       duplicate: false,
     };
+  });
+}
+
+export async function processConnectorDelivery(input: {
+  projectId: string;
+  connectorType: string;
+  payload: unknown;
+  config?: unknown;
+  idempotencyKey?: string;
+  maxAttempts?: number;
+  initialBackoffMs?: number;
+  actor?: string;
+  mode?: "sync" | "enqueue";
+}) {
+  const queued = await enqueueConnectorDelivery(input);
+
+  if (queued.duplicate || input.mode === "enqueue") {
+    return queued;
+  }
+
+  const delivery = await processConnectorDeliveryQueue({
+    projectId: input.projectId,
+    connectorType: input.connectorType,
+    limit: 1,
+    forceDeliveryIds: [queued.delivery.id],
+    actor: input.actor,
+    ignoreSchedule: true,
+  });
+
+  const first = delivery.deliveries[0];
+  if (!first) {
+    return queued;
+  }
+
+  let iterations = 0;
+  while (first.status === "retrying" && first.attempt_count < first.max_attempts && iterations < first.max_attempts) {
+    iterations += 1;
+    const processed = await processConnectorDeliveryQueue({
+      projectId: input.projectId,
+      connectorType: input.connectorType,
+      limit: 1,
+      forceDeliveryIds: [first.id],
+      actor: input.actor,
+      ignoreSchedule: true,
+    });
+
+    if (!processed.deliveries[0] || processed.deliveries[0].status === first.status) {
+      break;
+    }
+
+    first.status = processed.deliveries[0].status;
+    first.attempt_count = processed.deliveries[0].attempt_count;
+    first.last_error = processed.deliveries[0].last_error;
+  }
+
+  const attempts = await listConnectorDeliveryAttempts(first.id);
+  return {
+    delivery: first,
+    attempts,
+    duplicate: false,
+  };
+}
+
+export async function processConnectorDeliveryQueue(input: {
+  projectId: string;
+  connectorType: string;
+  limit?: number;
+  forceDeliveryIds?: string[];
+  actor?: string;
+  ignoreSchedule?: boolean;
+}) {
+  return withWriteLock(async (state) => {
+    const nowMs = Date.now();
+    const normalizedType = input.connectorType.trim().toLowerCase();
+    const limit = Math.max(1, Math.min(input.limit ?? 10, 100));
+    const forcedIdSet = new Set(input.forceDeliveryIds ?? []);
+
+    const candidates = state.connector_deliveries
+      .filter((delivery) => {
+        if (delivery.project_id !== input.projectId || delivery.connector_type !== normalizedType) {
+          return false;
+        }
+        if (forcedIdSet.size > 0) {
+          return forcedIdSet.has(delivery.id);
+        }
+        if (input.ignoreSchedule) {
+          return delivery.status === "queued" || delivery.status === "retrying";
+        }
+        return isConnectorDeliveryDue({
+          status: delivery.status as ConnectorDeliveryStatus,
+          nextAttemptAt: delivery.next_attempt_at,
+          nowMs,
+        });
+      })
+      .sort((left, right) => Date.parse(left.updated_at) - Date.parse(right.updated_at))
+      .slice(0, limit);
+
+    const processed: ConnectorDeliveryRecord[] = [];
+
+    for (const delivery of candidates) {
+      const connectorInput = await readConnectorInput(delivery.id);
+      if (!connectorInput) {
+        delivery.status = "dead_lettered";
+        delivery.dead_letter_reason = "Connector input missing";
+        delivery.next_attempt_at = null;
+        delivery.updated_at = new Date().toISOString();
+        processed.push(connectorDeliveryRecordSchema.parse(delivery));
+        continue;
+      }
+
+      const initialBackoffMs = Math.max(100, Math.min(connectorInput.initialBackoffMs ?? 500, 60_000));
+      await executeConnectorAttempt({
+        state,
+        delivery,
+        payload: connectorInput.payload,
+        config: connectorInput.config,
+        initialBackoffMs,
+        actor: input.actor,
+      });
+      processed.push(connectorDeliveryRecordSchema.parse(delivery));
+    }
+
+    return {
+      processed_count: processed.length,
+      deliveries: processed,
+    };
+  });
+}
+
+export async function getConnectorDelivery(deliveryId: string) {
+  const state = await readState();
+  return state.connector_deliveries.find((delivery) => delivery.id === deliveryId) ?? null;
+}
+
+export async function redriveConnectorDelivery(input: {
+  deliveryId: string;
+  projectId: string;
+  connectorType: string;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const normalizedType = input.connectorType.trim().toLowerCase();
+    const delivery = state.connector_deliveries.find((item) => item.id === input.deliveryId) ?? null;
+
+    if (!delivery || delivery.project_id !== input.projectId || delivery.connector_type !== normalizedType) {
+      return null;
+    }
+
+    if (delivery.status !== "dead_lettered") {
+      return connectorDeliveryRecordSchema.parse(delivery);
+    }
+
+    delivery.status = "queued";
+    delivery.next_attempt_at = null;
+    delivery.dead_letter_reason = null;
+    delivery.last_error = null;
+    delivery.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "connector_delivery_queued_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        delivery_id: delivery.id,
+        connector_type: delivery.connector_type,
+        project_id: delivery.project_id,
+        redrive: true,
+      },
+    });
+
+    return connectorDeliveryRecordSchema.parse(delivery);
   });
 }
 

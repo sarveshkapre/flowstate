@@ -529,10 +529,12 @@ export function FlowBuilderClient() {
   const [promotionMinExpectedSamples, setPromotionMinExpectedSamples] = useState("10");
   const [replayResult, setReplayResult] = useState<string>("");
   const [connectorType, setConnectorType] = useState("webhook");
+  const [connectorMode, setConnectorMode] = useState<"sync" | "enqueue">("sync");
   const [connectorPayloadText, setConnectorPayloadText] = useState('{"event":"ticket.created","severity":"high"}');
   const [connectorConfigText, setConnectorConfigText] = useState(connectorConfigTemplate("webhook"));
   const [connectorIdempotencyKey, setConnectorIdempotencyKey] = useState("");
   const [connectorMaxAttempts, setConnectorMaxAttempts] = useState("3");
+  const [connectorProcessLimit, setConnectorProcessLimit] = useState("10");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [runs, setRuns] = useState<RunRecordV2[]>([]);
@@ -1603,6 +1605,69 @@ export function FlowBuilderClient() {
     setBusyAction(null);
   }
 
+  async function processConnectorQueue() {
+    if (!selectedProjectId) {
+      setError("Select a project before queue processing.");
+      return;
+    }
+
+    const parsedLimit = Number(connectorProcessLimit);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 10;
+
+    setBusyAction("connector_process_queue");
+    const response = await fetch(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver?action=process`, {
+      method: "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        limit,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Connector queue processing failed.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Connector queue processed.");
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+    setBusyAction(null);
+  }
+
+  async function redriveConnectorDeliveryEntry(deliveryId: string) {
+    if (!selectedProjectId) {
+      setError("Select a project before redrive.");
+      return;
+    }
+
+    setBusyAction(`connector_redrive_${deliveryId}`);
+    const response = await fetch(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver?action=redrive`, {
+      method: "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        deliveryId,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Connector redrive failed.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Connector delivery redriven.");
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+    setBusyAction(null);
+  }
+
   async function deliverConnector() {
     if (!selectedProjectId) {
       setError("Select a project before connector delivery.");
@@ -1637,6 +1702,7 @@ export function FlowBuilderClient() {
         payload,
         config,
         idempotencyKey: connectorIdempotencyKey.trim() || undefined,
+        mode: connectorMode,
         maxAttempts,
       }),
     });
@@ -1649,7 +1715,7 @@ export function FlowBuilderClient() {
       return;
     }
 
-    setSuccess("Connector delivery processed.");
+    setSuccess(connectorMode === "enqueue" ? "Connector delivery queued." : "Connector delivery processed.");
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
     setBusyAction(null);
@@ -2431,6 +2497,13 @@ export function FlowBuilderClient() {
             <span>Connector Type</span>
             <input value={connectorType} onChange={(event) => setConnectorType(event.target.value)} />
           </label>
+          <label className="field small">
+            <span>Delivery Mode</span>
+            <select value={connectorMode} onChange={(event) => setConnectorMode(event.target.value as "sync" | "enqueue")}>
+              <option value="sync">sync (process now)</option>
+              <option value="enqueue">enqueue (process later)</option>
+            </select>
+          </label>
           <button
             className="button secondary"
             onClick={() => setConnectorConfigText(connectorConfigTemplate(connectorType))}
@@ -2466,6 +2539,10 @@ export function FlowBuilderClient() {
               <span>Max Attempts</span>
               <input value={connectorMaxAttempts} onChange={(event) => setConnectorMaxAttempts(event.target.value)} />
             </label>
+            <label className="field">
+              <span>Queue Process Limit</span>
+              <input value={connectorProcessLimit} onChange={(event) => setConnectorProcessLimit(event.target.value)} />
+            </label>
           </div>
 
           <div className="row wrap">
@@ -2474,6 +2551,9 @@ export function FlowBuilderClient() {
             </button>
             <button className="button" disabled={busyAction !== null} onClick={() => void deliverConnector()}>
               {busyAction === "connector_deliver" ? "Delivering..." : "Deliver Event"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void processConnectorQueue()}>
+              {busyAction === "connector_process_queue" ? "Processing..." : "Process Queue"}
             </button>
             <button className="button secondary" onClick={() => void loadConnectorDeliveries()}>
               Refresh History
@@ -2493,6 +2573,18 @@ export function FlowBuilderClient() {
                 <li key={delivery.id}>
                   <span className="mono">{delivery.id}</span> - {delivery.status} ({delivery.attempt_count}/{delivery.max_attempts})
                   {delivery.last_error ? ` - ${delivery.last_error}` : ""}
+                  {delivery.status === "dead_lettered" ? (
+                    <>
+                      {" "}
+                      <button
+                        className="button secondary"
+                        disabled={busyAction !== null}
+                        onClick={() => void redriveConnectorDeliveryEntry(delivery.id)}
+                      >
+                        {busyAction === `connector_redrive_${delivery.id}` ? "Redriving..." : "Redrive"}
+                      </button>
+                    </>
+                  ) : null}
                 </li>
               ))}
             </ul>

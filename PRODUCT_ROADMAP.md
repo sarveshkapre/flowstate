@@ -22,10 +22,11 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - M2 Flow Builder v1 + Deploy (in progress)
 
 ## Pending Features
-- Additional production connector integrations (SQS/DB) and async worker-backed delivery queues.
+- Additional production connector integrations (SQS/DB) and worker-backed delivery queues.
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector queue control shipped with enqueue mode, bounded batch processing, and dead-letter redrive actions.
 - 2026-02-21: Production connector transports shipped for webhook/slack/jira with config validation and retry/dead-letter semantics.
 - 2026-02-21: Automated Node test coverage added for replay promotion gate evaluation and queue/decision ownership guard logic.
 - 2026-02-21: Evidence Studio shipped in Flow Builder v2 with queue-scoped review decisions and drag-to-annotate evidence region capture.

@@ -1517,6 +1517,8 @@ async function executeConnectorAttempt(input: {
     actor: input.actor ?? "system",
     metadata: {
       delivery_id: input.delivery.id,
+      project_id: input.delivery.project_id,
+      connector_type: input.delivery.connector_type,
       attempt_number: attempt.attempt_number,
       success: attempt.success,
       status_code: attempt.status_code,
@@ -1535,6 +1537,7 @@ async function executeConnectorAttempt(input: {
       metadata: {
         delivery_id: input.delivery.id,
         attempts: attempt.attempt_number,
+        project_id: input.delivery.project_id,
         connector_type: input.delivery.connector_type,
       },
     });
@@ -1553,6 +1556,7 @@ async function executeConnectorAttempt(input: {
       metadata: {
         delivery_id: input.delivery.id,
         attempts: attempt.attempt_number,
+        project_id: input.delivery.project_id,
         connector_type: input.delivery.connector_type,
         reason: input.delivery.dead_letter_reason,
       },

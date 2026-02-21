@@ -163,6 +163,36 @@ type ConnectorReliabilityItem = {
   insights: ConnectorInsights;
 };
 
+type ConnectorActionTimelineEvent = {
+  id: string;
+  event_type:
+    | "connector_delivery_queued_v2"
+    | "connector_delivery_attempted_v2"
+    | "connector_delivered_v2"
+    | "connector_dead_lettered_v2";
+  actor: string | null;
+  created_at: string;
+  connector_type: string | null;
+  project_id: string | null;
+  delivery_id: string | null;
+  attempt_number: number | null;
+  success: boolean | null;
+  status_code: number | null;
+  reason: string | null;
+  redrive: boolean;
+  batch: boolean;
+};
+
+type ConnectorActionTimelineSummary = {
+  total: number;
+  queued: number;
+  attempted: number;
+  delivered: number;
+  dead_lettered: number;
+  redrive_queued: number;
+  by_connector: Array<{ connector_type: string; total: number; dead_lettered: number; delivered: number }>;
+};
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -345,6 +375,16 @@ const EMPTY_CONNECTOR_INSIGHTS: ConnectorInsights = {
   top_errors: [],
 };
 
+const EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY: ConnectorActionTimelineSummary = {
+  total: 0,
+  queued: 0,
+  attempted: 0,
+  delivered: 0,
+  dead_lettered: 0,
+  redrive_queued: 0,
+  by_connector: [],
+};
+
 function connectorRecommendationLabel(recommendation: ConnectorReliabilityRecommendation) {
   if (recommendation === "redrive_dead_letters") {
     return "Redrive dead letters";
@@ -353,6 +393,19 @@ function connectorRecommendationLabel(recommendation: ConnectorReliabilityRecomm
     return "Process queue";
   }
   return "Healthy";
+}
+
+function connectorTimelineEventLabel(eventType: ConnectorActionTimelineEvent["event_type"]) {
+  if (eventType === "connector_delivery_queued_v2") {
+    return "queued";
+  }
+  if (eventType === "connector_delivery_attempted_v2") {
+    return "attempted";
+  }
+  if (eventType === "connector_delivered_v2") {
+    return "delivered";
+  }
+  return "dead-lettered";
 }
 
 const EMPTY_REVIEW_SUMMARY: ReviewDecisionSummary = {
@@ -738,6 +791,11 @@ export function FlowBuilderClient() {
   const [connectorInsightsLookbackHours, setConnectorInsightsLookbackHours] = useState("24");
   const [connectorInsights, setConnectorInsights] = useState<ConnectorInsights>(EMPTY_CONNECTOR_INSIGHTS);
   const [connectorReliability, setConnectorReliability] = useState<ConnectorReliabilityItem[]>([]);
+  const [connectorActionTimeline, setConnectorActionTimeline] = useState<ConnectorActionTimelineEvent[]>([]);
+  const [connectorActionTimelineSummary, setConnectorActionTimelineSummary] = useState<ConnectorActionTimelineSummary>(
+    EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY,
+  );
+  const [connectorActionTimelineLimit, setConnectorActionTimelineLimit] = useState("40");
   const [runs, setRuns] = useState<RunRecordV2[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
@@ -2255,6 +2313,37 @@ export function FlowBuilderClient() {
     setConnectorReliability(Array.isArray(payload.connectors) ? payload.connectors : []);
   }, [authHeaders, connectorInsightsLookbackHours, selectedProjectId]);
 
+  const loadConnectorActionTimeline = useCallback(async () => {
+    if (!selectedProjectId) {
+      setConnectorActionTimeline([]);
+      setConnectorActionTimelineSummary(EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY);
+      return;
+    }
+
+    const parsedLimit = Number(connectorActionTimelineLimit);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), 500) : 40;
+    const query = `/api/v2/connectors/actions?projectId=${encodeURIComponent(selectedProjectId)}&limit=${limit}`;
+    const response = await fetch(query, {
+      cache: "no-store",
+      headers: authHeaders(false),
+    });
+    const payload = (await response.json()) as {
+      events?: ConnectorActionTimelineEvent[];
+      summary?: ConnectorActionTimelineSummary;
+      error?: string;
+    };
+
+    if (!response.ok) {
+      setError(payload.error || "Unable to load connector action timeline.");
+      setConnectorActionTimeline([]);
+      setConnectorActionTimelineSummary(EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY);
+      return;
+    }
+
+    setConnectorActionTimeline(Array.isArray(payload.events) ? payload.events : []);
+    setConnectorActionTimelineSummary(payload.summary ?? EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY);
+  }, [authHeaders, connectorActionTimelineLimit, selectedProjectId]);
+
   useEffect(() => {
     void loadConnectorDeliveries();
   }, [loadConnectorDeliveries]);
@@ -2266,6 +2355,10 @@ export function FlowBuilderClient() {
   useEffect(() => {
     void loadConnectorReliability();
   }, [loadConnectorReliability]);
+
+  useEffect(() => {
+    void loadConnectorActionTimeline();
+  }, [loadConnectorActionTimeline]);
 
   async function testConnectorConfig(mode: "validate" | "dispatch") {
     if (!selectedProjectId) {
@@ -2348,6 +2441,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -2385,6 +2479,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -2436,6 +2531,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -2468,6 +2564,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -2507,6 +2604,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -2562,6 +2660,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -2621,6 +2720,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -2672,6 +2772,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorActionTimeline();
     setBusyAction(null);
   }
 
@@ -3725,6 +3826,10 @@ export function FlowBuilderClient() {
               <span>Insights Lookback (hours)</span>
               <input value={connectorInsightsLookbackHours} onChange={(event) => setConnectorInsightsLookbackHours(event.target.value)} />
             </label>
+            <label className="field">
+              <span>Timeline Event Limit</span>
+              <input value={connectorActionTimelineLimit} onChange={(event) => setConnectorActionTimelineLimit(event.target.value)} />
+            </label>
           </div>
 
           <div className="row wrap">
@@ -3758,6 +3863,7 @@ export function FlowBuilderClient() {
                 void loadConnectorDeliveries();
                 void loadConnectorInsights();
                 void loadConnectorReliability();
+                void loadConnectorActionTimeline();
               }}
             >
               Refresh Connector Ops
@@ -3861,6 +3967,45 @@ export function FlowBuilderClient() {
                         ? "Healthy"
                         : "Run Recommendation"}
                   </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+
+        <article className="card stack">
+          <h3>Connector Automation Timeline</h3>
+          <p className="muted">
+            events {connectorActionTimelineSummary.total} | queued {connectorActionTimelineSummary.queued} | attempted{" "}
+            {connectorActionTimelineSummary.attempted} | delivered {connectorActionTimelineSummary.delivered} | dead-lettered{" "}
+            {connectorActionTimelineSummary.dead_lettered}
+          </p>
+          <p className="muted">redrive queued {connectorActionTimelineSummary.redrive_queued}</p>
+          <p className="muted">
+            by connector:{" "}
+            {connectorActionTimelineSummary.by_connector.length > 0
+              ? connectorActionTimelineSummary.by_connector
+                  .map(
+                    (item) =>
+                      `${item.connector_type} (${item.total}, delivered ${item.delivered}, dead-letter ${item.dead_lettered})`,
+                  )
+                  .join(" | ")
+              : "n/a"}
+          </p>
+          {connectorActionTimeline.length === 0 ? (
+            <p className="muted">No connector automation events yet.</p>
+          ) : (
+            <ul className="list">
+              {connectorActionTimeline.map((event) => (
+                <li key={event.id}>
+                  <strong>{event.connector_type ?? "unknown"}</strong> {connectorTimelineEventLabel(event.event_type)}
+                  {event.redrive ? " (redrive)" : ""}
+                  {event.batch ? " (batch)" : ""}
+                  {event.attempt_number ? ` attempt ${event.attempt_number}` : ""}
+                  {event.status_code ? ` status ${event.status_code}` : ""}
+                  {event.reason ? ` - ${event.reason}` : ""}
+                  {event.actor ? ` - actor ${event.actor}` : ""}
+                  {` - ${new Date(event.created_at).toLocaleString()}`}
                 </li>
               ))}
             </ul>

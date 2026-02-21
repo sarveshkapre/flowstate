@@ -72,6 +72,7 @@ import {
 } from "@/lib/v2/connector-queue";
 import { summarizeReviewQueues } from "@/lib/v2/review-ops";
 import { dispatchConnectorDelivery } from "@/lib/v2/connector-runtime";
+import { canonicalConnectorType } from "@/lib/v2/connectors";
 
 type DbStateV2 = {
   projects: ProjectRecord[];
@@ -1282,6 +1283,46 @@ function normalizeConnectorType(value: string | undefined, fallback: string) {
   return normalized.length > 0 ? normalized : fallback;
 }
 
+function normalizeConnectorBackpressureOverrides(input: {
+  overrides: Record<
+    string,
+    {
+      isEnabled: boolean;
+      maxRetrying: number;
+      maxDueNow: number;
+      minLimit: number;
+    }
+  >;
+  existingOverrides?: ConnectorBackpressurePolicyRecord["connector_overrides"];
+}): ConnectorBackpressurePolicyRecord["connector_overrides"] {
+  const normalized: ConnectorBackpressurePolicyRecord["connector_overrides"] = {};
+
+  for (const [rawType, override] of Object.entries(input.overrides)) {
+    const connectorType = canonicalConnectorType(rawType);
+    if (!connectorType) {
+      continue;
+    }
+
+    const existing = input.existingOverrides?.[connectorType];
+    normalized[connectorType] = {
+      is_enabled: override.isEnabled,
+      max_retrying: clampPositiveInt(
+        override.maxRetrying,
+        existing?.max_retrying ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxRetrying,
+        10_000,
+      ),
+      max_due_now: clampPositiveInt(
+        override.maxDueNow,
+        existing?.max_due_now ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxDueNow,
+        10_000,
+      ),
+      min_limit: clampPositiveInt(override.minLimit, existing?.min_limit ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit, 100),
+    };
+  }
+
+  return normalized;
+}
+
 export async function getReviewAlertPolicy(projectId: string) {
   const state = await readState();
   return state.review_alert_policies.find((policy) => policy.project_id === projectId) ?? null;
@@ -1481,6 +1522,15 @@ export async function upsertConnectorBackpressurePolicy(input: {
   maxRetrying?: number;
   maxDueNow?: number;
   minLimit?: number;
+  connectorOverrides?: Record<
+    string,
+    {
+      isEnabled: boolean;
+      maxRetrying: number;
+      maxDueNow: number;
+      minLimit: number;
+    }
+  >;
   actor?: string;
 }) {
   return withWriteLock(async (state) => {
@@ -1507,6 +1557,13 @@ export async function upsertConnectorBackpressurePolicy(input: {
         10_000,
       ),
       min_limit: clampPositiveInt(input.minLimit ?? existing?.min_limit, CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit, 100),
+      connector_overrides:
+        input.connectorOverrides === undefined
+          ? existing?.connector_overrides ?? {}
+          : normalizeConnectorBackpressureOverrides({
+              overrides: input.connectorOverrides,
+              existingOverrides: existing?.connector_overrides,
+            }),
       created_at: existing?.created_at ?? now,
       updated_at: now,
     });
@@ -1528,6 +1585,8 @@ export async function upsertConnectorBackpressurePolicy(input: {
         max_retrying: policy.max_retrying,
         max_due_now: policy.max_due_now,
         min_limit: policy.min_limit,
+        connector_override_count: Object.keys(policy.connector_overrides).length,
+        connector_overrides: policy.connector_overrides,
       },
     });
 

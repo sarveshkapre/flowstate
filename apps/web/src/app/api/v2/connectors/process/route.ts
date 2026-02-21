@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getConnectorBackpressurePolicy, processConnectorDeliveryQueue, summarizeConnectorDeliveries } from "@/lib/data-store-v2";
+import { resolveConnectorBackpressureConfig } from "@/lib/v2/connector-backpressure-policy";
 import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import { requirePermission } from "@/lib/v2/auth";
 import { connectorTypeSchema } from "@/lib/v2/request-security";
@@ -17,6 +18,17 @@ const processAllSchema = z.object({
       maxRetrying: z.number().int().positive().max(10_000).optional(),
       maxDueNow: z.number().int().positive().max(10_000).optional(),
       minLimit: z.number().int().positive().max(100).default(1),
+      byConnector: z
+        .record(
+          z.string(),
+          z.object({
+            enabled: z.boolean().optional(),
+            maxRetrying: z.number().int().positive().max(10_000).optional(),
+            maxDueNow: z.number().int().positive().max(10_000).optional(),
+            minLimit: z.number().int().positive().max(100).optional(),
+          }),
+        )
+        .optional(),
     })
     .optional(),
 });
@@ -41,16 +53,9 @@ export async function POST(request: Request) {
 
   const connectorTypes = parsed.data.connectorTypes ?? [...SUPPORTED_CONNECTOR_TYPES];
   const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
-  const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
-    ? {
-        enabled: policy.is_enabled,
-        maxRetrying: policy.max_retrying,
-        maxDueNow: policy.max_due_now,
-        minLimit: policy.min_limit,
-      }
-    : undefined);
   const results: Array<{
     connector_type: string;
+    backpressure_source: string;
     requested_limit: number;
     effective_limit: number;
     throttled: boolean;
@@ -66,10 +71,15 @@ export async function POST(request: Request) {
       projectId: parsed.data.projectId,
       connectorType,
     });
+    const resolvedBackpressureConfig = resolveConnectorBackpressureConfig({
+      connectorType,
+      requestBackpressure: parsed.data.backpressure,
+      policy,
+    });
     const backpressure = resolveConnectorProcessBackpressure({
       requestedLimit: parsed.data.limit,
       summary,
-      config: effectiveBackpressureConfig,
+      config: resolvedBackpressureConfig.config,
     });
 
     const result = await processConnectorDeliveryQueue({
@@ -82,6 +92,7 @@ export async function POST(request: Request) {
     processedCount += result.processed_count;
     results.push({
       connector_type: connectorType,
+      backpressure_source: resolvedBackpressureConfig.source,
       requested_limit: backpressure.requested_limit,
       effective_limit: backpressure.effective_limit,
       throttled: backpressure.throttled,
@@ -96,7 +107,7 @@ export async function POST(request: Request) {
     project_id: parsed.data.projectId,
     connector_types: connectorTypes,
     requested_limit: parsed.data.limit,
-    backpressure_enabled: effectiveBackpressureConfig?.enabled === true,
+    backpressure_enabled: parsed.data.backpressure ? parsed.data.backpressure.enabled === true : policy?.is_enabled === true,
     policy_applied: parsed.data.backpressure === undefined && policy !== null,
     processed_count: processedCount,
     per_connector: results,

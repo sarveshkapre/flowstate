@@ -13,6 +13,7 @@ import {
 } from "@/lib/data-store-v2";
 import { toConnectorActionTimelineEvent } from "@/lib/v2/connector-action-timeline";
 import { requirePermission } from "@/lib/v2/auth";
+import { resolveConnectorBackpressureConfig } from "@/lib/v2/connector-backpressure-policy";
 import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import { computeConnectorInsights } from "@/lib/v2/connector-insights";
 import { rankConnectorReliability } from "@/lib/v2/connector-reliability";
@@ -41,6 +42,17 @@ const runRecommendationsSchema = z.object({
       maxRetrying: z.number().int().positive().max(10_000).optional(),
       maxDueNow: z.number().int().positive().max(10_000).optional(),
       minLimit: z.number().int().positive().max(100).default(1),
+      byConnector: z
+        .record(
+          z.string(),
+          z.object({
+            enabled: z.boolean().optional(),
+            maxRetrying: z.number().int().positive().max(10_000).optional(),
+            maxDueNow: z.number().int().positive().max(10_000).optional(),
+            minLimit: z.number().int().positive().max(100).optional(),
+          }),
+        )
+        .optional(),
     })
     .optional(),
 });
@@ -158,19 +170,12 @@ export async function POST(request: Request) {
   const eligibleActions = cooldownFiltered.eligible;
   const skippedActions = cooldownFiltered.skipped;
   const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
-  const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
-    ? {
-        enabled: policy.is_enabled,
-        maxRetrying: policy.max_retrying,
-        maxDueNow: policy.max_due_now,
-        minLimit: policy.min_limit,
-      }
-    : undefined);
 
   const actionResults: Array<{
     connector_type: string;
     recommendation: "process_queue" | "redrive_dead_letters";
     risk_score: number;
+    backpressure_source: string;
     requested_process_limit: number;
     effective_process_limit: number;
     process_throttled: boolean;
@@ -183,6 +188,11 @@ export async function POST(request: Request) {
   if (!parsed.data.dryRun) {
     const actor = auth.actor.email ?? "api-key";
     for (const action of eligibleActions) {
+      const resolvedBackpressureConfig = resolveConnectorBackpressureConfig({
+        connectorType: action.connector_type,
+        requestBackpressure: parsed.data.backpressure,
+        policy,
+      });
       if (action.recommendation === "process_queue") {
         const currentSummary = summaryByConnector.get(action.connector_type) ?? {
           queued: 0,
@@ -192,7 +202,7 @@ export async function POST(request: Request) {
         const processBackpressure = resolveConnectorProcessBackpressure({
           requestedLimit: parsed.data.limit,
           summary: currentSummary,
-          config: effectiveBackpressureConfig,
+          config: resolvedBackpressureConfig.config,
         });
         const process = await processConnectorDeliveryQueue({
           projectId: parsed.data.projectId,
@@ -205,6 +215,7 @@ export async function POST(request: Request) {
           connector_type: action.connector_type,
           recommendation: action.recommendation,
           risk_score: action.risk_score,
+          backpressure_source: resolvedBackpressureConfig.source,
           requested_process_limit: processBackpressure.requested_limit,
           effective_process_limit: processBackpressure.effective_limit,
           process_throttled: processBackpressure.throttled,
@@ -234,7 +245,7 @@ export async function POST(request: Request) {
         processBackpressure = resolveConnectorProcessBackpressure({
           requestedLimit: redrive.redriven_count,
           summary: processSummary,
-          config: effectiveBackpressureConfig,
+          config: resolvedBackpressureConfig.config,
         });
         const process = await processConnectorDeliveryQueue({
           projectId: parsed.data.projectId,
@@ -249,6 +260,7 @@ export async function POST(request: Request) {
         connector_type: action.connector_type,
         recommendation: action.recommendation,
         risk_score: action.risk_score,
+        backpressure_source: resolvedBackpressureConfig.source,
         requested_process_limit: processBackpressure?.requested_limit ?? 0,
         effective_process_limit: processBackpressure?.effective_limit ?? 0,
         process_throttled: processBackpressure?.throttled ?? false,
@@ -268,7 +280,7 @@ export async function POST(request: Request) {
     max_actions: parsed.data.maxActions,
     cooldown_minutes: parsed.data.cooldownMinutes,
     dry_run: parsed.data.dryRun,
-    backpressure_enabled: effectiveBackpressureConfig?.enabled === true,
+    backpressure_enabled: parsed.data.backpressure ? parsed.data.backpressure.enabled === true : policy?.is_enabled === true,
     policy_applied: parsed.data.backpressure === undefined && policy !== null,
     selected_actions: eligibleActions,
     skipped_actions: skippedActions,

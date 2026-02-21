@@ -7,6 +7,7 @@ import {
   redriveConnectorDeliveryBatch,
   summarizeConnectorDeliveries,
 } from "@/lib/data-store-v2";
+import { resolveConnectorBackpressureConfig } from "@/lib/v2/connector-backpressure-policy";
 import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import { requirePermission } from "@/lib/v2/auth";
 import { SUPPORTED_CONNECTOR_TYPES } from "@/lib/v2/connectors";
@@ -25,6 +26,17 @@ const processAllSchema = z.object({
       maxRetrying: z.number().int().positive().max(10_000).optional(),
       maxDueNow: z.number().int().positive().max(10_000).optional(),
       minLimit: z.number().int().positive().max(100).default(1),
+      byConnector: z
+        .record(
+          z.string(),
+          z.object({
+            enabled: z.boolean().optional(),
+            maxRetrying: z.number().int().positive().max(10_000).optional(),
+            maxDueNow: z.number().int().positive().max(10_000).optional(),
+            minLimit: z.number().int().positive().max(100).optional(),
+          }),
+        )
+        .optional(),
     })
     .optional(),
 });
@@ -49,14 +61,6 @@ export async function POST(request: Request) {
 
   const actor = auth.actor.email ?? "api-key";
   const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
-  const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
-    ? {
-        enabled: policy.is_enabled,
-        maxRetrying: policy.max_retrying,
-        maxDueNow: policy.max_due_now,
-        minLimit: policy.min_limit,
-      }
-    : undefined);
   const connectorTypes = [...new Set(parsed.data.connectorTypes ?? [...SUPPORTED_CONNECTOR_TYPES])];
   let redrivenCount = 0;
   let processedCount = 0;
@@ -65,6 +69,7 @@ export async function POST(request: Request) {
 
   const results: Array<{
     connector_type: string;
+    backpressure_source: string;
     dead_lettered: number;
     redriven_count: number;
     requested_process_limit: number;
@@ -88,6 +93,7 @@ export async function POST(request: Request) {
       skippedCount += 1;
       results.push({
         connector_type: connectorType,
+        backpressure_source: "none",
         dead_lettered: deadLettered,
         redriven_count: 0,
         requested_process_limit: 0,
@@ -114,6 +120,11 @@ export async function POST(request: Request) {
 
     let connectorProcessedCount = 0;
     let processBackpressure: ReturnType<typeof resolveConnectorProcessBackpressure> | null = null;
+    const resolvedBackpressureConfig = resolveConnectorBackpressureConfig({
+      connectorType,
+      requestBackpressure: parsed.data.backpressure,
+      policy,
+    });
     if (parsed.data.processAfterRedrive && redriveResult.redriven_count > 0) {
       const processSummary = await summarizeConnectorDeliveries({
         projectId: parsed.data.projectId,
@@ -122,7 +133,7 @@ export async function POST(request: Request) {
       processBackpressure = resolveConnectorProcessBackpressure({
         requestedLimit: redriveResult.redriven_count,
         summary: processSummary,
-        config: effectiveBackpressureConfig,
+        config: resolvedBackpressureConfig.config,
       });
 
       const processResult = await processConnectorDeliveryQueue({
@@ -144,6 +155,7 @@ export async function POST(request: Request) {
 
     results.push({
       connector_type: connectorType,
+      backpressure_source: resolvedBackpressureConfig.source,
       dead_lettered: deadLettered,
       redriven_count: redriveResult.redriven_count,
       requested_process_limit: processBackpressure?.requested_limit ?? 0,
@@ -163,7 +175,7 @@ export async function POST(request: Request) {
     min_dead_letter_count: parsed.data.minDeadLetterCount,
     min_dead_letter_minutes: parsed.data.minDeadLetterMinutes,
     process_after_redrive: parsed.data.processAfterRedrive,
-    backpressure_enabled: effectiveBackpressureConfig?.enabled === true,
+    backpressure_enabled: parsed.data.backpressure ? parsed.data.backpressure.enabled === true : policy?.is_enabled === true,
     policy_applied: parsed.data.backpressure === undefined && policy !== null,
     redriven_count: redrivenCount,
     processed_count: processedCount,

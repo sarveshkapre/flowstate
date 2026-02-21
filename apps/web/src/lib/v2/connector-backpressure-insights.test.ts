@@ -89,6 +89,7 @@ test("toConnectorBackpressurePolicyUpdate maps policy metadata from audit events
       max_retrying: 75,
       max_due_now: 150,
       min_limit: 3,
+      connector_override_count: 2,
     },
     created_at: "2026-02-21T12:00:00.000Z",
   });
@@ -99,4 +100,5 @@ test("toConnectorBackpressurePolicyUpdate maps policy metadata from audit events
   assert.equal(mapped?.max_retrying, 75);
   assert.equal(mapped?.max_due_now, 150);
   assert.equal(mapped?.min_limit, 3);
+  assert.equal(mapped?.connector_override_count, 2);
 });

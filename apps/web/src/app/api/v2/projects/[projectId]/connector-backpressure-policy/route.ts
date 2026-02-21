@@ -18,6 +18,17 @@ const updatePolicySchema = z
     maxRetrying: z.coerce.number().int().positive().max(10_000).optional(),
     maxDueNow: z.coerce.number().int().positive().max(10_000).optional(),
     minLimit: z.coerce.number().int().positive().max(100).optional(),
+    connectorOverrides: z
+      .record(
+        z.string(),
+        z.object({
+          isEnabled: z.boolean(),
+          maxRetrying: z.coerce.number().int().positive().max(10_000),
+          maxDueNow: z.coerce.number().int().positive().max(10_000),
+          minLimit: z.coerce.number().int().positive().max(100),
+        }),
+      )
+      .optional(),
   })
   .refine((value) => Object.values(value).some((item) => item !== undefined), {
     message: "At least one policy field is required",
@@ -70,6 +81,7 @@ export async function PUT(request: Request, { params }: Params) {
       maxRetrying: parsed.data.maxRetrying,
       maxDueNow: parsed.data.maxDueNow,
       minLimit: parsed.data.minLimit,
+      connectorOverrides: parsed.data.connectorOverrides,
       actor: auth.actor.email ?? "api-key",
     });
 

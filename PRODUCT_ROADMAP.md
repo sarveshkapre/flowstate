@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector backpressure policy now supports per-connector transport overrides (typed persistence + policy API + runtime resolution + Flow Builder controls), enabling mixed workload tuning without one-size-fits-all throttling.
 - 2026-02-21: Connector backpressure drift visibility shipped with project policy insights API and Flow Builder outcome snapshots (current vs baseline success/dead-letter deltas plus policy-change actor history).
 - 2026-02-21: Project-level connector backpressure policies shipped (typed storage + policy API + Flow Builder save/load), making tuned retry/due-now thresholds persistent across sessions and operators.
 - 2026-02-21: Connector backpressure tuning feedback loop shipped (typed tuning engine + recommend API + Flow Builder suggest/apply UX), turning live queue pressure into actionable threshold defaults per connector.
@@ -84,4 +85,4 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 ## Risks And Blockers
 - Scope growth across "general-purpose CV" surfaces.
 - Need to keep v1 compatibility while accelerating v2 rollout.
-- Need connector-specific backpressure policy overrides (per transport) beyond project-wide defaults for mixed workload profiles.
+- Need staged policy rollout controls (draft/simulate/apply) to reduce risk when changing connector automation thresholds in production.

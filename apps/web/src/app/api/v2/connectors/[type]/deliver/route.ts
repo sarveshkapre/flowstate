@@ -11,6 +11,7 @@ import {
   redriveConnectorDelivery,
   summarizeConnectorDeliveries,
 } from "@/lib/data-store-v2";
+import { resolveConnectorBackpressureConfig } from "@/lib/v2/connector-backpressure-policy";
 import { resolveConnectorProcessBackpressure } from "@/lib/v2/connector-backpressure";
 import {
   assertJsonBodySize,
@@ -42,6 +43,17 @@ const processQueueSchema = z.object({
       maxRetrying: z.number().int().positive().max(10_000).optional(),
       maxDueNow: z.number().int().positive().max(10_000).optional(),
       minLimit: z.number().int().positive().max(100).default(1),
+      byConnector: z
+        .record(
+          z.string(),
+          z.object({
+            enabled: z.boolean().optional(),
+            maxRetrying: z.number().int().positive().max(10_000).optional(),
+            maxDueNow: z.number().int().positive().max(10_000).optional(),
+            minLimit: z.number().int().positive().max(100).optional(),
+          }),
+        )
+        .optional(),
     })
     .optional(),
 });
@@ -198,14 +210,11 @@ export async function PATCH(request: Request, { params }: Params) {
     }
 
     const policy = parsed.data.backpressure ? null : await getConnectorBackpressurePolicy(parsed.data.projectId);
-    const effectiveBackpressureConfig = parsed.data.backpressure ?? (policy
-      ? {
-          enabled: policy.is_enabled,
-          maxRetrying: policy.max_retrying,
-          maxDueNow: policy.max_due_now,
-          minLimit: policy.min_limit,
-        }
-      : undefined);
+    const resolvedBackpressureConfig = resolveConnectorBackpressureConfig({
+      connectorType: type,
+      requestBackpressure: parsed.data.backpressure,
+      policy,
+    });
     const summary = await summarizeConnectorDeliveries({
       projectId: parsed.data.projectId,
       connectorType: type,
@@ -213,7 +222,7 @@ export async function PATCH(request: Request, { params }: Params) {
     const backpressure = resolveConnectorProcessBackpressure({
       requestedLimit: parsed.data.limit,
       summary,
-      config: effectiveBackpressureConfig,
+      config: resolvedBackpressureConfig.config,
     });
 
     const result = await processConnectorDeliveryQueue({
@@ -230,7 +239,8 @@ export async function PATCH(request: Request, { params }: Params) {
       effective_limit: backpressure.effective_limit,
       throttled: backpressure.throttled,
       throttle_reason: backpressure.reason,
-      policy_applied: parsed.data.backpressure === undefined && policy !== null,
+      backpressure_source: resolvedBackpressureConfig.source,
+      policy_applied: resolvedBackpressureConfig.policy_applied,
       backpressure,
       processed_count: result.processed_count,
       deliveries: result.deliveries,

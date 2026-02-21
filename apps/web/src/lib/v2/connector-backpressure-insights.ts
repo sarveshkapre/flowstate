@@ -8,6 +8,7 @@ export type ConnectorBackpressurePolicyUpdate = {
   max_retrying: number;
   max_due_now: number;
   min_limit: number;
+  connector_override_count: number;
 };
 
 export type ConnectorBackpressureOutcomeSnapshot = {
@@ -54,6 +55,13 @@ function asBoolean(value: unknown, fallback: boolean) {
     return value;
   }
   return fallback;
+}
+
+function asNonNegativeInt(value: unknown, fallback: number, max: number) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(value), max);
 }
 
 function summarizeWindow(input: {
@@ -148,6 +156,7 @@ export function toConnectorBackpressurePolicyUpdate(event: AuditEventRecord): Co
   if (!metadata) {
     return null;
   }
+  const overrides = asRecord(metadata.connector_overrides);
 
   return {
     id: event.id,
@@ -157,5 +166,6 @@ export function toConnectorBackpressurePolicyUpdate(event: AuditEventRecord): Co
     max_retrying: asPositiveInt(metadata.max_retrying, 50, 10_000),
     max_due_now: asPositiveInt(metadata.max_due_now, 100, 10_000),
     min_limit: asPositiveInt(metadata.min_limit, 1, 100),
+    connector_override_count: asNonNegativeInt(metadata.connector_override_count, overrides ? Object.keys(overrides).length : 0, 1_000),
   };
 }

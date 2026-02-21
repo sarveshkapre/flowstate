@@ -538,6 +538,17 @@ export const connectorBackpressurePolicyRecordSchema = z.object({
   max_retrying: z.number().int().positive(),
   max_due_now: z.number().int().positive(),
   min_limit: z.number().int().positive(),
+  connector_overrides: z
+    .record(
+      z.string(),
+      z.object({
+        is_enabled: z.boolean(),
+        max_retrying: z.number().int().positive(),
+        max_due_now: z.number().int().positive(),
+        min_limit: z.number().int().positive(),
+      }),
+    )
+    .default({}),
   created_at: z.string(),
   updated_at: z.string(),
 });

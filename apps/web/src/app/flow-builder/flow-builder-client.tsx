@@ -258,6 +258,22 @@ type ConnectorBackpressurePolicyUpdate = {
   max_retrying: number;
   max_due_now: number;
   min_limit: number;
+  connector_override_count: number;
+};
+
+type ConnectorBackpressurePolicyOverride = {
+  is_enabled: boolean;
+  max_retrying: number;
+  max_due_now: number;
+  min_limit: number;
+};
+
+type ConnectorBackpressurePolicyOverrideDraft = {
+  use_override: boolean;
+  is_enabled: boolean;
+  max_retrying: string;
+  max_due_now: string;
+  min_limit: string;
 };
 
 type ConnectorBackpressureOutcomeSnapshot = {
@@ -358,6 +374,7 @@ type ConnectorBackpressurePolicy = {
   max_retrying: number;
   max_due_now: number;
   min_limit: number;
+  connector_overrides: Record<string, ConnectorBackpressurePolicyOverride>;
   created_at: string;
   updated_at: string;
 };
@@ -447,6 +464,35 @@ const NODE_TYPES: FlowNodeType[] = [
 const ROLE_OPTIONS: ProjectMemberRole[] = ["owner", "admin", "builder", "reviewer", "viewer"];
 const CONNECTOR_TYPES = [...SUPPORTED_CONNECTOR_TYPES];
 const CONNECTOR_TYPE_SET = new Set<string>(CONNECTOR_TYPES);
+
+function createConnectorBackpressureOverrideDrafts(input?: {
+  defaultEnabled?: boolean;
+  defaultMaxRetrying?: number;
+  defaultMaxDueNow?: number;
+  defaultMinLimit?: number;
+  overrides?: Record<string, ConnectorBackpressurePolicyOverride>;
+}): Record<string, ConnectorBackpressurePolicyOverrideDraft> {
+  const defaultEnabled = input?.defaultEnabled ?? true;
+  const defaultMaxRetrying = input?.defaultMaxRetrying ?? 50;
+  const defaultMaxDueNow = input?.defaultMaxDueNow ?? 100;
+  const defaultMinLimit = input?.defaultMinLimit ?? 1;
+
+  return Object.fromEntries(
+    CONNECTOR_TYPES.map((connectorType) => {
+      const override = input?.overrides?.[connectorType];
+      return [
+        connectorType,
+        {
+          use_override: Boolean(override),
+          is_enabled: override?.is_enabled ?? defaultEnabled,
+          max_retrying: String(override?.max_retrying ?? defaultMaxRetrying),
+          max_due_now: String(override?.max_due_now ?? defaultMaxDueNow),
+          min_limit: String(override?.min_limit ?? defaultMinLimit),
+        } satisfies ConnectorBackpressurePolicyOverrideDraft,
+      ];
+    }),
+  );
+}
 
 const API_KEY_SCOPES: ApiKeyScope[] = [
   "manage_projects",
@@ -1040,6 +1086,9 @@ export function FlowBuilderClient() {
   const [connectorProcessBackpressureMaxRetrying, setConnectorProcessBackpressureMaxRetrying] = useState("50");
   const [connectorProcessBackpressureMaxDueNow, setConnectorProcessBackpressureMaxDueNow] = useState("100");
   const [connectorProcessBackpressureMinLimit, setConnectorProcessBackpressureMinLimit] = useState("1");
+  const [connectorBackpressureOverrides, setConnectorBackpressureOverrides] = useState<
+    Record<string, ConnectorBackpressurePolicyOverrideDraft>
+  >(() => createConnectorBackpressureOverrideDrafts());
   const [connectorBatchRedriveLimit, setConnectorBatchRedriveLimit] = useState("10");
   const [connectorBatchRedriveMinAgeMinutes, setConnectorBatchRedriveMinAgeMinutes] = useState("15");
   const [connectorRedriveAllMinDeadLetterCount, setConnectorRedriveAllMinDeadLetterCount] = useState("1");
@@ -1472,6 +1521,7 @@ export function FlowBuilderClient() {
         setConnectorProcessBackpressureMaxRetrying("50");
         setConnectorProcessBackpressureMaxDueNow("100");
         setConnectorProcessBackpressureMinLimit("1");
+        setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
         return;
       }
 
@@ -1494,6 +1544,7 @@ export function FlowBuilderClient() {
         setConnectorProcessBackpressureMaxRetrying("50");
         setConnectorProcessBackpressureMaxDueNow("100");
         setConnectorProcessBackpressureMinLimit("1");
+        setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
         return;
       }
 
@@ -1501,6 +1552,15 @@ export function FlowBuilderClient() {
       setConnectorProcessBackpressureMaxRetrying(String(payload.policy.max_retrying));
       setConnectorProcessBackpressureMaxDueNow(String(payload.policy.max_due_now));
       setConnectorProcessBackpressureMinLimit(String(payload.policy.min_limit));
+      setConnectorBackpressureOverrides(
+        createConnectorBackpressureOverrideDrafts({
+          defaultEnabled: payload.policy.is_enabled,
+          defaultMaxRetrying: payload.policy.max_retrying,
+          defaultMaxDueNow: payload.policy.max_due_now,
+          defaultMinLimit: payload.policy.min_limit,
+          overrides: payload.policy.connector_overrides,
+        }),
+      );
     },
     [authHeaders],
   );
@@ -1824,6 +1884,7 @@ export function FlowBuilderClient() {
       setConnectorProcessBackpressureMaxRetrying("50");
       setConnectorProcessBackpressureMaxDueNow("100");
       setConnectorProcessBackpressureMinLimit("1");
+      setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
@@ -2500,10 +2561,51 @@ export function FlowBuilderClient() {
       return null;
     }
 
+    const connectorOverrides: Record<
+      string,
+      {
+        isEnabled: boolean;
+        maxRetrying: number;
+        maxDueNow: number;
+        minLimit: number;
+      }
+    > = {};
+    for (const connectorType of CONNECTOR_TYPES) {
+      const draft = connectorBackpressureOverrides[connectorType];
+      if (!draft?.use_override) {
+        continue;
+      }
+
+      const overrideMaxRetrying = Number(draft.max_retrying);
+      const overrideMaxDueNow = Number(draft.max_due_now);
+      const overrideMinLimit = Number(draft.min_limit);
+
+      if (!Number.isFinite(overrideMaxRetrying) || overrideMaxRetrying <= 0) {
+        setError(`Backpressure override max retrying for ${connectorType} must be a positive number.`);
+        return null;
+      }
+      if (!Number.isFinite(overrideMaxDueNow) || overrideMaxDueNow <= 0) {
+        setError(`Backpressure override max due now for ${connectorType} must be a positive number.`);
+        return null;
+      }
+      if (!Number.isFinite(overrideMinLimit) || overrideMinLimit <= 0) {
+        setError(`Backpressure override min limit for ${connectorType} must be a positive number.`);
+        return null;
+      }
+
+      connectorOverrides[connectorType] = {
+        isEnabled: draft.is_enabled,
+        maxRetrying: Math.min(Math.floor(overrideMaxRetrying), 10_000),
+        maxDueNow: Math.min(Math.floor(overrideMaxDueNow), 10_000),
+        minLimit: Math.min(Math.floor(overrideMinLimit), 100),
+      };
+    }
+
     return {
       maxRetrying: Math.min(Math.floor(parsedMaxRetrying), 10_000),
       maxDueNow: Math.min(Math.floor(parsedMaxDueNow), 10_000),
       minLimit: Math.min(Math.floor(parsedMinLimit), 100),
+      connectorOverrides,
     };
   }
 
@@ -2527,6 +2629,7 @@ export function FlowBuilderClient() {
         maxRetrying: parsed.maxRetrying,
         maxDueNow: parsed.maxDueNow,
         minLimit: parsed.minLimit,
+        connectorOverrides: parsed.connectorOverrides,
       }),
     });
     const result = (await response.json()) as Record<string, unknown>;
@@ -2877,12 +2980,31 @@ export function FlowBuilderClient() {
     const parsedMaxRetrying = Number(connectorProcessBackpressureMaxRetrying);
     const parsedMaxDueNow = Number(connectorProcessBackpressureMaxDueNow);
     const parsedMinLimit = Number(connectorProcessBackpressureMinLimit);
+    const byConnector: Record<string, { enabled: boolean; maxRetrying: number; maxDueNow: number; minLimit: number }> = {};
+
+    for (const connectorType of CONNECTOR_TYPES) {
+      const draft = connectorBackpressureOverrides[connectorType];
+      if (!draft?.use_override) {
+        continue;
+      }
+
+      const overrideMaxRetrying = Number(draft.max_retrying);
+      const overrideMaxDueNow = Number(draft.max_due_now);
+      const overrideMinLimit = Number(draft.min_limit);
+      byConnector[connectorType] = {
+        enabled: draft.is_enabled,
+        maxRetrying: Number.isFinite(overrideMaxRetrying) && overrideMaxRetrying > 0 ? Math.floor(overrideMaxRetrying) : 50,
+        maxDueNow: Number.isFinite(overrideMaxDueNow) && overrideMaxDueNow > 0 ? Math.floor(overrideMaxDueNow) : 100,
+        minLimit: Number.isFinite(overrideMinLimit) && overrideMinLimit > 0 ? Math.floor(overrideMinLimit) : 1,
+      };
+    }
 
     return {
       enabled: connectorProcessBackpressureEnabled,
       maxRetrying: Number.isFinite(parsedMaxRetrying) && parsedMaxRetrying > 0 ? Math.floor(parsedMaxRetrying) : 50,
       maxDueNow: Number.isFinite(parsedMaxDueNow) && parsedMaxDueNow > 0 ? Math.floor(parsedMaxDueNow) : 100,
       minLimit: Number.isFinite(parsedMinLimit) && parsedMinLimit > 0 ? Math.floor(parsedMinLimit) : 1,
+      byConnector: Object.keys(byConnector).length > 0 ? byConnector : undefined,
     };
   }
 
@@ -3483,6 +3605,7 @@ export function FlowBuilderClient() {
       riskThreshold,
       maxActions,
       cooldownMinutes,
+      backpressure: buildConnectorProcessBackpressure(),
     };
   }
 
@@ -3494,6 +3617,38 @@ export function FlowBuilderClient() {
         return current;
       }
       return next;
+    });
+  }
+
+  function updateConnectorBackpressureOverrideDraft(
+    connectorType: string,
+    patch: Partial<ConnectorBackpressurePolicyOverrideDraft>,
+  ) {
+    if (!CONNECTOR_TYPE_SET.has(connectorType)) {
+      return;
+    }
+
+    setConnectorBackpressureOverrides((current) => {
+      const fallback = createConnectorBackpressureOverrideDrafts()[connectorType];
+      const base = current[connectorType] ??
+        fallback ?? {
+          use_override: false,
+          is_enabled: true,
+          max_retrying: "50",
+          max_due_now: "100",
+          min_limit: "1",
+        };
+      const next: ConnectorBackpressurePolicyOverrideDraft = {
+        use_override: patch.use_override ?? base.use_override,
+        is_enabled: patch.is_enabled ?? base.is_enabled,
+        max_retrying: patch.max_retrying ?? base.max_retrying,
+        max_due_now: patch.max_due_now ?? base.max_due_now,
+        min_limit: patch.min_limit ?? base.min_limit,
+      };
+      return {
+        ...current,
+        [connectorType]: next,
+      };
     });
   }
 
@@ -4711,6 +4866,92 @@ export function FlowBuilderClient() {
             </label>
           </div>
 
+          <div className="stack">
+            <p className="muted">per-connector backpressure overrides (optional)</p>
+            <ul className="list">
+              {CONNECTOR_TYPES.map((type) => {
+                const draft = connectorBackpressureOverrides[type] ?? {
+                  use_override: false,
+                  is_enabled: connectorProcessBackpressureEnabled,
+                  max_retrying: connectorProcessBackpressureMaxRetrying,
+                  max_due_now: connectorProcessBackpressureMaxDueNow,
+                  min_limit: connectorProcessBackpressureMinLimit,
+                };
+
+                return (
+                  <li key={`backpressure-override:${type}`}>
+                    <div className="row wrap" style={{ alignItems: "center" }}>
+                      <strong style={{ minWidth: "5.5rem" }}>{type}</strong>
+                      <label className="row" style={{ gap: "0.35rem", alignItems: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={draft.use_override}
+                          onChange={(event) =>
+                            updateConnectorBackpressureOverrideDraft(type, {
+                              use_override: event.target.checked,
+                            })
+                          }
+                        />
+                        <span>use override</span>
+                      </label>
+                      <label className="field small">
+                        <span>enabled</span>
+                        <select
+                          value={draft.is_enabled ? "enabled" : "disabled"}
+                          onChange={(event) =>
+                            updateConnectorBackpressureOverrideDraft(type, {
+                              is_enabled: event.target.value === "enabled",
+                            })
+                          }
+                          disabled={!draft.use_override}
+                        >
+                          <option value="enabled">enabled</option>
+                          <option value="disabled">disabled</option>
+                        </select>
+                      </label>
+                      <label className="field small">
+                        <span>max retrying</span>
+                        <input
+                          value={draft.max_retrying}
+                          onChange={(event) =>
+                            updateConnectorBackpressureOverrideDraft(type, {
+                              max_retrying: event.target.value,
+                            })
+                          }
+                          disabled={!draft.use_override}
+                        />
+                      </label>
+                      <label className="field small">
+                        <span>max due now</span>
+                        <input
+                          value={draft.max_due_now}
+                          onChange={(event) =>
+                            updateConnectorBackpressureOverrideDraft(type, {
+                              max_due_now: event.target.value,
+                            })
+                          }
+                          disabled={!draft.use_override}
+                        />
+                      </label>
+                      <label className="field small">
+                        <span>min limit</span>
+                        <input
+                          value={draft.min_limit}
+                          onChange={(event) =>
+                            updateConnectorBackpressureOverrideDraft(type, {
+                              min_limit: event.target.value,
+                            })
+                          }
+                          disabled={!draft.use_override}
+                        />
+                      </label>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
           <div className="field">
             <span>Recommendation Connector Scope</span>
             <div className="row wrap">
@@ -4863,7 +5104,7 @@ export function FlowBuilderClient() {
                   <li key={`policy-update:${update.id}`}>
                     {new Date(update.created_at).toLocaleString()} by {update.actor ?? "system"} - enabled{" "}
                     {update.is_enabled ? "yes" : "no"} - max retrying {update.max_retrying}, max due now {update.max_due_now}, min
-                    limit {update.min_limit}
+                    limit {update.min_limit}, overrides {update.connector_override_count}
                   </li>
                 ))}
               </ul>

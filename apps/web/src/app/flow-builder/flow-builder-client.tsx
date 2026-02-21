@@ -143,6 +143,30 @@ type ReviewDecisionSummary = {
   reviewer_activity: Array<{ reviewer: string; count: number }>;
 };
 
+type ReviewQueueHealth = "unreviewed" | "at_risk" | "stale" | "healthy";
+
+type ReviewQueueOpsItem = {
+  run_id: string;
+  run_status: RunRecordV2["status"];
+  decisions_total: number;
+  non_correct_count: number;
+  evidence_count: number;
+  error_rate: number;
+  last_reviewed_at: string | null;
+  health: ReviewQueueHealth;
+};
+
+type ReviewQueueOpsSummary = {
+  total_queues: number;
+  unreviewed_queues: number;
+  at_risk_queues: number;
+  stale_queues: number;
+  healthy_queues: number;
+  total_decisions: number;
+  total_evidence_regions: number;
+  avg_error_rate: number;
+};
+
 type ProjectMemberRole = "owner" | "admin" | "builder" | "reviewer" | "viewer";
 
 type ApiKeyScope =
@@ -254,6 +278,17 @@ const EMPTY_REVIEW_SUMMARY: ReviewDecisionSummary = {
   failure_hotspots: [],
   field_hotspots: [],
   reviewer_activity: [],
+};
+
+const EMPTY_REVIEW_QUEUE_SUMMARY: ReviewQueueOpsSummary = {
+  total_queues: 0,
+  unreviewed_queues: 0,
+  at_risk_queues: 0,
+  stale_queues: 0,
+  healthy_queues: 0,
+  total_decisions: 0,
+  total_evidence_regions: 0,
+  avg_error_rate: 0,
 };
 
 const TEMPLATE_GRAPH: { name: string; graph: FlowGraph } = {
@@ -585,6 +620,9 @@ export function FlowBuilderClient() {
   const [selectedRunId, setSelectedRunId] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
   const [reviewSummary, setReviewSummary] = useState<ReviewDecisionSummary>(EMPTY_REVIEW_SUMMARY);
+  const [reviewQueues, setReviewQueues] = useState<ReviewQueueOpsItem[]>([]);
+  const [reviewQueueSummary, setReviewQueueSummary] = useState<ReviewQueueOpsSummary>(EMPTY_REVIEW_QUEUE_SUMMARY);
+  const [reviewStaleHours, setReviewStaleHours] = useState("24");
   const [selectedReviewDecisionId, setSelectedReviewDecisionId] = useState("");
   const [newReviewFieldName, setNewReviewFieldName] = useState("total");
   const [newReviewDecision, setNewReviewDecision] = useState<ReviewDecisionValue>("incorrect");
@@ -785,6 +823,47 @@ export function FlowBuilderClient() {
       }
     },
     [authHeaders, selectedRunId],
+  );
+
+  const loadReviewQueues = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setReviewQueues([]);
+        setReviewQueueSummary(EMPTY_REVIEW_QUEUE_SUMMARY);
+        return;
+      }
+
+      const parsedStaleHours = Number(reviewStaleHours);
+      const staleHours =
+        Number.isFinite(parsedStaleHours) && parsedStaleHours > 0 ? Math.min(Math.floor(parsedStaleHours), 24 * 30) : 24;
+
+      const query = new URLSearchParams({
+        projectId,
+        limit: "50",
+        staleHours: String(staleHours),
+      });
+
+      const response = await fetch(`/api/v2/reviews/queues?${query.toString()}`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as {
+        queues?: ReviewQueueOpsItem[];
+        summary?: ReviewQueueOpsSummary;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load review queue summary.");
+        setReviewQueues([]);
+        setReviewQueueSummary(EMPTY_REVIEW_QUEUE_SUMMARY);
+        return;
+      }
+
+      setReviewQueues(payload.queues ?? []);
+      setReviewQueueSummary(payload.summary ?? EMPTY_REVIEW_QUEUE_SUMMARY);
+    },
+    [authHeaders, reviewStaleHours],
   );
 
   const loadReviewDecisions = useCallback(
@@ -994,6 +1073,8 @@ export function FlowBuilderClient() {
       setSelectedDatasetId("");
       setRuns([]);
       setSelectedRunId("");
+      setReviewQueues([]);
+      setReviewQueueSummary(EMPTY_REVIEW_QUEUE_SUMMARY);
       setReviewDecisions([]);
       setSelectedReviewDecisionId("");
       setEvidenceRegions([]);
@@ -1004,8 +1085,9 @@ export function FlowBuilderClient() {
     void loadFlows(selectedProjectId);
     void loadDatasets(selectedProjectId);
     void loadRuns(selectedProjectId);
+    void loadReviewQueues(selectedProjectId);
     void loadMembersAndKeys(selectedProjectId);
-  }, [loadDatasets, loadFlows, loadMembersAndKeys, loadRuns, selectedProjectId]);
+  }, [loadDatasets, loadFlows, loadMembersAndKeys, loadReviewQueues, loadRuns, selectedProjectId]);
 
   useEffect(() => {
     void loadDatasetVersions(selectedDatasetId);
@@ -1503,6 +1585,7 @@ export function FlowBuilderClient() {
 
     setSuccess(`Decision added for field "${payload.decision.field_name}".`);
     await loadReviewDecisions(selectedRunId);
+    await loadReviewQueues(selectedProjectId);
     setSelectedReviewDecisionId(payload.decision.id);
     setBusyAction(null);
   }
@@ -1588,6 +1671,7 @@ export function FlowBuilderClient() {
     setSuccess("Evidence region attached.");
     setDraftEvidence(null);
     await loadEvidenceRegions(selectedRunId, selectedReviewDecisionId);
+    await loadReviewQueues(selectedProjectId);
     setBusyAction(null);
   }
 
@@ -2399,6 +2483,45 @@ export function FlowBuilderClient() {
               : "none"}
           </p>
 
+          <label className="field small">
+            <span>Stale Threshold (hours)</span>
+            <input value={reviewStaleHours} onChange={(event) => setReviewStaleHours(event.target.value)} />
+          </label>
+          <div className="row wrap">
+            <button className="button secondary" onClick={() => void loadReviewQueues(selectedProjectId)}>
+              Refresh Queue Ops
+            </button>
+            <p className="muted">
+              queues {reviewQueueSummary.total_queues} | unreviewed {reviewQueueSummary.unreviewed_queues} | at-risk{" "}
+              {reviewQueueSummary.at_risk_queues} | stale {reviewQueueSummary.stale_queues}
+            </p>
+          </div>
+          <p className="muted">
+            healthy {reviewQueueSummary.healthy_queues} | decisions {reviewQueueSummary.total_decisions} | evidence{" "}
+            {reviewQueueSummary.total_evidence_regions} | avg error {(reviewQueueSummary.avg_error_rate * 100).toFixed(1)}%
+          </p>
+          {reviewQueues.length === 0 ? (
+            <p className="muted">No review queues available.</p>
+          ) : (
+            <ul className="list">
+              {reviewQueues.slice(0, 8).map((queue) => (
+                <li key={queue.run_id}>
+                  <span className="mono">{queue.run_id.slice(0, 8)}</span> - {queue.health} - {queue.run_status} - errors{" "}
+                  {queue.non_correct_count}/{queue.decisions_total} ({(queue.error_rate * 100).toFixed(1)}%) - evidence{" "}
+                  {queue.evidence_count}
+                  {queue.last_reviewed_at ? ` - last ${new Date(queue.last_reviewed_at).toLocaleString()}` : " - not reviewed yet"}
+                  <button
+                    className="button secondary"
+                    disabled={queue.run_id === selectedRunId}
+                    onClick={() => setSelectedRunId(queue.run_id)}
+                  >
+                    {queue.run_id === selectedRunId ? "Selected" : "Select"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           <label className="field">
             <span>Run Queue</span>
             <select value={selectedRunId} onChange={(event) => setSelectedRunId(event.target.value)}>
@@ -2414,6 +2537,9 @@ export function FlowBuilderClient() {
           <div className="row wrap">
             <button className="button secondary" onClick={() => void loadRuns(selectedProjectId)}>
               Refresh Runs
+            </button>
+            <button className="button secondary" onClick={() => void loadReviewQueues(selectedProjectId)}>
+              Refresh Queues
             </button>
             <button className="button secondary" onClick={() => void loadReviewDecisions(selectedRunId)}>
               Refresh Decisions

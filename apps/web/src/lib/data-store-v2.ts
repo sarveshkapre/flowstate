@@ -62,6 +62,7 @@ import {
   isConnectorDeliveryDue,
   type ConnectorDeliveryStatus,
 } from "@/lib/v2/connector-queue";
+import { summarizeReviewQueues } from "@/lib/v2/review-ops";
 import { dispatchConnectorDelivery } from "@/lib/v2/connector-runtime";
 
 type DbStateV2 = {
@@ -1167,6 +1168,29 @@ export async function getReviewDecision(reviewDecisionId: string) {
 export async function listEvidenceRegions(reviewDecisionId: string) {
   const state = await readState();
   return state.evidence_regions.filter((evidence) => evidence.review_decision_id === reviewDecisionId);
+}
+
+export async function listReviewQueuesV2(input: {
+  projectId: string;
+  limit?: number;
+  staleAfterMs?: number;
+}) {
+  const state = await readState();
+  const runs = state.runs.filter((run) => run.project_id === input.projectId);
+  const runIds = new Set(runs.map((run) => run.id));
+  const decisions = state.review_decisions.filter(
+    (decision) => decision.project_id === input.projectId && runIds.has(decision.run_id),
+  );
+  const decisionIds = new Set(decisions.map((decision) => decision.id));
+  const evidenceRegions = state.evidence_regions.filter((evidence) => decisionIds.has(evidence.review_decision_id));
+
+  return summarizeReviewQueues({
+    runs,
+    decisions,
+    evidenceRegions,
+    staleAfterMs: input.staleAfterMs,
+    limit: input.limit,
+  });
 }
 
 export async function createEvalPack(input: {

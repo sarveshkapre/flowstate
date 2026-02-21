@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Worker connector pump/redrive automation now defaults to project backpressure policies (with env opt-out), so saved per-connector overrides are applied consistently in unattended operations.
 - 2026-02-21: Connector backpressure policy now supports per-connector transport overrides (typed persistence + policy API + runtime resolution + Flow Builder controls), enabling mixed workload tuning without one-size-fits-all throttling.
 - 2026-02-21: Connector backpressure drift visibility shipped with project policy insights API and Flow Builder outcome snapshots (current vs baseline success/dead-letter deltas plus policy-change actor history).
 - 2026-02-21: Project-level connector backpressure policies shipped (typed storage + policy API + Flow Builder save/load), making tuned retry/due-now thresholds persistent across sessions and operators.

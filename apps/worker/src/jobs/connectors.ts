@@ -4,6 +4,7 @@ export type ConnectorPumpConfig = {
   apiBaseUrl: string;
   connectorTypes: string[];
   limit: number;
+  useProjectBackpressurePolicy: boolean;
   backpressureEnabled: boolean;
   backpressureMaxRetrying: number;
   backpressureMaxDueNow: number;
@@ -112,6 +113,7 @@ export function parseConnectorPumpConfig(env: NodeJS.ProcessEnv = process.env): 
     apiBaseUrl: normalizeBaseUrl(env.FLOWSTATE_LOCAL_API_BASE),
     connectorTypes: connectorTypes.length > 0 ? connectorTypes : DEFAULT_TYPES,
     limit: parsePositiveInt(env.FLOWSTATE_CONNECTOR_PUMP_LIMIT, DEFAULT_LIMIT, 100),
+    useProjectBackpressurePolicy: parseBoolean(env.FLOWSTATE_CONNECTOR_PUMP_USE_PROJECT_BACKPRESSURE_POLICY, true),
     backpressureEnabled: parseBoolean(env.FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_ENABLED, true),
     backpressureMaxRetrying: parsePositiveInt(
       env.FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_RETRYING,
@@ -199,21 +201,24 @@ export async function pumpConnectorQueuesOnce(input: {
     connectorCount += input.config.connectorTypes.length;
 
     const url = new URL("/api/v2/connectors/process", input.config.apiBaseUrl);
+    const requestBody: Record<string, unknown> = {
+      projectId,
+      connectorTypes: input.config.connectorTypes,
+      limit: input.config.limit,
+    };
+    if (!input.config.useProjectBackpressurePolicy) {
+      requestBody.backpressure = {
+        enabled: input.config.backpressureEnabled,
+        maxRetrying: input.config.backpressureMaxRetrying,
+        maxDueNow: input.config.backpressureMaxDueNow,
+        minLimit: input.config.backpressureMinLimit,
+      };
+    }
 
     const response = await fetchImpl(url, {
       method: "POST",
       headers: authHeaders(input.config),
-      body: JSON.stringify({
-        projectId,
-        connectorTypes: input.config.connectorTypes,
-        limit: input.config.limit,
-        backpressure: {
-          enabled: input.config.backpressureEnabled,
-          maxRetrying: input.config.backpressureMaxRetrying,
-          maxDueNow: input.config.backpressureMaxDueNow,
-          minLimit: input.config.backpressureMinLimit,
-        },
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const payload = await parseJson(response);

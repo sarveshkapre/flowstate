@@ -16,6 +16,7 @@ test("parseConnectorPumpConfig applies defaults", () => {
   assert.equal(config.apiBaseUrl, "http://localhost:3000");
   assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira", "sqs", "db"]);
   assert.equal(config.limit, 25);
+  assert.equal(config.useProjectBackpressurePolicy, true);
   assert.equal(config.backpressureEnabled, true);
   assert.equal(config.backpressureMaxRetrying, 50);
   assert.equal(config.backpressureMaxDueNow, 100);
@@ -29,6 +30,7 @@ test("parseConnectorPumpConfig normalizes custom values and clamps limits", () =
     FLOWSTATE_LOCAL_API_BASE: "http://localhost:3100/",
     FLOWSTATE_CONNECTOR_PUMP_TYPES: "Webhook, jira, webhook",
     FLOWSTATE_CONNECTOR_PUMP_LIMIT: "999",
+    FLOWSTATE_CONNECTOR_PUMP_USE_PROJECT_BACKPRESSURE_POLICY: "false",
     FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_ENABLED: "false",
     FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_RETRYING: "999999",
     FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_DUE_NOW: "250",
@@ -40,6 +42,7 @@ test("parseConnectorPumpConfig normalizes custom values and clamps limits", () =
   assert.equal(config.apiBaseUrl, "http://localhost:3100");
   assert.deepEqual(config.connectorTypes, ["webhook", "jira"]);
   assert.equal(config.limit, 100);
+  assert.equal(config.useProjectBackpressurePolicy, false);
   assert.equal(config.backpressureEnabled, false);
   assert.equal(config.backpressureMaxRetrying, 10_000);
   assert.equal(config.backpressureMaxDueNow, 250);
@@ -88,6 +91,29 @@ test("pumpConnectorQueuesOnce uses explicit project IDs without listing projects
   assert.equal(requestBodies.length, 2);
   assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook", "slack"]);
   assert.equal(requestBodies[0]?.limit, 7);
+  assert.equal(requestBodies[0]?.backpressure, undefined);
+});
+
+test("pumpConnectorQueuesOnce sends explicit backpressure when project policy usage is disabled", async () => {
+  const requestBodies: Array<Record<string, unknown>> = [];
+  const config = parseConnectorPumpConfig({
+    FLOWSTATE_CONNECTOR_PUMP_TYPES: "webhook",
+    FLOWSTATE_CONNECTOR_PUMP_PROJECT_IDS: "proj-a",
+    FLOWSTATE_CONNECTOR_PUMP_USE_PROJECT_BACKPRESSURE_POLICY: "false",
+  });
+
+  await pumpConnectorQueuesOnce({
+    config,
+    fetchImpl: async (_url, init) => {
+      if (typeof init?.body === "string") {
+        requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      }
+      return jsonResponse(200, { processed_count: 0 });
+    },
+    logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+  });
+
+  assert.equal(requestBodies.length, 1);
   assert.deepEqual(requestBodies[0]?.backpressure, {
     enabled: true,
     maxRetrying: 50,

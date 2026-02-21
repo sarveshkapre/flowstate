@@ -19,6 +19,7 @@ test("parseConnectorRedriveConfig applies defaults", () => {
   assert.equal(config.minDeadLetterCount, 3);
   assert.equal(config.minDeadLetterMinutes, 15);
   assert.equal(config.processAfterRedrive, true);
+  assert.equal(config.useProjectBackpressurePolicy, true);
   assert.equal(config.backpressureEnabled, true);
   assert.equal(config.backpressureMaxRetrying, 50);
   assert.equal(config.backpressureMaxDueNow, 100);
@@ -34,6 +35,7 @@ test("parseConnectorRedriveConfig normalizes custom values", () => {
     FLOWSTATE_CONNECTOR_REDRIVE_MIN_DEAD_LETTER: "2",
     FLOWSTATE_CONNECTOR_REDRIVE_MIN_DEAD_LETTER_MINUTES: "0",
     FLOWSTATE_CONNECTOR_REDRIVE_PROCESS_AFTER_REDRIVE: "false",
+    FLOWSTATE_CONNECTOR_REDRIVE_USE_PROJECT_BACKPRESSURE_POLICY: "0",
     FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_ENABLED: "0",
     FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MAX_RETRYING: "999999",
     FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MAX_DUE_NOW: "250",
@@ -47,6 +49,7 @@ test("parseConnectorRedriveConfig normalizes custom values", () => {
   assert.equal(config.minDeadLetterCount, 2);
   assert.equal(config.minDeadLetterMinutes, 15);
   assert.equal(config.processAfterRedrive, false);
+  assert.equal(config.useProjectBackpressurePolicy, false);
   assert.equal(config.backpressureEnabled, false);
   assert.equal(config.backpressureMaxRetrying, 10_000);
   assert.equal(config.backpressureMaxDueNow, 250);
@@ -131,6 +134,33 @@ test("runConnectorRedriveOnce redrives batch and processes queue", async () => {
   assert.equal(requestBodies[0]?.projectId, "proj-1");
   assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook"]);
   assert.equal(requestBodies[0]?.processAfterRedrive, true);
+  assert.equal(requestBodies[0]?.backpressure, undefined);
+});
+
+test("runConnectorRedriveOnce sends explicit backpressure when project policy usage is disabled", async () => {
+  const requestBodies: Array<Record<string, unknown>> = [];
+  const config = parseConnectorRedriveConfig({
+    FLOWSTATE_CONNECTOR_REDRIVE_PROJECT_IDS: "proj-1",
+    FLOWSTATE_CONNECTOR_REDRIVE_TYPES: "webhook",
+    FLOWSTATE_CONNECTOR_REDRIVE_USE_PROJECT_BACKPRESSURE_POLICY: "false",
+  });
+
+  await runConnectorRedriveOnce({
+    config,
+    fetchImpl: async (_url, init) => {
+      if (typeof init?.body === "string") {
+        requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      }
+      return jsonResponse(200, {
+        redriven_count: 0,
+        processed_count: 0,
+        skipped_count: 1,
+      });
+    },
+    logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+  });
+
+  assert.equal(requestBodies.length, 1);
   assert.deepEqual(requestBodies[0]?.backpressure, {
     enabled: true,
     maxRetrying: 50,

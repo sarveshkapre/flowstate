@@ -12,6 +12,7 @@ export type ConnectorRedriveConfig = {
   minDeadLetterCount: number;
   minDeadLetterMinutes: number;
   processAfterRedrive: boolean;
+  useProjectBackpressurePolicy: boolean;
   backpressureEnabled: boolean;
   backpressureMaxRetrying: number;
   backpressureMaxDueNow: number;
@@ -175,6 +176,7 @@ export function parseConnectorRedriveConfig(env: NodeJS.ProcessEnv = process.env
       7 * 24 * 60,
     ),
     processAfterRedrive: parseBoolean(env.FLOWSTATE_CONNECTOR_REDRIVE_PROCESS_AFTER_REDRIVE, true),
+    useProjectBackpressurePolicy: parseBoolean(env.FLOWSTATE_CONNECTOR_REDRIVE_USE_PROJECT_BACKPRESSURE_POLICY, true),
     backpressureEnabled: parseBoolean(env.FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_ENABLED, true),
     backpressureMaxRetrying: parsePositiveInt(
       env.FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MAX_RETRYING,
@@ -215,23 +217,26 @@ export async function runConnectorRedriveOnce(input: {
     connectorCount += input.config.connectorTypes.length;
 
     const redriveUrl = new URL("/api/v2/connectors/redrive", input.config.apiBaseUrl);
+    const requestBody: Record<string, unknown> = {
+      projectId,
+      connectorTypes: input.config.connectorTypes,
+      limit: input.config.redriveLimit,
+      minDeadLetterCount: input.config.minDeadLetterCount,
+      minDeadLetterMinutes: input.config.minDeadLetterMinutes,
+      processAfterRedrive: input.config.processAfterRedrive,
+    };
+    if (!input.config.useProjectBackpressurePolicy) {
+      requestBody.backpressure = {
+        enabled: input.config.backpressureEnabled,
+        maxRetrying: input.config.backpressureMaxRetrying,
+        maxDueNow: input.config.backpressureMaxDueNow,
+        minLimit: input.config.backpressureMinLimit,
+      };
+    }
     const redriveResponse = await fetchImpl(redriveUrl, {
       method: "POST",
       headers: authHeaders(input.config),
-      body: JSON.stringify({
-        projectId,
-        connectorTypes: input.config.connectorTypes,
-        limit: input.config.redriveLimit,
-        minDeadLetterCount: input.config.minDeadLetterCount,
-        minDeadLetterMinutes: input.config.minDeadLetterMinutes,
-        processAfterRedrive: input.config.processAfterRedrive,
-        backpressure: {
-          enabled: input.config.backpressureEnabled,
-          maxRetrying: input.config.backpressureMaxRetrying,
-          maxDueNow: input.config.backpressureMaxDueNow,
-          minLimit: input.config.backpressureMinLimit,
-        },
-      }),
+      body: JSON.stringify(requestBody),
     });
     const redrivePayload = await parseJson(redriveResponse);
 

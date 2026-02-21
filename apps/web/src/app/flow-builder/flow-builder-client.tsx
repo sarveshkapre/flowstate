@@ -689,6 +689,8 @@ export function FlowBuilderClient() {
   const [reviewStaleHours, setReviewStaleHours] = useState("24");
   const [reviewAlertPolicyEnabled, setReviewAlertPolicyEnabled] = useState(true);
   const [reviewAlertConnectorType, setReviewAlertConnectorType] = useState("slack");
+  const [reviewAlertQueueLimit, setReviewAlertQueueLimit] = useState("50");
+  const [reviewAlertIdempotencyWindowMinutes, setReviewAlertIdempotencyWindowMinutes] = useState("30");
   const [reviewAlertMinUnreviewed, setReviewAlertMinUnreviewed] = useState("5");
   const [reviewAlertMinAtRisk, setReviewAlertMinAtRisk] = useState("3");
   const [reviewAlertMinStale, setReviewAlertMinStale] = useState("3");
@@ -947,6 +949,8 @@ export function FlowBuilderClient() {
         setReviewAlertPolicyEnabled(true);
         setReviewAlertConnectorType("slack");
         setReviewStaleHours("24");
+        setReviewAlertQueueLimit("50");
+        setReviewAlertIdempotencyWindowMinutes("30");
         setReviewAlertMinUnreviewed("5");
         setReviewAlertMinAtRisk("3");
         setReviewAlertMinStale("3");
@@ -972,6 +976,8 @@ export function FlowBuilderClient() {
         setReviewAlertPolicyEnabled(true);
         setReviewAlertConnectorType("slack");
         setReviewStaleHours("24");
+        setReviewAlertQueueLimit("50");
+        setReviewAlertIdempotencyWindowMinutes("30");
         setReviewAlertMinUnreviewed("5");
         setReviewAlertMinAtRisk("3");
         setReviewAlertMinStale("3");
@@ -982,6 +988,8 @@ export function FlowBuilderClient() {
       setReviewAlertPolicyEnabled(payload.policy.is_enabled);
       setReviewAlertConnectorType(payload.policy.connector_type);
       setReviewStaleHours(String(payload.policy.stale_hours));
+      setReviewAlertQueueLimit(String(payload.policy.queue_limit));
+      setReviewAlertIdempotencyWindowMinutes(String(payload.policy.idempotency_window_minutes));
       setReviewAlertMinUnreviewed(String(payload.policy.min_unreviewed_queues));
       setReviewAlertMinAtRisk(String(payload.policy.min_at_risk_queues));
       setReviewAlertMinStale(String(payload.policy.min_stale_queues));
@@ -1251,6 +1259,8 @@ export function FlowBuilderClient() {
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
+      setReviewAlertQueueLimit("50");
+      setReviewAlertIdempotencyWindowMinutes("30");
       setReviewAlertMinUnreviewed("5");
       setReviewAlertMinAtRisk("3");
       setReviewAlertMinStale("3");
@@ -1796,6 +1806,8 @@ export function FlowBuilderClient() {
     const parsedStale = Number(reviewAlertMinStale);
     const parsedAvgErrorRate = Number(reviewAlertMinAvgErrorRate);
     const parsedStaleHours = Number(reviewStaleHours);
+    const parsedQueueLimit = Number(reviewAlertQueueLimit);
+    const parsedIdempotencyWindow = Number(reviewAlertIdempotencyWindowMinutes);
 
     if (!Number.isFinite(parsedUnreviewed) || parsedUnreviewed < 0) {
       setError("Min unreviewed queues must be zero or a positive number.");
@@ -1817,6 +1829,14 @@ export function FlowBuilderClient() {
       setError("Stale threshold hours must be a positive number.");
       return null;
     }
+    if (!Number.isFinite(parsedQueueLimit) || parsedQueueLimit <= 0) {
+      setError("Queue limit must be a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedIdempotencyWindow) || parsedIdempotencyWindow <= 0) {
+      setError("Idempotency window must be a positive number.");
+      return null;
+    }
 
     return {
       minUnreviewedQueues: Math.floor(parsedUnreviewed),
@@ -1824,6 +1844,8 @@ export function FlowBuilderClient() {
       minStaleQueues: Math.floor(parsedStale),
       minAvgErrorRate: parsedAvgErrorRate,
       staleHours: Math.floor(parsedStaleHours),
+      queueLimit: Math.min(Math.floor(parsedQueueLimit), 200),
+      idempotencyWindowMinutes: Math.min(Math.floor(parsedIdempotencyWindow), 24 * 60),
     };
   }
 
@@ -1851,10 +1873,12 @@ export function FlowBuilderClient() {
         isEnabled: reviewAlertPolicyEnabled,
         connectorType: reviewAlertConnectorType.trim(),
         staleHours: parsed.staleHours,
+        queueLimit: parsed.queueLimit,
         minUnreviewedQueues: parsed.minUnreviewedQueues,
         minAtRiskQueues: parsed.minAtRiskQueues,
         minStaleQueues: parsed.minStaleQueues,
         minAvgErrorRate: parsed.minAvgErrorRate,
+        idempotencyWindowMinutes: parsed.idempotencyWindowMinutes,
       }),
     });
     const result = (await response.json()) as Record<string, unknown>;
@@ -1886,6 +1910,7 @@ export function FlowBuilderClient() {
     const query = new URLSearchParams({
       projectId: selectedProjectId,
       staleHours: String(parsed.staleHours),
+      queueLimit: String(parsed.queueLimit),
       minUnreviewedQueues: String(parsed.minUnreviewedQueues),
       minAtRiskQueues: String(parsed.minAtRiskQueues),
       minStaleQueues: String(parsed.minStaleQueues),
@@ -1938,6 +1963,7 @@ export function FlowBuilderClient() {
         projectId: selectedProjectId,
         connectorType: reviewAlertConnectorType,
         staleHours: parsed.staleHours,
+        queueLimit: parsed.queueLimit,
         minUnreviewedQueues: parsed.minUnreviewedQueues,
         minAtRiskQueues: parsed.minAtRiskQueues,
         minStaleQueues: parsed.minStaleQueues,
@@ -3019,6 +3045,17 @@ export function FlowBuilderClient() {
             <label className="field small">
               <span>Min Unreviewed Queues</span>
               <input value={reviewAlertMinUnreviewed} onChange={(event) => setReviewAlertMinUnreviewed(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Queue Limit</span>
+              <input value={reviewAlertQueueLimit} onChange={(event) => setReviewAlertQueueLimit(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Idempotency Window (minutes)</span>
+              <input
+                value={reviewAlertIdempotencyWindowMinutes}
+                onChange={(event) => setReviewAlertIdempotencyWindowMinutes(event.target.value)}
+              />
             </label>
             <label className="field small">
               <span>Min At-risk Queues</span>

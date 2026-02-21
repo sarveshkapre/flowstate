@@ -1,23 +1,33 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { listReviewQueuesV2, processConnectorDelivery } from "@/lib/data-store-v2";
+import { getReviewAlertPolicy, listReviewQueuesV2, processConnectorDelivery } from "@/lib/data-store-v2";
 import { requirePermission } from "@/lib/v2/auth";
 import { evaluateReviewAlert, normalizeReviewAlertThresholds } from "@/lib/v2/review-alerts";
 import { connectorTypeSchema } from "@/lib/v2/request-security";
 
+const DEFAULT_ALERTS_CONFIG = {
+  connectorType: "slack",
+  staleHours: 24,
+  queueLimit: 50,
+  minUnreviewedQueues: 5,
+  minAtRiskQueues: 3,
+  minStaleQueues: 3,
+  minAvgErrorRate: 0.35,
+} as const;
+
 const querySchema = z.object({
   projectId: z.string().min(1),
-  staleHours: z.coerce.number().int().positive().max(24 * 30).default(24),
-  queueLimit: z.coerce.number().int().positive().max(200).default(50),
-  minUnreviewedQueues: z.coerce.number().int().nonnegative().max(500).default(5),
-  minAtRiskQueues: z.coerce.number().int().nonnegative().max(500).default(3),
-  minStaleQueues: z.coerce.number().int().nonnegative().max(500).default(3),
-  minAvgErrorRate: z.coerce.number().min(0).max(1).default(0.35),
+  staleHours: z.coerce.number().int().positive().max(24 * 30).optional(),
+  queueLimit: z.coerce.number().int().positive().max(200).optional(),
+  minUnreviewedQueues: z.coerce.number().int().nonnegative().max(500).optional(),
+  minAtRiskQueues: z.coerce.number().int().nonnegative().max(500).optional(),
+  minStaleQueues: z.coerce.number().int().nonnegative().max(500).optional(),
+  minAvgErrorRate: z.coerce.number().min(0).max(1).optional(),
 });
 
 const dispatchSchema = querySchema.extend({
-  connectorType: connectorTypeSchema.default("slack"),
+  connectorType: connectorTypeSchema.optional(),
   connectorConfig: z.record(z.string(), z.unknown()).optional(),
   idempotencyKey: z.string().min(1).optional(),
 });
@@ -50,6 +60,63 @@ function evaluatePayload(input: {
   };
 }
 
+type EffectiveAlertConfig = {
+  connectorType: string;
+  staleHours: number;
+  queueLimit: number;
+  thresholds: {
+    minUnreviewedQueues: number;
+    minAtRiskQueues: number;
+    minStaleQueues: number;
+    minAvgErrorRate: number;
+  };
+  policy: {
+    id: string;
+    is_enabled: boolean;
+  } | null;
+};
+
+function resolveEffectiveAlertConfig(input: {
+  policy: Awaited<ReturnType<typeof getReviewAlertPolicy>>;
+  request: {
+    connectorType?: string;
+    staleHours?: number;
+    queueLimit?: number;
+    minUnreviewedQueues?: number;
+    minAtRiskQueues?: number;
+    minStaleQueues?: number;
+    minAvgErrorRate?: number;
+  };
+}): EffectiveAlertConfig {
+  const staleHours = input.request.staleHours ?? input.policy?.stale_hours ?? DEFAULT_ALERTS_CONFIG.staleHours;
+  const queueLimit = input.request.queueLimit ?? input.policy?.queue_limit ?? DEFAULT_ALERTS_CONFIG.queueLimit;
+  const connectorType = input.request.connectorType ?? input.policy?.connector_type ?? DEFAULT_ALERTS_CONFIG.connectorType;
+
+  const thresholds = normalizeReviewAlertThresholds({
+    minUnreviewedQueues:
+      input.request.minUnreviewedQueues ??
+      input.policy?.min_unreviewed_queues ??
+      DEFAULT_ALERTS_CONFIG.minUnreviewedQueues,
+    minAtRiskQueues: input.request.minAtRiskQueues ?? input.policy?.min_at_risk_queues ?? DEFAULT_ALERTS_CONFIG.minAtRiskQueues,
+    minStaleQueues: input.request.minStaleQueues ?? input.policy?.min_stale_queues ?? DEFAULT_ALERTS_CONFIG.minStaleQueues,
+    minAvgErrorRate:
+      input.request.minAvgErrorRate ?? input.policy?.min_avg_error_rate ?? DEFAULT_ALERTS_CONFIG.minAvgErrorRate,
+  });
+
+  return {
+    connectorType,
+    staleHours,
+    queueLimit,
+    thresholds,
+    policy: input.policy
+      ? {
+          id: input.policy.id,
+          is_enabled: input.policy.is_enabled,
+        }
+      : null,
+  };
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({
@@ -76,26 +143,29 @@ export async function GET(request: Request) {
     return auth.response;
   }
 
+  const policy = await getReviewAlertPolicy(parsed.data.projectId);
+  const effectiveConfig = resolveEffectiveAlertConfig({
+    policy,
+    request: parsed.data,
+  });
+
   const queues = await listReviewQueuesV2({
     projectId: parsed.data.projectId,
-    limit: parsed.data.queueLimit,
-    staleAfterMs: parsed.data.staleHours * 60 * 60 * 1000,
+    limit: effectiveConfig.queueLimit,
+    staleAfterMs: effectiveConfig.staleHours * 60 * 60 * 1000,
   });
 
   const { thresholds, evaluation } = evaluatePayload({
     summary: queues.summary,
-    thresholds: {
-      minUnreviewedQueues: parsed.data.minUnreviewedQueues,
-      minAtRiskQueues: parsed.data.minAtRiskQueues,
-      minStaleQueues: parsed.data.minStaleQueues,
-      minAvgErrorRate: parsed.data.minAvgErrorRate,
-    },
+    thresholds: effectiveConfig.thresholds,
   });
 
   return NextResponse.json({
     project_id: parsed.data.projectId,
-    stale_hours: parsed.data.staleHours,
-    queue_limit: parsed.data.queueLimit,
+    stale_hours: effectiveConfig.staleHours,
+    queue_limit: effectiveConfig.queueLimit,
+    connector_type: effectiveConfig.connectorType,
+    policy: effectiveConfig.policy,
     thresholds,
     evaluation,
     summary: queues.summary,
@@ -121,26 +191,28 @@ export async function POST(request: Request) {
     return auth.response;
   }
 
+  const policy = await getReviewAlertPolicy(parsed.data.projectId);
+  const effectiveConfig = resolveEffectiveAlertConfig({
+    policy,
+    request: parsed.data,
+  });
+
   const queues = await listReviewQueuesV2({
     projectId: parsed.data.projectId,
-    limit: parsed.data.queueLimit,
-    staleAfterMs: parsed.data.staleHours * 60 * 60 * 1000,
+    limit: effectiveConfig.queueLimit,
+    staleAfterMs: effectiveConfig.staleHours * 60 * 60 * 1000,
   });
 
   const { thresholds, evaluation } = evaluatePayload({
     summary: queues.summary,
-    thresholds: {
-      minUnreviewedQueues: parsed.data.minUnreviewedQueues,
-      minAtRiskQueues: parsed.data.minAtRiskQueues,
-      minStaleQueues: parsed.data.minStaleQueues,
-      minAvgErrorRate: parsed.data.minAvgErrorRate,
-    },
+    thresholds: effectiveConfig.thresholds,
   });
 
   if (!evaluation.should_alert) {
     return NextResponse.json({
       dispatched: false,
       reason: "Thresholds not met",
+      policy: effectiveConfig.policy,
       thresholds,
       evaluation,
       summary: queues.summary,
@@ -149,7 +221,7 @@ export async function POST(request: Request) {
 
   const result = await processConnectorDelivery({
     projectId: parsed.data.projectId,
-    connectorType: parsed.data.connectorType,
+    connectorType: effectiveConfig.connectorType,
     mode: "enqueue",
     config: parsed.data.connectorConfig,
     idempotencyKey: parsed.data.idempotencyKey,
@@ -166,8 +238,9 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     dispatched: true,
-    connector_type: parsed.data.connectorType,
+    connector_type: effectiveConfig.connectorType,
     project_id: parsed.data.projectId,
+    policy: effectiveConfig.policy,
     thresholds,
     evaluation,
     summary: queues.summary,

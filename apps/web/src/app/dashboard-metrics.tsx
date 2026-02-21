@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@flowstate/ui";
 
 type Summary = {
   jobs: number;
@@ -107,49 +108,73 @@ export function DashboardMetrics() {
   return (
     <section className="panel">
       <h2>Live Metrics</h2>
-      <div className="grid">
-        <article className="card">
-          <h3>Total Jobs</h3>
-          <p className="metric">{summary.jobs}</p>
-        </article>
-        <article className="card">
-          <h3>Pending Review</h3>
-          <p className="metric">{summary.pending_review}</p>
-        </article>
-        <article className="card">
-          <h3>Avg Confidence</h3>
-          <p className="metric">{summary.avg_confidence}</p>
-        </article>
-        <article className="card">
-          <h3>Invalid Results</h3>
-          <p className="metric">{summary.invalid_count}</p>
-        </article>
-        <article className="card">
-          <h3>Invoices / Receipts</h3>
-          <p className="metric">
-            {summary.by_document_type.invoice} / {summary.by_document_type.receipt}
-          </p>
-        </article>
-        <article className="card">
-          <h3>Latest Drift Point</h3>
-          <p className="metric">{latestTrend ? latestTrend.avg_confidence : "-"}</p>
-          <p className="muted">{latestTrend ? latestTrend.day : "no data"}</p>
-        </article>
-        <article className="card">
-          <h3>Top Issue Codes</h3>
-          <p className="muted">
-            {topIssues.length ? topIssues.map((issue) => `${issue.code} (${issue.count})`).join(", ") : "none"}
-          </p>
-        </article>
-        <article className="card">
-          <h3>Latest Eval Coverage</h3>
-          <p className="metric">{latestEval ? latestEval.avg_field_coverage : "-"}</p>
-          <p className="muted">
-            {latestEval
-              ? `${latestEval.review_status} (${latestEval.sample_count} samples)`
-              : "run an eval to populate"}
-          </p>
-        </article>
+      <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Total Jobs</CardTitle>
+          </CardHeader>
+          <CardContent><p className="metric">{summary.jobs}</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending Review</CardTitle>
+          </CardHeader>
+          <CardContent><p className="metric">{summary.pending_review}</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Avg Confidence</CardTitle>
+          </CardHeader>
+          <CardContent><p className="metric">{summary.avg_confidence}</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Invalid Results</CardTitle>
+          </CardHeader>
+          <CardContent><p className="metric">{summary.invalid_count}</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Invoices / Receipts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="metric">
+              {summary.by_document_type.invoice} / {summary.by_document_type.receipt}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Latest Drift Point</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="metric">{latestTrend ? latestTrend.avg_confidence : "-"}</p>
+            <p className="muted">{latestTrend ? latestTrend.day : "no data"}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Issue Codes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="muted">
+              {topIssues.length ? topIssues.map((issue) => `${issue.code} (${issue.count})`).join(", ") : "none"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Latest Eval Coverage</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="metric">{latestEval ? latestEval.avg_field_coverage : "-"}</p>
+            <p className="muted">
+              {latestEval
+                ? `${latestEval.review_status} (${latestEval.sample_count} samples)`
+                : "run an eval to populate"}
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </section>
   );

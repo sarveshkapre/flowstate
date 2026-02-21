@@ -1,23 +1,21 @@
-import Link from "next/link";
+import { PageHeader } from "@/components/page-header";
 
 import { EvalsClient } from "./evals-client";
 
 export default function EvalsPage() {
   return (
     <main className="page">
-      <header className="hero compact">
-        <p className="eyebrow">Flowstate / Evals</p>
-        <h1>Benchmark extraction quality over reviewed samples.</h1>
-        <p className="subtitle">
-          Run lightweight evaluations across approved or rejected jobs to track confidence, field coverage, and issue rates.
-        </p>
-        <div className="link-row">
-          <Link href="/">Dashboard</Link>
-          <Link href="/review">Review Queue</Link>
-          <Link href="/workflows">Workflow Builder</Link>
-          <Link href="/edge">Edge Adapters</Link>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Flowstate / Evals"
+        title="Benchmark extraction quality over reviewed samples."
+        description="Run lightweight evaluations across approved or rejected jobs to track confidence, field coverage, and issue rates."
+        links={[
+          { href: "/", label: "Dashboard" },
+          { href: "/review", label: "Review Queue" },
+          { href: "/workflows", label: "Workflow Builder" },
+          { href: "/edge", label: "Edge Adapters" },
+        ]}
+      />
 
       <EvalsClient />
     </main>

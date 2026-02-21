@@ -1,21 +1,19 @@
-import Link from "next/link";
+import { PageHeader } from "@/components/page-header";
 
 import { ReviewClient } from "./review-client";
 
 export default function ReviewPage() {
   return (
     <main className="page">
-      <header className="hero compact">
-        <p className="eyebrow">Flowstate / Review</p>
-        <h1>Approve or reject extraction results.</h1>
-        <p className="subtitle">
-          Keep human-in-the-loop quality control while automating export to CSV and webhook targets.
-        </p>
-        <div className="link-row">
-          <Link href="/">Dashboard</Link>
-          <Link href="/upload">Upload</Link>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Flowstate / Review"
+        title="Approve or reject extraction results."
+        description="Keep human-in-the-loop quality control while automating export to CSV and webhook targets."
+        links={[
+          { href: "/", label: "Dashboard" },
+          { href: "/upload", label: "Upload" },
+        ]}
+      />
 
       <ReviewClient />
     </main>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "@flowstate/ui";
 
 type QueueJob = {
   id: string;
@@ -165,74 +166,82 @@ export function ReviewClient() {
           <h2>Review Queue</h2>
           <p className="muted">Completed extractions awaiting approval: {pendingCount}</p>
         </div>
-        <button className="button secondary" onClick={() => void loadJobs()}>
+        <Button variant="outline" onClick={() => void loadJobs()}>
           Refresh
-        </button>
+        </Button>
       </div>
 
       <label className="field small">
         <span>Reviewer Name / Email</span>
-        <input value={reviewer} onChange={(event) => setReviewer(event.target.value)} />
+        <Input value={reviewer} onChange={(event) => setReviewer(event.target.value)} />
       </label>
 
       <div className="stack">
         {jobs.length === 0 && <p className="muted">No completed jobs yet.</p>}
 
         {jobs.map((job) => (
-          <article key={job.id} className="job-card">
-            <div className="row between">
-              <div>
-                <p className="mono">Job {job.id.slice(0, 8)}</p>
-                <p className="muted">
-                  {job.document_type} • review: {job.review_status}
-                </p>
-                <p className="muted">confidence: {job.validation?.confidence ?? "-"}</p>
-                <p className="muted">reviewer: {job.reviewer ?? "unassigned"}</p>
+          <Card key={job.id}>
+            <CardHeader>
+              <div className="row between">
+                <div>
+                  <CardTitle>Job {job.id.slice(0, 8)}</CardTitle>
+                  <p className="muted">{job.document_type}</p>
+                </div>
+                <div className="row wrap">
+                  <Badge variant="outline">review: {job.review_status}</Badge>
+                  <Badge variant="secondary">confidence: {job.validation?.confidence ?? "-"}</Badge>
+                  <Badge variant="outline">reviewer: {job.reviewer ?? "unassigned"}</Badge>
+                </div>
               </div>
-
-              <div className="row">
-                <button
-                  className="button secondary"
+            </CardHeader>
+            <CardContent className="stack">
+              <div className="row wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
                   disabled={busyJobId === job.id || !reviewer.trim()}
                   onClick={() => void assign(job.id)}
                 >
                   Assign
-                </button>
-                <button
-                  className="button"
+                </Button>
+                <Button
+                  size="sm"
                   disabled={busyJobId === job.id}
                   onClick={() => void review(job.id, "approved")}
                 >
                   Approve
-                </button>
-                <button
-                  className="button secondary"
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   disabled={busyJobId === job.id}
                   onClick={() => void review(job.id, "rejected")}
                 >
                   Reject
-                </button>
+                </Button>
               </div>
-            </div>
 
-            {job.artifact_file_url && (
-              <a href={job.artifact_file_url} target="_blank" rel="noreferrer">
-                Open artifact
-              </a>
-            )}
+              {job.artifact_file_url && (
+                <Button asChild variant="link" className="w-fit p-0">
+                  <a href={job.artifact_file_url} target="_blank" rel="noreferrer">
+                    Open artifact
+                  </a>
+                </Button>
+              )}
 
-            <pre className="json small">{JSON.stringify(job.result, null, 2)}</pre>
+              <pre className="json small">{JSON.stringify(job.result, null, 2)}</pre>
 
-            {job.validation?.issues?.length ? (
-              <ul className="issue-list">
-                {job.validation.issues.map((issue) => (
-                  <li key={`${job.id}-${issue.code}`}>{issue.message}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted">No validation issues.</p>
-            )}
-          </article>
+              {job.validation?.issues?.length ? (
+                <ul className="issue-list">
+                  {job.validation.issues.map((issue) => (
+                    <li key={`${job.id}-${issue.code}`}>{issue.message}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">No validation issues.</p>
+              )}
+            </CardContent>
+          </Card>
         ))}
       </div>
 
@@ -240,25 +249,25 @@ export function ReviewClient() {
 
       <h3>Export</h3>
       <div className="row wrap">
-        <a className="button secondary" href="/api/v1/exports/csv?reviewStatus=approved">
-          Download Approved CSV
-        </a>
-        <button className="button secondary" onClick={() => void createSnapshot()}>
+        <Button asChild variant="outline">
+          <a href="/api/v1/exports/csv?reviewStatus=approved">Download Approved CSV</a>
+        </Button>
+        <Button variant="outline" onClick={() => void createSnapshot()}>
           Create Approved Snapshot
-        </button>
+        </Button>
       </div>
 
       <label className="field">
         <span>Webhook URL</span>
-        <input
+        <Input
           placeholder="https://example.com/webhooks/flowstate"
           value={webhookUrl}
           onChange={(event) => setWebhookUrl(event.target.value)}
         />
       </label>
-      <button className="button" disabled={!webhookUrl.trim()} onClick={() => void sendWebhook()}>
+      <Button disabled={!webhookUrl.trim()} onClick={() => void sendWebhook()}>
         Send Approved Records to Webhook
-      </button>
+      </Button>
 
       {statusMessage && <p className="muted">{statusMessage}</p>}
 

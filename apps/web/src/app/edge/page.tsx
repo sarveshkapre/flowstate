@@ -1,23 +1,21 @@
-import Link from "next/link";
+import { PageHeader } from "@/components/page-header";
 
 import { EdgeBundlesClient } from "./edge-bundles-client";
 
 export default function EdgePage() {
   return (
     <main className="page">
-      <header className="hero compact">
-        <p className="eyebrow">Flowstate / Edge Adapters</p>
-        <h1>Package workflows for edge runtimes.</h1>
-        <p className="subtitle">
-          Generate adapter-specific manifests for Cloudflare Workers, Vercel Edge Functions, and browser WASM clients.
-        </p>
-        <div className="link-row">
-          <Link href="/">Dashboard</Link>
-          <Link href="/workflows">Workflow Builder</Link>
-          <Link href="/edge-control">Edge Control v2</Link>
-          <Link href="/review">Review Queue</Link>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow="Flowstate / Edge Adapters"
+        title="Package workflows for edge runtimes."
+        description="Generate adapter-specific manifests for Cloudflare Workers, Vercel Edge Functions, and browser WASM clients."
+        links={[
+          { href: "/", label: "Dashboard" },
+          { href: "/workflows", label: "Workflow Builder" },
+          { href: "/edge-control", label: "Edge Control v2" },
+          { href: "/review", label: "Review Queue" },
+        ]}
+      />
 
       <EdgeBundlesClient />
     </main>

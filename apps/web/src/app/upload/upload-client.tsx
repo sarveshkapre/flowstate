@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, NativeSelect } from "@flowstate/ui";
 
 import type { DocumentType } from "@flowstate/types";
 
@@ -103,50 +104,64 @@ export function UploadClient() {
       <form className="stack" onSubmit={onSubmit}>
         <label className="field">
           <span>Document Type</span>
-          <select
+          <NativeSelect
             value={documentType}
             onChange={(event) => setDocumentType(event.target.value as DocumentType)}
           >
             <option value="invoice">Invoice</option>
             <option value="receipt">Receipt</option>
-          </select>
+          </NativeSelect>
         </label>
 
         <label className="field">
           <span>File</span>
-          <input
+          <Input
             type="file"
             accept="image/*,application/pdf"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </label>
 
-        <button type="submit" className="button" disabled={!canSubmit}>
+        <Button type="submit" disabled={!canSubmit}>
           {busy ? "Running extraction..." : "Upload + Extract"}
-        </button>
+        </Button>
       </form>
 
       {error && <p className="error">{error}</p>}
 
       {uploadResult && (
-        <div className="result-card">
-          <h3>Uploaded</h3>
-          <p className="mono">Artifact ID: {uploadResult.artifact.id}</p>
-          <a href={uploadResult.file_url} target="_blank" rel="noreferrer">
-            Open uploaded file
-          </a>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Uploaded</CardTitle>
+          </CardHeader>
+          <CardContent className="stack">
+            <p className="mono">Artifact ID: {uploadResult.artifact.id}</p>
+            <Button asChild variant="outline" size="sm">
+              <a href={uploadResult.file_url} target="_blank" rel="noreferrer">
+                Open uploaded file
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {extractionResult?.job && (
-        <div className="result-card">
-          <h3>Extraction Result</h3>
-          <p>Status: {extractionResult.job.status}</p>
-          <p>Review: {extractionResult.job.review_status}</p>
-          <p>Valid: {String(extractionResult.job.validation?.is_valid ?? false)}</p>
-          <p>Confidence: {extractionResult.job.validation?.confidence ?? 0}</p>
-          <pre className="json">{JSON.stringify(extractionResult.job.result, null, 2)}</pre>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Extraction Result</CardTitle>
+          </CardHeader>
+          <CardContent className="stack">
+            <div className="row wrap">
+              <Badge variant="outline">Status: {extractionResult.job.status}</Badge>
+              <Badge variant="outline">Review: {extractionResult.job.review_status}</Badge>
+              <Badge variant={extractionResult.job.validation?.is_valid ? "success" : "warning"}>
+                Valid: {String(extractionResult.job.validation?.is_valid ?? false)}
+              </Badge>
+              <Badge variant="secondary">Confidence: {extractionResult.job.validation?.confidence ?? 0}</Badge>
+            </div>
+            <pre className="json">{JSON.stringify(extractionResult.job.result, null, 2)}</pre>
+          </CardContent>
+        </Card>
       )}
     </section>
   );

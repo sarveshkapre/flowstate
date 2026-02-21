@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, NativeSelect } from "@flowstate/ui";
 
 type Workflow = {
   id: string;
@@ -150,69 +151,75 @@ export function EdgeBundlesClient() {
       <p className="muted">Build and download adapter manifests that can run OpenAI extraction workflows at the edge.</p>
 
       <div className="grid two-col">
-        <article className="card stack">
-          <h3>Create Bundle</h3>
+        <Card className="stack">
+          <CardHeader>
+            <CardTitle>Create Bundle</CardTitle>
+          </CardHeader>
+          <CardContent className="stack">
 
-          <label className="field">
-            <span>Organization</span>
-            <select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
-              <option value="">Select organization</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="field">
+              <span>Organization</span>
+              <NativeSelect value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
+                <option value="">Select organization</option>
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
 
-          <label className="field">
-            <span>Workflow</span>
-            <select value={workflowId} onChange={(event) => setWorkflowId(event.target.value)}>
-              <option value="">Select workflow</option>
-              {workflows.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>
-                  {workflow.name} ({workflow.document_type})
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="field">
+              <span>Workflow</span>
+              <NativeSelect value={workflowId} onChange={(event) => setWorkflowId(event.target.value)}>
+                <option value="">Select workflow</option>
+                {workflows.map((workflow) => (
+                  <option key={workflow.id} value={workflow.id}>
+                    {workflow.name} ({workflow.document_type})
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
 
-          <label className="field">
-            <span>Adapter</span>
-            <select value={adapterId} onChange={(event) => setAdapterId(event.target.value as Adapter["id"])}>
-              <option value="">Select adapter</option>
-              {adapters.map((adapter) => (
-                <option key={adapter.id} value={adapter.id}>
-                  {adapter.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="field">
+              <span>Adapter</span>
+              <NativeSelect value={adapterId} onChange={(event) => setAdapterId(event.target.value as Adapter["id"])}>
+                <option value="">Select adapter</option>
+                {adapters.map((adapter) => (
+                  <option key={adapter.id} value={adapter.id}>
+                    {adapter.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
 
-          <label className="field">
-            <span>OpenAI Model</span>
-            <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-4.1-mini" />
-          </label>
+            <label className="field">
+              <span>OpenAI Model</span>
+              <Input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-4.1-mini" />
+            </label>
 
-          <button className="button" onClick={() => void createBundle()}>
-            Generate Edge Bundle
-          </button>
+            <Button onClick={() => void createBundle()}>Generate Edge Bundle</Button>
 
-          {selectedAdapter && (
-            <p className="muted">
-              runtime: {selectedAdapter.runtime} • webhook support: {String(selectedAdapter.supportsWebhookDispatch)}
-            </p>
-          )}
+            {selectedAdapter && (
+              <p className="muted">
+                runtime: {selectedAdapter.runtime} • webhook support: {String(selectedAdapter.supportsWebhookDispatch)}
+              </p>
+            )}
 
-          {selectedAdapter && <p className="muted">{selectedAdapter.description}</p>}
-          {statusMessage && <p className="muted">{statusMessage}</p>}
-        </article>
+            {selectedAdapter && <p className="muted">{selectedAdapter.description}</p>}
+            {statusMessage && <p className="muted">{statusMessage}</p>}
+          </CardContent>
+        </Card>
 
-        <article className="card stack">
-          <h3>Manifest Preview</h3>
-          {!manifestPreview && <p className="muted">Generate a bundle to preview its manifest.</p>}
-          {manifestPreview && <pre className="json small">{manifestPreview}</pre>}
-        </article>
+        <Card className="stack">
+          <CardHeader>
+            <CardTitle>Manifest Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!manifestPreview && <p className="muted">Generate a bundle to preview its manifest.</p>}
+            {manifestPreview && <pre className="json small">{manifestPreview}</pre>}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="divider" />
@@ -220,22 +227,24 @@ export function EdgeBundlesClient() {
       <div className="stack">
         {bundles.length === 0 && <p className="muted">No bundles generated yet.</p>}
         {bundles.map((bundle) => (
-          <article key={bundle.id} className="job-card stack">
-            <p className="mono">{bundle.file_name}</p>
-            <p className="muted">
-              workflow: {bundle.workflow_name} • adapter: {bundle.adapter} • runtime: {bundle.runtime}
-            </p>
-            <p className="muted">
-              model: {bundle.model} • size: {bundle.file_size_bytes} bytes
-            </p>
-            <p className="mono">sha256: {bundle.checksum_sha256}</p>
-            <div className="row wrap">
-              <a href={`/api/v1/edge/bundles/${bundle.id}/download`} className="button secondary">
-                Download JSON
-              </a>
-              <span className="muted">created: {bundle.created_at}</span>
-            </div>
-          </article>
+          <Card key={bundle.id}>
+            <CardContent className="stack pt-5">
+              <p className="mono">{bundle.file_name}</p>
+              <p className="muted">
+                workflow: {bundle.workflow_name} • adapter: {bundle.adapter} • runtime: {bundle.runtime}
+              </p>
+              <p className="muted">
+                model: {bundle.model} • size: {bundle.file_size_bytes} bytes
+              </p>
+              <p className="mono">sha256: {bundle.checksum_sha256}</p>
+              <div className="row wrap">
+                <Button asChild variant="outline" size="sm">
+                  <a href={`/api/v1/edge/bundles/${bundle.id}/download`}>Download JSON</a>
+                </Button>
+                <span className="muted">created: {bundle.created_at}</span>
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </section>

@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button, Card, CardContent, CardHeader, CardTitle, Input } from "@flowstate/ui";
 
 type Organization = {
   id: string;
@@ -58,37 +59,41 @@ export function OrganizationsClient() {
       <h2>Organizations</h2>
       <p className="muted">Use organizations to isolate workflow and deployment operations by tenant.</p>
 
-      <article className="card stack">
-        <h3>Create Organization</h3>
+      <Card className="stack">
+        <CardHeader>
+          <CardTitle>Create Organization</CardTitle>
+        </CardHeader>
+        <CardContent className="stack">
 
-        <label className="field small">
-          <span>Name</span>
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
+          <label className="field small">
+            <span>Name</span>
+            <Input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
 
-        <label className="field small">
-          <span>Slug</span>
-          <input value={slug} onChange={(event) => setSlug(event.target.value)} />
-        </label>
+          <label className="field small">
+            <span>Slug</span>
+            <Input value={slug} onChange={(event) => setSlug(event.target.value)} />
+          </label>
 
-        <button className="button" onClick={() => void createOrganization()}>
-          Create Organization
-        </button>
+          <Button onClick={() => void createOrganization()}>Create Organization</Button>
 
-        {statusMessage && <p className="muted">{statusMessage}</p>}
-      </article>
+          {statusMessage && <p className="muted">{statusMessage}</p>}
+        </CardContent>
+      </Card>
 
       <div className="divider" />
       <h3>Current Organizations</h3>
       <div className="stack">
         {organizations.length === 0 && <p className="muted">No organizations found.</p>}
         {organizations.map((organization) => (
-          <article key={organization.id} className="job-card stack">
-            <p className="mono">{organization.name}</p>
-            <p className="muted">slug: {organization.slug}</p>
-            <p className="muted">active: {String(organization.is_active)}</p>
-            <p className="muted">created: {organization.created_at}</p>
-          </article>
+          <Card key={organization.id}>
+            <CardContent className="stack pt-5">
+              <p className="mono">{organization.name}</p>
+              <p className="muted">slug: {organization.slug}</p>
+              <p className="muted">active: {String(organization.is_active)}</p>
+              <p className="muted">created: {organization.created_at}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </section>

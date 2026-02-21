@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Badge, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Input } from "@flowstate/ui";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
@@ -55,42 +56,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <div className="cmdk-hint" onClick={() => setOpen(true)} role="button" tabIndex={0}>
-        <span>Jump</span>
-        <kbd>⌘K</kbd>
-      </div>
+      <button type="button" className="cmdk-hint" onClick={() => setOpen(true)}>
+        <Badge variant="outline">Jump</Badge>
+        <kbd>cmd+k</kbd>
+      </button>
       {children}
-      {open ? (
-        <div className="cmdk-overlay" onClick={closePalette}>
-          <div
-            className="cmdk-modal"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Command palette"
-          >
-            <label className="field">
-              <span>Go to</span>
-              <input
-                autoFocus
-                placeholder="Search pages..."
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
+      <Dialog open={open} onOpenChange={(nextOpen) => (nextOpen ? setOpen(true) : closePalette())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Command Palette</DialogTitle>
+            <DialogDescription>Jump to any operator screen.</DialogDescription>
+          </DialogHeader>
+          <label className="field">
+            <span>Go to</span>
+            <Input
+              autoFocus
+              placeholder="Search pages..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
 
-            <div className="cmdk-list">
-              {results.length === 0 ? <p className="muted">No matches.</p> : null}
-              {results.map((item) => (
-                <Link key={item.href} href={item.href} className="cmdk-item" onClick={closePalette}>
-                  <span>{item.label}</span>
-                  <span className="mono">{item.href}</span>
-                </Link>
-              ))}
-            </div>
+          <div className="cmdk-list">
+            {results.length === 0 ? <p className="muted">No matches.</p> : null}
+            {results.map((item) => (
+              <Link key={item.href} href={item.href} className="cmdk-item" onClick={closePalette}>
+                <span>{item.label}</span>
+                <span className="mono">{item.href}</span>
+              </Link>
+            ))}
           </div>
-        </div>
-      ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

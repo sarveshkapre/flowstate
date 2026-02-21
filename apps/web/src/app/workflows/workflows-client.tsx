@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, NativeSelect } from "@flowstate/ui";
 
 type Workflow = {
   id: string;
@@ -185,102 +186,107 @@ export function WorkflowsClient() {
       <p className="muted">Create and run deterministic extraction workflows over uploaded artifacts.</p>
 
       <div className="grid two-col">
-        <article className="card stack">
-          <h3>Create Workflow</h3>
+        <Card className="stack">
+          <CardHeader>
+            <CardTitle>Create Workflow</CardTitle>
+          </CardHeader>
+          <CardContent className="stack">
 
-          <label className="field">
-            <span>Organization</span>
-            <select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
-              <option value="">Select organization</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="field">
+              <span>Organization</span>
+              <NativeSelect value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
+                <option value="">Select organization</option>
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
 
-          <label className="field">
-            <span>Name</span>
-            <input value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
+            <label className="field">
+              <span>Name</span>
+              <Input value={name} onChange={(event) => setName(event.target.value)} />
+            </label>
 
-          <label className="field">
-            <span>Description</span>
-            <input value={description} onChange={(event) => setDescription(event.target.value)} />
-          </label>
+            <label className="field">
+              <span>Description</span>
+              <Input value={description} onChange={(event) => setDescription(event.target.value)} />
+            </label>
 
-          <label className="field">
-            <span>Document Type</span>
-            <select value={documentType} onChange={(event) => setDocumentType(event.target.value as "invoice" | "receipt")}>
-              <option value="invoice">Invoice</option>
-              <option value="receipt">Receipt</option>
-            </select>
-          </label>
+            <label className="field">
+              <span>Document Type</span>
+              <NativeSelect value={documentType} onChange={(event) => setDocumentType(event.target.value as "invoice" | "receipt")}>
+                <option value="invoice">Invoice</option>
+                <option value="receipt">Receipt</option>
+              </NativeSelect>
+            </label>
 
-          <label className="field">
-            <span>Auto-Approve Confidence Threshold</span>
-            <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.01}
-              value={threshold}
-              onChange={(event) => setThreshold(Number(event.target.value))}
-            />
-          </label>
+            <label className="field">
+              <span>Auto-Approve Confidence Threshold</span>
+              <Input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={threshold}
+                onChange={(event) => setThreshold(Number(event.target.value))}
+              />
+            </label>
 
-          <label className="field">
-            <span>Optional Webhook URL</span>
-            <input
-              placeholder="https://example.com/webhook"
-              value={webhookUrl}
-              onChange={(event) => setWebhookUrl(event.target.value)}
-            />
-          </label>
+            <label className="field">
+              <span>Optional Webhook URL</span>
+              <Input
+                placeholder="https://example.com/webhook"
+                value={webhookUrl}
+                onChange={(event) => setWebhookUrl(event.target.value)}
+              />
+            </label>
 
-          <button className="button" onClick={() => void createWorkflow()}>
-            Create Workflow
-          </button>
-        </article>
+            <Button onClick={() => void createWorkflow()}>Create Workflow</Button>
+          </CardContent>
+        </Card>
 
-        <article className="card stack">
-          <h3>Run Workflow</h3>
+        <Card className="stack">
+          <CardHeader>
+            <CardTitle>Run Workflow</CardTitle>
+          </CardHeader>
+          <CardContent className="stack">
 
-          <label className="field">
-            <span>Workflow</span>
-            <select value={selectedWorkflowId} onChange={(event) => setSelectedWorkflowId(event.target.value)}>
-              <option value="">Select workflow</option>
-              {workflows.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>
-                  {workflow.name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="field">
+              <span>Workflow</span>
+              <NativeSelect value={selectedWorkflowId} onChange={(event) => setSelectedWorkflowId(event.target.value)}>
+                <option value="">Select workflow</option>
+                {workflows.map((workflow) => (
+                  <option key={workflow.id} value={workflow.id}>
+                    {workflow.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
 
-          <label className="field">
-            <span>Artifact</span>
-            <select value={artifactId} onChange={(event) => setArtifactId(event.target.value)}>
-              <option value="">Select artifact</option>
-              {artifacts.map((artifact) => (
-                <option key={artifact.id} value={artifact.id}>
-                  {artifact.original_name}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="field">
+              <span>Artifact</span>
+              <NativeSelect value={artifactId} onChange={(event) => setArtifactId(event.target.value)}>
+                <option value="">Select artifact</option>
+                {artifacts.map((artifact) => (
+                  <option key={artifact.id} value={artifact.id}>
+                    {artifact.original_name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
 
-          <button className="button" onClick={() => void runSelectedWorkflow()}>
-            Run Workflow
-          </button>
+            <Button onClick={() => void runSelectedWorkflow()}>Run Workflow</Button>
 
-          {selectedWorkflow && (
-            <p className="muted">
-              {selectedWorkflow.document_type} • auto-approve {selectedWorkflow.min_confidence_auto_approve}
-            </p>
-          )}
-        </article>
+            {selectedWorkflow && (
+              <div className="row wrap">
+                <Badge variant="outline">{selectedWorkflow.document_type}</Badge>
+                <Badge variant="secondary">auto-approve {selectedWorkflow.min_confidence_auto_approve}</Badge>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {statusMessage && <p className="muted">{statusMessage}</p>}
@@ -290,14 +296,16 @@ export function WorkflowsClient() {
       <div className="stack">
         {workflowRuns.length === 0 && <p className="muted">No runs yet for selected workflow.</p>}
         {workflowRuns.map((run) => (
-          <article key={run.id} className="job-card">
-            <p className="mono">Run {run.id.slice(0, 8)}</p>
-            <p className="muted">
-              status: {run.status} • auto-review: {String(run.auto_review_applied)} • updated: {run.updated_at}
-            </p>
-            <p className="muted">job: {run.extraction_job_id ?? "-"}</p>
-            {run.error_message && <p className="error">{run.error_message}</p>}
-          </article>
+          <Card key={run.id}>
+            <CardContent className="stack pt-5">
+              <p className="mono">Run {run.id.slice(0, 8)}</p>
+              <p className="muted">
+                status: {run.status} • auto-review: {String(run.auto_review_applied)} • updated: {run.updated_at}
+              </p>
+              <p className="muted">job: {run.extraction_job_id ?? "-"}</p>
+              {run.error_message && <p className="error">{run.error_message}</p>}
+            </CardContent>
+          </Card>
         ))}
       </div>
     </section>

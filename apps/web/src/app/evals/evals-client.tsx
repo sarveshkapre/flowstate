@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, NativeSelect } from "@flowstate/ui";
 
 type EvalRun = {
   id: string;
@@ -93,69 +94,73 @@ export function EvalsClient() {
       <h2>Evaluation Runs</h2>
       <p className="muted">Generate repeatable quality baselines from reviewed extraction jobs.</p>
 
-      <article className="card stack">
-        <h3>Create Run</h3>
+      <Card className="stack">
+        <CardHeader>
+          <CardTitle>Create Run</CardTitle>
+        </CardHeader>
+        <CardContent className="stack">
 
-        <label className="field small">
-          <span>Organization</span>
-          <select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
-            <option value="">Select organization</option>
-            {organizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="field small">
+            <span>Organization</span>
+            <NativeSelect value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)}>
+              <option value="">Select organization</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </label>
 
-        <label className="field small">
-          <span>Review Status Slice</span>
-          <select value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value as typeof reviewStatus)}>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="pending">Pending</option>
-          </select>
-        </label>
+          <label className="field small">
+            <span>Review Status Slice</span>
+            <NativeSelect value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value as typeof reviewStatus)}>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+            </NativeSelect>
+          </label>
 
-        <label className="field small">
-          <span>Sample Limit</span>
-          <input
-            type="number"
-            min={1}
-            max={500}
-            value={sampleLimit}
-            onChange={(event) => setSampleLimit(Number(event.target.value))}
-          />
-        </label>
+          <label className="field small">
+            <span>Sample Limit</span>
+            <Input
+              type="number"
+              min={1}
+              max={500}
+              value={sampleLimit}
+              onChange={(event) => setSampleLimit(Number(event.target.value))}
+            />
+          </label>
 
-        <button className="button" onClick={() => void createRun()}>
-          Run Evaluation
-        </button>
+          <Button onClick={() => void createRun()}>Run Evaluation</Button>
 
-        {statusMessage && <p className="muted">{statusMessage}</p>}
-        {sampledJobIds.length > 0 && (
-          <p className="mono">sampled jobs: {sampledJobIds.slice(0, 10).join(", ")}</p>
-        )}
-      </article>
+          {statusMessage && <p className="muted">{statusMessage}</p>}
+          {sampledJobIds.length > 0 && (
+            <p className="mono">sampled jobs: {sampledJobIds.slice(0, 10).join(", ")}</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="divider" />
       <h3>History</h3>
       <div className="stack">
         {runs.length === 0 && <p className="muted">No eval runs yet.</p>}
         {runs.map((run) => (
-          <article key={run.id} className="job-card stack">
-            <p className="mono">run {run.id.slice(0, 8)}</p>
-            <p className="muted">
-              status slice: {run.review_status} • sample: {run.sample_count}/{run.sample_limit}
-            </p>
-            <p className="muted">
-              confidence: {run.avg_confidence.toFixed(3)} • coverage: {run.avg_field_coverage.toFixed(3)}
-            </p>
-            <p className="muted">
-              error rate: {run.error_rate.toFixed(3)} • warning rate: {run.warning_rate.toFixed(3)}
-            </p>
-            <p className="muted">created: {run.created_at}</p>
-          </article>
+          <Card key={run.id}>
+            <CardContent className="stack pt-5">
+              <p className="mono">run {run.id.slice(0, 8)}</p>
+              <p className="muted">
+                status slice: {run.review_status} • sample: {run.sample_count}/{run.sample_limit}
+              </p>
+              <p className="muted">
+                confidence: {run.avg_confidence.toFixed(3)} • coverage: {run.avg_field_coverage.toFixed(3)}
+              </p>
+              <p className="muted">
+                error rate: {run.error_rate.toFixed(3)} • warning rate: {run.warning_rate.toFixed(3)}
+              </p>
+              <p className="muted">created: {run.created_at}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </section>

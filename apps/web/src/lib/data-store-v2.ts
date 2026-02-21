@@ -42,6 +42,8 @@ import {
   type ProjectMemberRole,
   reviewAlertPolicyRecordSchema,
   type ReviewAlertPolicyRecord,
+  connectorGuardianPolicyRecordSchema,
+  type ConnectorGuardianPolicyRecord,
   reviewDecisionRecordSchema,
   type ReviewDecisionRecord,
   runRecordV2Schema,
@@ -85,6 +87,7 @@ type DbStateV2 = {
   evidence_regions: EvidenceRegionRecord[];
   eval_packs: EvalPackRecord[];
   review_alert_policies: ReviewAlertPolicyRecord[];
+  connector_guardian_policies: ConnectorGuardianPolicyRecord[];
   connector_deliveries: ConnectorDeliveryRecord[];
   connector_delivery_attempts: ConnectorDeliveryAttemptRecord[];
   edge_agents: EdgeAgentRecord[];
@@ -111,6 +114,7 @@ const DEFAULT_STATE: DbStateV2 = {
   evidence_regions: [],
   eval_packs: [],
   review_alert_policies: [],
+  connector_guardian_policies: [],
   connector_deliveries: [],
   connector_delivery_attempts: [],
   edge_agents: [],
@@ -263,6 +267,9 @@ async function readState(): Promise<DbStateV2> {
     evidence_regions: (parsed.evidence_regions ?? []).map((item) => evidenceRegionRecordSchema.parse(item)),
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
     review_alert_policies: (parsed.review_alert_policies ?? []).map((item) => reviewAlertPolicyRecordSchema.parse(item)),
+    connector_guardian_policies: (parsed.connector_guardian_policies ?? []).map((item) =>
+      connectorGuardianPolicyRecordSchema.parse(item),
+    ),
     connector_deliveries: (parsed.connector_deliveries ?? []).map((item) => connectorDeliveryRecordSchema.parse(item)),
     connector_delivery_attempts: (parsed.connector_delivery_attempts ?? []).map((item) =>
       connectorDeliveryAttemptRecordSchema.parse(item),
@@ -1212,11 +1219,30 @@ const REVIEW_ALERT_POLICY_DEFAULTS = {
   idempotencyWindowMinutes: 30,
 } as const;
 
+const CONNECTOR_GUARDIAN_POLICY_DEFAULTS = {
+  isEnabled: true,
+  lookbackHours: 24,
+  riskThreshold: 20,
+  maxActionsPerProject: 2,
+  actionLimit: 10,
+  cooldownMinutes: 10,
+  minDeadLetterMinutes: 15,
+  allowProcessQueue: true,
+  allowRedriveDeadLetters: true,
+} as const;
+
 function clampPositiveInt(value: number | undefined, fallback: number, max: number) {
   if (!Number.isFinite(value) || typeof value !== "number" || value <= 0) {
     return fallback;
   }
   return Math.min(Math.floor(value), max);
+}
+
+function clampPositiveNumber(value: number | undefined, fallback: number, max: number) {
+  if (!Number.isFinite(value) || typeof value !== "number" || value <= 0) {
+    return fallback;
+  }
+  return Math.min(Number(value.toFixed(4)), max);
 }
 
 function clampNonNegativeInt(value: number | undefined, fallback: number, max: number) {
@@ -1322,6 +1348,100 @@ export async function upsertReviewAlertPolicy(input: {
         project_id: policy.project_id,
         is_enabled: policy.is_enabled,
         connector_type: policy.connector_type,
+      },
+    });
+
+    return policy;
+  });
+}
+
+export async function getConnectorGuardianPolicy(projectId: string) {
+  const state = await readState();
+  return state.connector_guardian_policies.find((policy) => policy.project_id === projectId) ?? null;
+}
+
+export async function upsertConnectorGuardianPolicy(input: {
+  projectId: string;
+  isEnabled?: boolean;
+  lookbackHours?: number;
+  riskThreshold?: number;
+  maxActionsPerProject?: number;
+  actionLimit?: number;
+  cooldownMinutes?: number;
+  minDeadLetterMinutes?: number;
+  allowProcessQueue?: boolean;
+  allowRedriveDeadLetters?: boolean;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const project = state.projects.find((item) => item.id === input.projectId);
+    if (!project) {
+      throw new Error("Project not found");
+    }
+
+    const existing = state.connector_guardian_policies.find((policy) => policy.project_id === input.projectId) ?? null;
+    const now = new Date().toISOString();
+
+    const policy = connectorGuardianPolicyRecordSchema.parse({
+      id: existing?.id ?? randomUUID(),
+      project_id: input.projectId,
+      is_enabled: input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.isEnabled,
+      lookback_hours: clampPositiveInt(
+        input.lookbackHours ?? existing?.lookback_hours,
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.lookbackHours,
+        24 * 30,
+      ),
+      risk_threshold: clampPositiveNumber(
+        input.riskThreshold ?? existing?.risk_threshold,
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.riskThreshold,
+        500,
+      ),
+      max_actions_per_project: clampPositiveInt(
+        input.maxActionsPerProject ?? existing?.max_actions_per_project,
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.maxActionsPerProject,
+        20,
+      ),
+      action_limit: clampPositiveInt(
+        input.actionLimit ?? existing?.action_limit,
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.actionLimit,
+        100,
+      ),
+      cooldown_minutes: clampNonNegativeInt(
+        input.cooldownMinutes ?? existing?.cooldown_minutes,
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.cooldownMinutes,
+        24 * 60,
+      ),
+      min_dead_letter_minutes: clampNonNegativeInt(
+        input.minDeadLetterMinutes ?? existing?.min_dead_letter_minutes,
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.minDeadLetterMinutes,
+        7 * 24 * 60,
+      ),
+      allow_process_queue:
+        input.allowProcessQueue ?? existing?.allow_process_queue ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.allowProcessQueue,
+      allow_redrive_dead_letters:
+        input.allowRedriveDeadLetters ??
+        existing?.allow_redrive_dead_letters ??
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.allowRedriveDeadLetters,
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+    });
+
+    const existingIndex = state.connector_guardian_policies.findIndex((item) => item.project_id === input.projectId);
+    if (existingIndex >= 0) {
+      state.connector_guardian_policies[existingIndex] = policy;
+    } else {
+      state.connector_guardian_policies.unshift(policy);
+    }
+
+    appendAuditEvent(state, {
+      eventType: "connector_guardian_policy_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        policy_id: policy.id,
+        project_id: policy.project_id,
+        is_enabled: policy.is_enabled,
+        risk_threshold: policy.risk_threshold,
+        max_actions_per_project: policy.max_actions_per_project,
       },
     });
 

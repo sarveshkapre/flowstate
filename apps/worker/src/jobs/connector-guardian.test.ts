@@ -15,6 +15,7 @@ test("parseConnectorGuardianConfig applies defaults", () => {
 
   assert.equal(config.apiBaseUrl, "http://localhost:3000");
   assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira", "sqs", "db"]);
+  assert.equal(config.useProjectPolicies, true);
   assert.equal(config.pollMs, 60_000);
   assert.equal(config.lookbackHours, 24);
   assert.equal(config.riskThreshold, 20);
@@ -30,6 +31,7 @@ test("parseConnectorGuardianConfig normalizes values and ignores unsupported con
   const config = parseConnectorGuardianConfig({
     FLOWSTATE_LOCAL_API_BASE: "http://localhost:3010/",
     FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "Slack,custom,webhook",
+    FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES: "false",
     FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: " p1, p2, p1 ",
     FLOWSTATE_CONNECTOR_GUARDIAN_POLL_MS: "1",
     FLOWSTATE_CONNECTOR_GUARDIAN_LOOKBACK_HOURS: "9999",
@@ -44,6 +46,7 @@ test("parseConnectorGuardianConfig normalizes values and ignores unsupported con
 
   assert.equal(config.apiBaseUrl, "http://localhost:3010");
   assert.deepEqual(config.connectorTypes, ["slack", "webhook"]);
+  assert.equal(config.useProjectPolicies, false);
   assert.deepEqual(config.projectIds, ["p1", "p2"]);
   assert.equal(config.pollMs, 1);
   assert.equal(config.lookbackHours, 720);
@@ -63,6 +66,7 @@ test("runConnectorGuardianOnce executes top recommendations above threshold", as
     FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1",
     FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook,jira,slack",
     FLOWSTATE_CONNECTOR_GUARDIAN_RISK_THRESHOLD: "10",
+    FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES: "0",
   });
 
   const result = await runConnectorGuardianOnce({
@@ -110,6 +114,7 @@ test("runConnectorGuardianOnce skips projects with no actionable recommendations
     FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1",
     FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook",
     FLOWSTATE_CONNECTOR_GUARDIAN_RISK_THRESHOLD: "50",
+    FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES: "0",
   });
 
   const result = await runConnectorGuardianOnce({
@@ -132,6 +137,7 @@ test("runConnectorGuardianOnce continues after action failures", async () => {
     FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1,proj-2",
     FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook,jira",
     FLOWSTATE_CONNECTOR_GUARDIAN_RISK_THRESHOLD: "10",
+    FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES: "0",
   });
 
   const result = await runConnectorGuardianOnce({
@@ -162,4 +168,96 @@ test("runConnectorGuardianOnce continues after action failures", async () => {
   assert.equal(result.actioned_count, 2);
   assert.equal(result.failures.length, 1);
   assert.ok(result.failures[0]?.includes("failed to run connector recommendations"));
+});
+
+test("runConnectorGuardianOnce applies project policy overrides when enabled", async () => {
+  const seenRequests: Array<{ method?: string; url: string }> = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
+  const config = parseConnectorGuardianConfig({
+    FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1",
+    FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook",
+    FLOWSTATE_CONNECTOR_GUARDIAN_RISK_THRESHOLD: "10",
+    FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES: "1",
+  });
+
+  const result = await runConnectorGuardianOnce({
+    config,
+    fetchImpl: async (url, init) => {
+      const request = { method: init?.method, url: String(url) };
+      seenRequests.push(request);
+
+      if (request.url.includes("/connector-guardian-policy")) {
+        return jsonResponse(200, {
+          policy: {
+            is_enabled: true,
+            lookback_hours: 72,
+            risk_threshold: 44.5,
+            max_actions_per_project: 5,
+            action_limit: 17,
+            cooldown_minutes: 0,
+            min_dead_letter_minutes: 30,
+            allow_process_queue: false,
+            allow_redrive_dead_letters: true,
+          },
+        });
+      }
+
+      if (typeof init?.body === "string") {
+        requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      }
+
+      return jsonResponse(200, {
+        selected_actions: [{ connector_type: "webhook", recommendation: "redrive_dead_letters", risk_score: 55 }],
+        action_results: [{ connector_type: "webhook", recommendation: "redrive_dead_letters" }],
+      });
+    },
+    logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+  });
+
+  assert.equal(result.project_count, 1);
+  assert.equal(result.actioned_count, 1);
+  assert.equal(seenRequests.length, 2);
+  assert.ok(seenRequests[0]?.url.includes("/connector-guardian-policy"));
+  assert.ok(seenRequests[1]?.url.endsWith("/api/v2/connectors/recommendations/run"));
+  assert.equal(requestBodies.length, 1);
+  assert.equal(requestBodies[0]?.lookbackHours, 72);
+  assert.equal(requestBodies[0]?.riskThreshold, 44.5);
+  assert.equal(requestBodies[0]?.maxActions, 5);
+  assert.equal(requestBodies[0]?.limit, 17);
+  assert.equal(requestBodies[0]?.cooldownMinutes, 0);
+  assert.equal(requestBodies[0]?.minDeadLetterMinutes, 30);
+  assert.equal(requestBodies[0]?.allowProcessQueue, false);
+  assert.equal(requestBodies[0]?.allowRedriveDeadLetters, true);
+});
+
+test("runConnectorGuardianOnce skips projects with disabled guardian policy", async () => {
+  const seenRequests: Array<{ method?: string; url: string }> = [];
+  const config = parseConnectorGuardianConfig({
+    FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: "proj-1",
+    FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "webhook",
+    FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES: "1",
+  });
+
+  const result = await runConnectorGuardianOnce({
+    config,
+    fetchImpl: async (url, init) => {
+      const request = { method: init?.method, url: String(url) };
+      seenRequests.push(request);
+      return jsonResponse(200, {
+        policy: {
+          is_enabled: false,
+        },
+      });
+    },
+    logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+  });
+
+  assert.equal(result.project_count, 1);
+  assert.equal(result.connector_count, 1);
+  assert.equal(result.candidate_count, 0);
+  assert.equal(result.actioned_count, 0);
+  assert.equal(result.skipped_count, 1);
+  assert.deepEqual(result.failures, []);
+  assert.equal(seenRequests.length, 1);
+  assert.ok(seenRequests[0]?.url.includes("/connector-guardian-policy"));
 });

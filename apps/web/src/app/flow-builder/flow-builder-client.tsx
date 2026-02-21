@@ -242,6 +242,22 @@ type ReviewAlertPolicy = {
   updated_at: string;
 };
 
+type ConnectorGuardianPolicy = {
+  id: string;
+  project_id: string;
+  is_enabled: boolean;
+  lookback_hours: number;
+  risk_threshold: number;
+  max_actions_per_project: number;
+  action_limit: number;
+  cooldown_minutes: number;
+  min_dead_letter_minutes: number;
+  allow_process_queue: boolean;
+  allow_redrive_dead_letters: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 type ActiveLearningCandidate = {
   run: RunRecordV2;
   score: number;
@@ -813,6 +829,16 @@ export function FlowBuilderClient() {
   const [reviewAlertMinStale, setReviewAlertMinStale] = useState("3");
   const [reviewAlertMinAvgErrorRate, setReviewAlertMinAvgErrorRate] = useState("0.35");
   const [reviewAlertResult, setReviewAlertResult] = useState("");
+  const [connectorGuardianPolicyEnabled, setConnectorGuardianPolicyEnabled] = useState(true);
+  const [connectorGuardianLookbackHours, setConnectorGuardianLookbackHours] = useState("24");
+  const [connectorGuardianRiskThreshold, setConnectorGuardianRiskThreshold] = useState("20");
+  const [connectorGuardianMaxActionsPerProject, setConnectorGuardianMaxActionsPerProject] = useState("2");
+  const [connectorGuardianActionLimit, setConnectorGuardianActionLimit] = useState("10");
+  const [connectorGuardianCooldownMinutes, setConnectorGuardianCooldownMinutes] = useState("10");
+  const [connectorGuardianMinDeadLetterMinutes, setConnectorGuardianMinDeadLetterMinutes] = useState("15");
+  const [connectorGuardianAllowProcessQueue, setConnectorGuardianAllowProcessQueue] = useState(true);
+  const [connectorGuardianAllowRedriveDeadLetters, setConnectorGuardianAllowRedriveDeadLetters] = useState(true);
+  const [connectorGuardianResult, setConnectorGuardianResult] = useState("");
   const [selectedReviewDecisionId, setSelectedReviewDecisionId] = useState("");
   const [newReviewFieldName, setNewReviewFieldName] = useState("total");
   const [newReviewDecision, setNewReviewDecision] = useState<ReviewDecisionValue>("incorrect");
@@ -1115,6 +1141,61 @@ export function FlowBuilderClient() {
     [authHeaders],
   );
 
+  const loadConnectorGuardianPolicy = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setConnectorGuardianPolicyEnabled(true);
+        setConnectorGuardianLookbackHours("24");
+        setConnectorGuardianRiskThreshold("20");
+        setConnectorGuardianMaxActionsPerProject("2");
+        setConnectorGuardianActionLimit("10");
+        setConnectorGuardianCooldownMinutes("10");
+        setConnectorGuardianMinDeadLetterMinutes("15");
+        setConnectorGuardianAllowProcessQueue(true);
+        setConnectorGuardianAllowRedriveDeadLetters(true);
+        return;
+      }
+
+      const response = await fetch(`/api/v2/projects/${encodeURIComponent(projectId)}/connector-guardian-policy`, {
+        cache: "no-store",
+        headers: authHeaders(false),
+      });
+      const payload = (await response.json()) as {
+        policy?: ConnectorGuardianPolicy | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load connector guardian policy.");
+        return;
+      }
+
+      if (!payload.policy) {
+        setConnectorGuardianPolicyEnabled(true);
+        setConnectorGuardianLookbackHours("24");
+        setConnectorGuardianRiskThreshold("20");
+        setConnectorGuardianMaxActionsPerProject("2");
+        setConnectorGuardianActionLimit("10");
+        setConnectorGuardianCooldownMinutes("10");
+        setConnectorGuardianMinDeadLetterMinutes("15");
+        setConnectorGuardianAllowProcessQueue(true);
+        setConnectorGuardianAllowRedriveDeadLetters(true);
+        return;
+      }
+
+      setConnectorGuardianPolicyEnabled(payload.policy.is_enabled);
+      setConnectorGuardianLookbackHours(String(payload.policy.lookback_hours));
+      setConnectorGuardianRiskThreshold(String(payload.policy.risk_threshold));
+      setConnectorGuardianMaxActionsPerProject(String(payload.policy.max_actions_per_project));
+      setConnectorGuardianActionLimit(String(payload.policy.action_limit));
+      setConnectorGuardianCooldownMinutes(String(payload.policy.cooldown_minutes));
+      setConnectorGuardianMinDeadLetterMinutes(String(payload.policy.min_dead_letter_minutes));
+      setConnectorGuardianAllowProcessQueue(payload.policy.allow_process_queue);
+      setConnectorGuardianAllowRedriveDeadLetters(payload.policy.allow_redrive_dead_letters);
+    },
+    [authHeaders],
+  );
+
   const loadActiveLearning = useCallback(
     async (projectId: string) => {
       if (!projectId) {
@@ -1385,17 +1466,28 @@ export function FlowBuilderClient() {
       setReviewAlertMinAtRisk("3");
       setReviewAlertMinStale("3");
       setReviewAlertMinAvgErrorRate("0.35");
+      setConnectorGuardianPolicyEnabled(true);
+      setConnectorGuardianLookbackHours("24");
+      setConnectorGuardianRiskThreshold("20");
+      setConnectorGuardianMaxActionsPerProject("2");
+      setConnectorGuardianActionLimit("10");
+      setConnectorGuardianCooldownMinutes("10");
+      setConnectorGuardianMinDeadLetterMinutes("15");
+      setConnectorGuardianAllowProcessQueue(true);
+      setConnectorGuardianAllowRedriveDeadLetters(true);
       return;
     }
     void loadFlows(selectedProjectId);
     void loadDatasets(selectedProjectId);
     void loadRuns(selectedProjectId);
     void loadReviewAlertPolicy(selectedProjectId);
+    void loadConnectorGuardianPolicy(selectedProjectId);
     void loadReviewQueues(selectedProjectId);
     void loadActiveLearning(selectedProjectId);
     void loadMembersAndKeys(selectedProjectId);
   }, [
     loadActiveLearning,
+    loadConnectorGuardianPolicy,
     loadDatasets,
     loadFlows,
     loadMembersAndKeys,
@@ -2013,6 +2105,91 @@ export function FlowBuilderClient() {
     setSuccess("Review alert policy saved.");
     setReviewAlertResult(JSON.stringify(result, null, 2));
     await loadReviewAlertPolicy(selectedProjectId);
+    setBusyAction(null);
+  }
+
+  function parseConnectorGuardianPolicyInputs() {
+    const parsedLookbackHours = Number(connectorGuardianLookbackHours);
+    const parsedRiskThreshold = Number(connectorGuardianRiskThreshold);
+    const parsedMaxActionsPerProject = Number(connectorGuardianMaxActionsPerProject);
+    const parsedActionLimit = Number(connectorGuardianActionLimit);
+    const parsedCooldownMinutes = Number(connectorGuardianCooldownMinutes);
+    const parsedMinDeadLetterMinutes = Number(connectorGuardianMinDeadLetterMinutes);
+
+    if (!Number.isFinite(parsedLookbackHours) || parsedLookbackHours <= 0) {
+      setError("Guardian lookback hours must be a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedRiskThreshold) || parsedRiskThreshold <= 0) {
+      setError("Guardian risk threshold must be a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedMaxActionsPerProject) || parsedMaxActionsPerProject <= 0) {
+      setError("Guardian max actions per project must be a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedActionLimit) || parsedActionLimit <= 0) {
+      setError("Guardian action limit must be a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedCooldownMinutes) || parsedCooldownMinutes < 0) {
+      setError("Guardian cooldown minutes must be zero or a positive number.");
+      return null;
+    }
+    if (!Number.isFinite(parsedMinDeadLetterMinutes) || parsedMinDeadLetterMinutes < 0) {
+      setError("Guardian min dead-letter age must be zero or a positive number.");
+      return null;
+    }
+
+    return {
+      lookbackHours: Math.min(Math.floor(parsedLookbackHours), 24 * 30),
+      riskThreshold: Math.min(Number(parsedRiskThreshold.toFixed(4)), 500),
+      maxActionsPerProject: Math.min(Math.floor(parsedMaxActionsPerProject), 20),
+      actionLimit: Math.min(Math.floor(parsedActionLimit), 100),
+      cooldownMinutes: Math.min(Math.floor(parsedCooldownMinutes), 24 * 60),
+      minDeadLetterMinutes: Math.min(Math.floor(parsedMinDeadLetterMinutes), 7 * 24 * 60),
+    };
+  }
+
+  async function saveConnectorGuardianPolicy() {
+    if (!selectedProjectId) {
+      setError("Select a project before saving connector guardian policy.");
+      return;
+    }
+
+    const parsed = parseConnectorGuardianPolicyInputs();
+    if (!parsed) {
+      return;
+    }
+
+    setBusyAction("connector_guardian_policy_save");
+    const response = await fetch(`/api/v2/projects/${encodeURIComponent(selectedProjectId)}/connector-guardian-policy`, {
+      method: "PUT",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        isEnabled: connectorGuardianPolicyEnabled,
+        lookbackHours: parsed.lookbackHours,
+        riskThreshold: parsed.riskThreshold,
+        maxActionsPerProject: parsed.maxActionsPerProject,
+        actionLimit: parsed.actionLimit,
+        cooldownMinutes: parsed.cooldownMinutes,
+        minDeadLetterMinutes: parsed.minDeadLetterMinutes,
+        allowProcessQueue: connectorGuardianAllowProcessQueue,
+        allowRedriveDeadLetters: connectorGuardianAllowRedriveDeadLetters,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Unable to save connector guardian policy.");
+      setConnectorGuardianResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Connector guardian policy saved.");
+    setConnectorGuardianResult(JSON.stringify(result, null, 2));
+    await loadConnectorGuardianPolicy(selectedProjectId);
     setBusyAction(null);
   }
 
@@ -3984,6 +4161,91 @@ export function FlowBuilderClient() {
               ))}
             </ul>
           )}
+        </article>
+
+        <article className="card stack">
+          <h3>Connector Guardian Policy</h3>
+          <p className="muted">Configure per-project automated remediation used by the guardian worker.</p>
+          <div className="grid two-col">
+            <label className="field small">
+              <span>Automation</span>
+              <select
+                value={connectorGuardianPolicyEnabled ? "enabled" : "disabled"}
+                onChange={(event) => setConnectorGuardianPolicyEnabled(event.target.value === "enabled")}
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
+            <label className="field small">
+              <span>Lookback (hours)</span>
+              <input
+                value={connectorGuardianLookbackHours}
+                onChange={(event) => setConnectorGuardianLookbackHours(event.target.value)}
+              />
+            </label>
+            <label className="field small">
+              <span>Risk Threshold</span>
+              <input
+                value={connectorGuardianRiskThreshold}
+                onChange={(event) => setConnectorGuardianRiskThreshold(event.target.value)}
+              />
+            </label>
+            <label className="field small">
+              <span>Max Actions / Project</span>
+              <input
+                value={connectorGuardianMaxActionsPerProject}
+                onChange={(event) => setConnectorGuardianMaxActionsPerProject(event.target.value)}
+              />
+            </label>
+            <label className="field small">
+              <span>Action Limit</span>
+              <input value={connectorGuardianActionLimit} onChange={(event) => setConnectorGuardianActionLimit(event.target.value)} />
+            </label>
+            <label className="field small">
+              <span>Cooldown (minutes)</span>
+              <input
+                value={connectorGuardianCooldownMinutes}
+                onChange={(event) => setConnectorGuardianCooldownMinutes(event.target.value)}
+              />
+            </label>
+            <label className="field small">
+              <span>Min Dead-letter Age (minutes)</span>
+              <input
+                value={connectorGuardianMinDeadLetterMinutes}
+                onChange={(event) => setConnectorGuardianMinDeadLetterMinutes(event.target.value)}
+              />
+            </label>
+            <label className="field small">
+              <span>Process Queue</span>
+              <select
+                value={connectorGuardianAllowProcessQueue ? "enabled" : "disabled"}
+                onChange={(event) => setConnectorGuardianAllowProcessQueue(event.target.value === "enabled")}
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
+            <label className="field small">
+              <span>Redrive Dead Letters</span>
+              <select
+                value={connectorGuardianAllowRedriveDeadLetters ? "enabled" : "disabled"}
+                onChange={(event) => setConnectorGuardianAllowRedriveDeadLetters(event.target.value === "enabled")}
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
+          </div>
+          <div className="row wrap">
+            <button className="button secondary" onClick={() => void loadConnectorGuardianPolicy(selectedProjectId)}>
+              Refresh Policy
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void saveConnectorGuardianPolicy()}>
+              {busyAction === "connector_guardian_policy_save" ? "Saving..." : "Save Guardian Policy"}
+            </button>
+          </div>
+          {connectorGuardianResult ? <pre className="json small">{connectorGuardianResult}</pre> : null}
         </article>
 
         <article className="card stack">

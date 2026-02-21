@@ -3,6 +3,7 @@ type Logger = Pick<Console, "info" | "warn" | "error">;
 export type ConnectorGuardianConfig = {
   apiBaseUrl: string;
   connectorTypes: string[];
+  useProjectPolicies: boolean;
   projectIds: string[];
   organizationId: string | null;
   apiKey: string | null;
@@ -33,6 +34,18 @@ type Recommendation = "healthy" | "process_queue" | "redrive_dead_letters";
 
 type ConnectorReliabilityItem = {
   recommendation: Recommendation;
+};
+
+type ProjectConnectorGuardianPolicy = {
+  isEnabled: boolean;
+  lookbackHours: number;
+  riskThreshold: number;
+  maxActionsPerProject: number;
+  actionLimit: number;
+  cooldownMinutes: number;
+  minDeadLetterMinutes: number;
+  allowProcessQueue: boolean;
+  allowRedriveDeadLetters: boolean;
 };
 
 const DEFAULT_TYPES = ["webhook", "slack", "jira", "sqs", "db"];
@@ -82,6 +95,45 @@ function parsePositiveNumber(input: string | undefined, fallback: number, max: n
   }
 
   return Math.min(parsed, max);
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function clampPositiveInt(value: number | undefined, fallback: number, max: number) {
+  if (!Number.isFinite(value) || typeof value !== "number" || value <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.floor(value), max);
+}
+
+function clampNonNegativeInt(value: number | undefined, fallback: number, max: number) {
+  if (!Number.isFinite(value) || typeof value !== "number" || value < 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.floor(value), max);
+}
+
+function clampPositiveNumber(value: number | undefined, fallback: number, max: number) {
+  if (!Number.isFinite(value) || typeof value !== "number" || value <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Number(value.toFixed(4)), max);
 }
 
 function parseBoolean(input: string | undefined, fallback = true) {
@@ -151,6 +203,85 @@ function asConnectorActionResults(value: unknown): ConnectorReliabilityItem[] {
     .filter((item): item is ConnectorReliabilityItem => item !== null);
 }
 
+function asProjectConnectorGuardianPolicy(raw: unknown): ProjectConnectorGuardianPolicy | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const value = raw as Record<string, unknown>;
+  return {
+    isEnabled: value.is_enabled !== false,
+    lookbackHours: clampPositiveInt(asFiniteNumber(value.lookback_hours), DEFAULT_LOOKBACK_HOURS, 24 * 30),
+    riskThreshold: clampPositiveNumber(asFiniteNumber(value.risk_threshold), DEFAULT_RISK_THRESHOLD, 500),
+    maxActionsPerProject: clampPositiveInt(
+      asFiniteNumber(value.max_actions_per_project),
+      DEFAULT_MAX_ACTIONS_PER_PROJECT,
+      20,
+    ),
+    actionLimit: clampPositiveInt(asFiniteNumber(value.action_limit), DEFAULT_ACTION_LIMIT, 100),
+    cooldownMinutes: clampNonNegativeInt(asFiniteNumber(value.cooldown_minutes), DEFAULT_COOLDOWN_MINUTES, 24 * 60),
+    minDeadLetterMinutes: clampNonNegativeInt(
+      asFiniteNumber(value.min_dead_letter_minutes),
+      DEFAULT_MIN_DEAD_LETTER_MINUTES,
+      7 * 24 * 60,
+    ),
+    allowProcessQueue: value.allow_process_queue !== false,
+    allowRedriveDeadLetters: value.allow_redrive_dead_letters !== false,
+  };
+}
+
+function resolveProjectConfig(input: {
+  config: ConnectorGuardianConfig;
+  policy: ProjectConnectorGuardianPolicy | null;
+}) {
+  if (!input.policy) {
+    return {
+      isEnabled: true,
+      lookbackHours: input.config.lookbackHours,
+      riskThreshold: input.config.riskThreshold,
+      maxActionsPerProject: input.config.maxActionsPerProject,
+      actionLimit: input.config.actionLimit,
+      cooldownMinutes: input.config.cooldownMinutes,
+      minDeadLetterMinutes: input.config.minDeadLetterMinutes,
+      allowProcessQueue: input.config.allowProcessQueue,
+      allowRedriveDeadLetters: input.config.allowRedriveDeadLetters,
+    };
+  }
+
+  return input.policy;
+}
+
+async function fetchProjectPolicy(input: {
+  config: ConnectorGuardianConfig;
+  projectId: string;
+  fetchImpl: typeof fetch;
+}): Promise<{ policy: ProjectConnectorGuardianPolicy | null; warning: string | null }> {
+  if (!input.config.useProjectPolicies) {
+    return { policy: null, warning: null };
+  }
+
+  const url = new URL(`/api/v2/projects/${encodeURIComponent(input.projectId)}/connector-guardian-policy`, input.config.apiBaseUrl);
+  const response = await input.fetchImpl(url, {
+    method: "GET",
+    headers: authHeaders(input.config),
+  });
+  const payload = await parseJson(response);
+
+  if (response.status === 401 || response.status === 403) {
+    return { policy: null, warning: "policy lookup denied by auth, using environment defaults" };
+  }
+
+  if (!response.ok) {
+    const reason = typeof payload.error === "string" ? payload.error : `status ${response.status}`;
+    return { policy: null, warning: `policy lookup failed (${reason}), using environment defaults` };
+  }
+
+  return {
+    policy: asProjectConnectorGuardianPolicy(payload.policy),
+    warning: null,
+  };
+}
+
 async function listProjectIds(input: {
   config: ConnectorGuardianConfig;
   fetchImpl: typeof fetch;
@@ -196,6 +327,7 @@ export function parseConnectorGuardianConfig(env: NodeJS.ProcessEnv = process.en
   return {
     apiBaseUrl: normalizeBaseUrl(env.FLOWSTATE_LOCAL_API_BASE),
     connectorTypes: connectorTypes.length > 0 ? connectorTypes : DEFAULT_TYPES,
+    useProjectPolicies: parseBoolean(env.FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES, true),
     projectIds: normalizeProjectIds(env.FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS),
     organizationId: env.FLOWSTATE_CONNECTOR_GUARDIAN_ORGANIZATION_ID?.trim() || null,
     apiKey: env.FLOWSTATE_CONNECTOR_GUARDIAN_API_KEY?.trim() || null,
@@ -246,6 +378,24 @@ export async function runConnectorGuardianOnce(input: {
 
   for (const projectId of projectIds) {
     connectorCount += input.config.connectorTypes.length;
+    const { policy, warning } = await fetchProjectPolicy({
+      config: input.config,
+      projectId,
+      fetchImpl,
+    });
+    if (warning) {
+      logger.warn(`[connector-guardian] ${projectId}: ${warning}`);
+    }
+    const projectConfig = resolveProjectConfig({
+      config: input.config,
+      policy,
+    });
+
+    if (!projectConfig.isEnabled) {
+      skipped += 1;
+      logger.info(`[connector-guardian] ${projectId}: policy disabled, skipping`);
+      continue;
+    }
 
     const runUrl = new URL("/api/v2/connectors/recommendations/run", input.config.apiBaseUrl);
     const runResponse = await fetchImpl(runUrl, {
@@ -254,14 +404,14 @@ export async function runConnectorGuardianOnce(input: {
       body: JSON.stringify({
         projectId,
         connectorTypes: input.config.connectorTypes,
-        lookbackHours: input.config.lookbackHours,
-        limit: input.config.actionLimit,
-        minDeadLetterMinutes: input.config.minDeadLetterMinutes,
-        riskThreshold: input.config.riskThreshold,
-        maxActions: input.config.maxActionsPerProject,
-        cooldownMinutes: input.config.cooldownMinutes,
-        allowProcessQueue: input.config.allowProcessQueue,
-        allowRedriveDeadLetters: input.config.allowRedriveDeadLetters,
+        lookbackHours: projectConfig.lookbackHours,
+        limit: projectConfig.actionLimit,
+        minDeadLetterMinutes: projectConfig.minDeadLetterMinutes,
+        riskThreshold: projectConfig.riskThreshold,
+        maxActions: projectConfig.maxActionsPerProject,
+        cooldownMinutes: projectConfig.cooldownMinutes,
+        allowProcessQueue: projectConfig.allowProcessQueue,
+        allowRedriveDeadLetters: projectConfig.allowRedriveDeadLetters,
       }),
     });
     const runPayload = await parseJson(runResponse);

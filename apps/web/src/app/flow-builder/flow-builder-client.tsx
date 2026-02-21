@@ -301,6 +301,44 @@ type ConnectorBackpressureOutcomeTrend = {
   };
 };
 
+type ConnectorBackpressurePolicySimulationItem = {
+  connector_type: string;
+  summary: {
+    queued: number;
+    retrying: number;
+    due_now: number;
+  };
+  current: {
+    source: string;
+    decision: {
+      effective_limit: number;
+      throttled: boolean;
+      reason: "retrying_limit" | "due_now_limit" | null;
+    };
+  };
+  candidate: {
+    source: string;
+    decision: {
+      effective_limit: number;
+      throttled: boolean;
+      reason: "retrying_limit" | "due_now_limit" | null;
+    };
+  };
+  impact: {
+    effective_limit_delta: number;
+    throttled_changed: boolean;
+  };
+};
+
+type ConnectorBackpressurePolicySimulation = {
+  requested_limit: number;
+  connector_count: number;
+  throttled_before: number;
+  throttled_after: number;
+  throttled_delta: number;
+  per_connector: ConnectorBackpressurePolicySimulationItem[];
+};
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -1111,6 +1149,8 @@ export function FlowBuilderClient() {
   const [connectorBackpressureOutcomes, setConnectorBackpressureOutcomes] = useState<ConnectorBackpressureOutcomeTrend>(
     EMPTY_BACKPRESSURE_OUTCOME_TREND,
   );
+  const [connectorBackpressurePolicySimulation, setConnectorBackpressurePolicySimulation] =
+    useState<ConnectorBackpressurePolicySimulation | null>(null);
   const [connectorBackpressureInsightsLookbackHours, setConnectorBackpressureInsightsLookbackHours] = useState("24");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
@@ -1522,6 +1562,7 @@ export function FlowBuilderClient() {
         setConnectorProcessBackpressureMaxDueNow("100");
         setConnectorProcessBackpressureMinLimit("1");
         setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
+        setConnectorBackpressurePolicySimulation(null);
         return;
       }
 
@@ -1545,6 +1586,7 @@ export function FlowBuilderClient() {
         setConnectorProcessBackpressureMaxDueNow("100");
         setConnectorProcessBackpressureMinLimit("1");
         setConnectorBackpressureOverrides(createConnectorBackpressureOverrideDrafts());
+        setConnectorBackpressurePolicySimulation(null);
         return;
       }
 
@@ -1877,6 +1919,7 @@ export function FlowBuilderClient() {
       setConnectorBackpressureByConnector([]);
       setConnectorBackpressurePolicyUpdates([]);
       setConnectorBackpressureOutcomes(EMPTY_BACKPRESSURE_OUTCOME_TREND);
+      setConnectorBackpressurePolicySimulation(null);
       setConnectorBackpressureInsightsLookbackHours("24");
       setConnectorReliabilityIncludeTrend(true);
       setConnectorReliabilityTrendLookbackHours("24");
@@ -2642,9 +2685,62 @@ export function FlowBuilderClient() {
     }
 
     setSuccess("Connector backpressure policy saved.");
+    setConnectorBackpressurePolicySimulation(null);
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorBackpressurePolicy(selectedProjectId);
     await loadConnectorBackpressureInsights(selectedProjectId);
+    setBusyAction(null);
+  }
+
+  async function previewConnectorBackpressurePolicy() {
+    if (!selectedProjectId) {
+      setError("Select a project before previewing connector backpressure policy impact.");
+      return;
+    }
+
+    const parsed = parseConnectorBackpressurePolicyInputs();
+    if (!parsed) {
+      return;
+    }
+
+    const parsedRequestedLimit = Number(connectorProcessLimit);
+    const requestedLimit =
+      Number.isFinite(parsedRequestedLimit) && parsedRequestedLimit > 0 ? Math.min(Math.floor(parsedRequestedLimit), 100) : 25;
+
+    setBusyAction("connector_backpressure_policy_preview");
+    const response = await fetch(
+      `/api/v2/projects/${encodeURIComponent(selectedProjectId)}/connector-backpressure-policy/simulate`,
+      {
+        method: "POST",
+        headers: authHeaders(true),
+        body: JSON.stringify({
+          isEnabled: connectorProcessBackpressureEnabled,
+          maxRetrying: parsed.maxRetrying,
+          maxDueNow: parsed.maxDueNow,
+          minLimit: parsed.minLimit,
+          connectorOverrides: parsed.connectorOverrides,
+          requestedLimit,
+          connectorTypes: CONNECTOR_TYPES,
+        }),
+      },
+    );
+    const result = (await response.json()) as {
+      simulation?: ConnectorBackpressurePolicySimulation;
+      error?: string;
+    };
+
+    if (!response.ok || !result.simulation) {
+      setError(typeof result.error === "string" ? result.error : "Unable to preview connector backpressure policy impact.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setConnectorBackpressurePolicySimulation(result.simulation);
+    setSuccess(
+      `Preview ready: throttled connectors ${result.simulation.throttled_before} -> ${result.simulation.throttled_after}.`,
+    );
+    setConnectorResult(JSON.stringify(result, null, 2));
     setBusyAction(null);
   }
 
@@ -3048,6 +3144,7 @@ export function FlowBuilderClient() {
     setConnectorProcessBackpressureMaxRetrying(String(result.recommendation.maxRetrying));
     setConnectorProcessBackpressureMaxDueNow(String(result.recommendation.maxDueNow));
     setConnectorProcessBackpressureMinLimit(String(result.recommendation.minLimit));
+    setConnectorBackpressurePolicySimulation(null);
     setConnectorBackpressureByConnector(Array.isArray(result.by_connector) ? result.by_connector : []);
     setConnectorResult(JSON.stringify(result, null, 2));
     setSuccess(`Applied suggested backpressure settings from ${connectorTypes.length} connector type(s).`);
@@ -4999,6 +5096,9 @@ export function FlowBuilderClient() {
             <button className="button secondary" onClick={() => void loadConnectorBackpressurePolicy(selectedProjectId)}>
               Refresh Backpressure Policy
             </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void previewConnectorBackpressurePolicy()}>
+              {busyAction === "connector_backpressure_policy_preview" ? "Previewing..." : "Preview Policy Impact"}
+            </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void saveConnectorBackpressurePolicy()}>
               {busyAction === "connector_backpressure_policy_save" ? "Saving..." : "Save Backpressure Policy"}
             </button>
@@ -5110,6 +5210,29 @@ export function FlowBuilderClient() {
               </ul>
             ) : (
               <p className="muted">No backpressure policy updates recorded yet.</p>
+            )}
+            {connectorBackpressurePolicySimulation ? (
+              <div className="stack">
+                <p className="muted">
+                  simulation: requested limit {connectorBackpressurePolicySimulation.requested_limit} | throttled{" "}
+                  {connectorBackpressurePolicySimulation.throttled_before} {"->"}{" "}
+                  {connectorBackpressurePolicySimulation.throttled_after}
+                </p>
+                <ul className="list">
+                  {connectorBackpressurePolicySimulation.per_connector.map((item) => (
+                    <li key={`policy-simulation:${item.connector_type}`}>
+                      <strong>{item.connector_type}</strong> queued {item.summary.queued} retrying {item.summary.retrying} due now{" "}
+                      {item.summary.due_now} | current {item.current.decision.effective_limit} (
+                      {item.current.decision.throttled ? "throttled" : "open"}) {"->"} candidate{" "}
+                      {item.candidate.decision.effective_limit} ({item.candidate.decision.throttled ? "throttled" : "open"}) | delta{" "}
+                      {item.impact.effective_limit_delta >= 0 ? "+" : ""}
+                      {item.impact.effective_limit_delta}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="muted">Run policy impact preview to compare current vs candidate throttling behavior.</p>
             )}
           </div>
 

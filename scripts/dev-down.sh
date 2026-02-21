@@ -8,6 +8,7 @@ WEB_PID_FILE="$PID_DIR/web.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
 WATCHER_PID_FILE="$PID_DIR/inbox-watcher.pid"
 CONNECTOR_PUMP_PID_FILE="$PID_DIR/connector-pump.pid"
+REVIEW_ALERTS_PID_FILE="$PID_DIR/review-alerts.pid"
 
 print_info() {
   printf "\033[36m%s\033[0m\n" "$1"
@@ -58,5 +59,6 @@ stop_service "web" "$WEB_PID_FILE"
 stop_service "worker" "$WORKER_PID_FILE"
 stop_service "inbox-watcher" "$WATCHER_PID_FILE"
 stop_service "connector-pump" "$CONNECTOR_PUMP_PID_FILE"
+stop_service "review-alerts" "$REVIEW_ALERTS_PID_FILE"
 
 print_info "Flowstate dev services are stopped"

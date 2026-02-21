@@ -137,6 +137,22 @@ type ConnectorDeliverySummary = {
   earliest_next_attempt_at: string | null;
 };
 
+type ConnectorInsights = {
+  window_start: string;
+  delivery_count: number;
+  status_counts: {
+    queued: number;
+    retrying: number;
+    delivered: number;
+    dead_lettered: number;
+  };
+  delivery_success_rate: number;
+  attempt_success_rate: number | null;
+  avg_attempts_per_delivery: number;
+  max_attempts_observed: number;
+  top_errors: Array<{ message: string; count: number }>;
+};
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -301,6 +317,22 @@ const EMPTY_CONNECTOR_SUMMARY: ConnectorDeliverySummary = {
   dead_lettered: 0,
   due_now: 0,
   earliest_next_attempt_at: null,
+};
+
+const EMPTY_CONNECTOR_INSIGHTS: ConnectorInsights = {
+  window_start: "",
+  delivery_count: 0,
+  status_counts: {
+    queued: 0,
+    retrying: 0,
+    delivered: 0,
+    dead_lettered: 0,
+  },
+  delivery_success_rate: 0,
+  attempt_success_rate: null,
+  avg_attempts_per_delivery: 0,
+  max_attempts_observed: 0,
+  top_errors: [],
 };
 
 const EMPTY_REVIEW_SUMMARY: ReviewDecisionSummary = {
@@ -680,6 +712,8 @@ export function FlowBuilderClient() {
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
+  const [connectorInsightsLookbackHours, setConnectorInsightsLookbackHours] = useState("24");
+  const [connectorInsights, setConnectorInsights] = useState<ConnectorInsights>(EMPTY_CONNECTOR_INSIGHTS);
   const [runs, setRuns] = useState<RunRecordV2[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<ReviewDecisionRecord[]>([]);
@@ -1256,6 +1290,9 @@ export function FlowBuilderClient() {
       setEvalPacks([]);
       setMembers([]);
       setApiKeys([]);
+      setConnectorDeliveries([]);
+      setConnectorSummary(EMPTY_CONNECTOR_SUMMARY);
+      setConnectorInsights(EMPTY_CONNECTOR_INSIGHTS);
       setReviewAlertPolicyEnabled(true);
       setReviewAlertConnectorType("slack");
       setReviewStaleHours("24");
@@ -2138,9 +2175,41 @@ export function FlowBuilderClient() {
     setConnectorSummary(payload.summary ?? EMPTY_CONNECTOR_SUMMARY);
   }, [authHeaders, connectorType, selectedProjectId]);
 
+  const loadConnectorInsights = useCallback(async () => {
+    if (!selectedProjectId) {
+      setConnectorInsights(EMPTY_CONNECTOR_INSIGHTS);
+      return;
+    }
+
+    const parsedLookback = Number(connectorInsightsLookbackHours);
+    const lookbackHours =
+      Number.isFinite(parsedLookback) && parsedLookback > 0 ? Math.min(Math.floor(parsedLookback), 24 * 30) : 24;
+    const query = `/api/v2/connectors/${encodeURIComponent(connectorType)}/insights?projectId=${encodeURIComponent(selectedProjectId)}&lookbackHours=${lookbackHours}`;
+    const response = await fetch(query, {
+      cache: "no-store",
+      headers: authHeaders(false),
+    });
+    const payload = (await response.json()) as {
+      insights?: ConnectorInsights;
+      error?: string;
+    };
+
+    if (!response.ok) {
+      setError(payload.error || "Unable to load connector insights.");
+      setConnectorInsights(EMPTY_CONNECTOR_INSIGHTS);
+      return;
+    }
+
+    setConnectorInsights(payload.insights ?? EMPTY_CONNECTOR_INSIGHTS);
+  }, [authHeaders, connectorInsightsLookbackHours, connectorType, selectedProjectId]);
+
   useEffect(() => {
     void loadConnectorDeliveries();
   }, [loadConnectorDeliveries]);
+
+  useEffect(() => {
+    void loadConnectorInsights();
+  }, [loadConnectorInsights]);
 
   async function testConnectorConfig(mode: "validate" | "dispatch") {
     if (!selectedProjectId) {
@@ -2221,6 +2290,7 @@ export function FlowBuilderClient() {
     setSuccess("Connector queue processed.");
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
+    await loadConnectorInsights();
     setBusyAction(null);
   }
 
@@ -2251,6 +2321,7 @@ export function FlowBuilderClient() {
     setSuccess("Connector delivery redriven.");
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
+    await loadConnectorInsights();
     setBusyAction(null);
   }
 
@@ -2288,6 +2359,7 @@ export function FlowBuilderClient() {
     setSuccess(`Connector batch redrive completed (${redrivenCount} redriven).`);
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
+    await loadConnectorInsights();
     setBusyAction(null);
   }
 
@@ -2341,6 +2413,7 @@ export function FlowBuilderClient() {
     setSuccess(connectorMode === "enqueue" ? "Connector delivery queued." : "Connector delivery processed.");
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorDeliveries();
+    await loadConnectorInsights();
     setBusyAction(null);
   }
 
@@ -3369,6 +3442,10 @@ export function FlowBuilderClient() {
                 onChange={(event) => setConnectorBatchRedriveMinAgeMinutes(event.target.value)}
               />
             </label>
+            <label className="field">
+              <span>Insights Lookback (hours)</span>
+              <input value={connectorInsightsLookbackHours} onChange={(event) => setConnectorInsightsLookbackHours(event.target.value)} />
+            </label>
           </div>
 
           <div className="row wrap">
@@ -3387,8 +3464,14 @@ export function FlowBuilderClient() {
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveConnectorBatch()}>
               {busyAction === "connector_redrive_batch" ? "Redriving..." : "Batch Redrive"}
             </button>
-            <button className="button secondary" onClick={() => void loadConnectorDeliveries()}>
-              Refresh History
+            <button
+              className="button secondary"
+              onClick={() => {
+                void loadConnectorDeliveries();
+                void loadConnectorInsights();
+              }}
+            >
+              Refresh Connector Ops
             </button>
           </div>
 
@@ -3408,6 +3491,24 @@ export function FlowBuilderClient() {
             {connectorSummary.earliest_next_attempt_at
               ? new Date(connectorSummary.earliest_next_attempt_at).toLocaleString()
               : "n/a"}
+          </p>
+          <p className="muted">
+            window start: {connectorInsights.window_start ? new Date(connectorInsights.window_start).toLocaleString() : "n/a"}
+          </p>
+          <p className="muted">
+            delivery success {(connectorInsights.delivery_success_rate * 100).toFixed(1)}% | attempt success{" "}
+            {connectorInsights.attempt_success_rate === null
+              ? "n/a"
+              : `${(connectorInsights.attempt_success_rate * 100).toFixed(1)}%`}
+          </p>
+          <p className="muted">
+            avg attempts {connectorInsights.avg_attempts_per_delivery.toFixed(2)} | max attempts {connectorInsights.max_attempts_observed}
+          </p>
+          <p className="muted">
+            top errors:{" "}
+            {connectorInsights.top_errors.length > 0
+              ? connectorInsights.top_errors.map((item) => `${item.message} (${item.count})`).join(" | ")
+              : "none"}
           </p>
           {connectorDeliveries.length === 0 ? (
             <p className="muted">No deliveries yet.</p>

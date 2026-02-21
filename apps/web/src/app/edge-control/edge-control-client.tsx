@@ -551,7 +551,7 @@ export function EdgeControlClient() {
 
       <article className="card stack">
         <h3>Access Context</h3>
-        <div className="grid two-col">
+        <div className="legacy-grid two-col">
           <label className="field">
             <span>API Key (optional in local mode)</span>
             <input
@@ -579,7 +579,7 @@ export function EdgeControlClient() {
         </label>
       </article>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Scope</h3>
           <label className="field">
@@ -639,7 +639,7 @@ export function EdgeControlClient() {
         </article>
       </div>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Agent Config</h3>
           <label className="field">
@@ -781,7 +781,7 @@ export function EdgeControlClient() {
         </article>
       </div>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Remote Diagnostics</h3>
           <p className="muted">Queue common diagnostics commands without editing JSON payloads manually.</p>
@@ -818,7 +818,7 @@ export function EdgeControlClient() {
 
         <article className="card stack">
           <h3>Event Stream</h3>
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field">
               <span>Event Type Filter</span>
               <input value={eventTypeFilter} onChange={(event) => setEventTypeFilter(event.target.value)} />

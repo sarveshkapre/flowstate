@@ -4156,7 +4156,7 @@ export function FlowBuilderClient() {
 
       <article className="card stack">
         <h3>Access Context</h3>
-        <div className="grid two-col">
+        <div className="legacy-grid two-col">
           <label className="field">
             <span>API Key (optional in local mode)</span>
             <input
@@ -4185,7 +4185,7 @@ export function FlowBuilderClient() {
         </label>
       </article>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Project Scope</h3>
 
@@ -4275,7 +4275,7 @@ export function FlowBuilderClient() {
         </article>
       </div>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Members</h3>
 
@@ -4402,7 +4402,7 @@ export function FlowBuilderClient() {
           ))}
         </p>
 
-        <div className="grid two-col">
+        <div className="legacy-grid two-col">
           <div className="stack">
             <h3>Nodes</h3>
             {nodes.length === 0 ? <p className="muted">No nodes yet.</p> : null}
@@ -4417,7 +4417,7 @@ export function FlowBuilderClient() {
                   </button>
                 </div>
 
-                <div className="grid two-col">
+                <div className="legacy-grid two-col">
                   <label className="field">
                     <span>Node ID</span>
                     <input
@@ -4494,7 +4494,7 @@ export function FlowBuilderClient() {
                   </button>
                 </div>
 
-                <div className="grid two-col">
+                <div className="legacy-grid two-col">
                   <label className="field">
                     <span>Source</span>
                     <select
@@ -4559,7 +4559,7 @@ export function FlowBuilderClient() {
         )}
       </article>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Versions + Deployments</h3>
           <div className="row wrap">
@@ -4618,7 +4618,7 @@ export function FlowBuilderClient() {
         </article>
       </div>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Datasets + Versions</h3>
 
@@ -4707,7 +4707,7 @@ export function FlowBuilderClient() {
             <input value={replayLimit} onChange={(event) => setReplayLimit(event.target.value)} />
           </label>
 
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field small">
               <span>Gate: Min Candidate Success</span>
               <input
@@ -4747,14 +4747,14 @@ export function FlowBuilderClient() {
         </article>
       </div>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Active Learning Candidates</h3>
           <p className="muted">
             Rank completed runs by review failures, uncertainty, latency, and cost. Create eval packs from top candidates.
           </p>
 
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field small">
               <span>Eval Pack Name</span>
               <input value={newEvalPackName} onChange={(event) => setNewEvalPackName(event.target.value)} />
@@ -4810,7 +4810,7 @@ export function FlowBuilderClient() {
         </article>
       </div>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Review Decisions v2</h3>
           <p className="muted">Create field-level review outcomes for a run queue before attaching evidence regions.</p>
@@ -4838,7 +4838,7 @@ export function FlowBuilderClient() {
             <span>Stale Threshold (hours)</span>
             <input value={reviewStaleHours} onChange={(event) => setReviewStaleHours(event.target.value)} />
           </label>
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field small">
               <span>Automation</span>
               <select
@@ -4959,7 +4959,7 @@ export function FlowBuilderClient() {
             </button>
           </div>
 
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field">
               <span>Field Name</span>
               <input value={newReviewFieldName} onChange={(event) => setNewReviewFieldName(event.target.value)} />
@@ -5026,7 +5026,7 @@ export function FlowBuilderClient() {
           <h3>Evidence Studio</h3>
           <p className="muted">Draw bounding boxes directly on the preview to attach normalized evidence regions (0-1).</p>
 
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field">
               <span>Preview Image URL</span>
               <input value={evidencePreviewUrl} onChange={(event) => setEvidencePreviewUrl(event.target.value)} />
@@ -5099,7 +5099,7 @@ export function FlowBuilderClient() {
         </article>
       </div>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <article className="card stack">
           <h3>Connector Delivery Lab</h3>
           <p className="muted">
@@ -5149,7 +5149,7 @@ export function FlowBuilderClient() {
             />
           </label>
 
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field">
               <span>Idempotency Key (optional)</span>
               <input value={connectorIdempotencyKey} onChange={(event) => setConnectorIdempotencyKey(event.target.value)} />
@@ -5373,7 +5373,7 @@ export function FlowBuilderClient() {
             </ul>
           </div>
 
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field">
               <span>Draft Required Approvals</span>
               <input
@@ -5784,7 +5784,7 @@ export function FlowBuilderClient() {
         <article className="card stack">
           <h3>Connector Guardian Policy</h3>
           <p className="muted">Configure per-project automated remediation used by the guardian worker.</p>
-          <div className="grid two-col">
+          <div className="legacy-grid two-col">
             <label className="field small">
               <span>Automation</span>
               <select

@@ -185,7 +185,7 @@ export function WorkflowsClient() {
       <h2>Workflow Builder</h2>
       <p className="muted">Create and run deterministic extraction workflows over uploaded artifacts.</p>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <Card className="stack">
           <CardHeader>
             <CardTitle>Create Workflow</CardTitle>

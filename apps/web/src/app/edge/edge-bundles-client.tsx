@@ -150,7 +150,7 @@ export function EdgeBundlesClient() {
       <h2>Edge Bundle Generator</h2>
       <p className="muted">Build and download adapter manifests that can run OpenAI extraction workflows at the edge.</p>
 
-      <div className="grid two-col">
+      <div className="legacy-grid two-col">
         <Card className="stack">
           <CardHeader>
             <CardTitle>Create Bundle</CardTitle>

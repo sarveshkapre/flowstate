@@ -226,14 +226,14 @@ h3 {
   flex-wrap: wrap;
 }
 
-.grid {
+.legacy-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
 
-.grid.two-col {
+.legacy-grid.two-col {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 

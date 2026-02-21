@@ -52,7 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         key={item.href}
         href={item.href}
         className={cn(
-          "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+          "block rounded-md px-3 py-2 text-sm font-medium transition-colors",
           isActive(item.href)
             ? "bg-primary text-primary-foreground"
             : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -103,7 +103,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               key={item.href}
               href={item.href}
               className={cn(
-                "rounded-md px-1 py-2 text-center text-xs font-medium",
+                "inline-flex w-full items-center justify-center rounded-md px-1 py-2 text-center text-xs font-medium",
                 isActive(item.href)
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -116,7 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             type="button"
             variant="ghost"
             size="sm"
-            className="h-auto rounded-md px-1 py-2 text-xs font-medium text-muted-foreground"
+            className="h-auto w-full rounded-md px-1 py-2 text-xs font-medium text-muted-foreground"
             onClick={() => setMoreOpen(true)}
           >
             More

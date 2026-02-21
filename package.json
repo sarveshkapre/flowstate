@@ -22,6 +22,7 @@
     "flowstate": "bash scripts/flowstate.sh",
     "watch:inbox": "npm run watch:inbox --workspace @flowstate/worker",
     "watch:connectors": "npm run watch:connectors --workspace @flowstate/worker",
+    "watch:connector-backpressure-drafts": "npm run watch:connector-backpressure-drafts --workspace @flowstate/worker",
     "watch:connector-guardian": "npm run watch:connector-guardian --workspace @flowstate/worker",
     "watch:connector-redrive": "npm run watch:connector-redrive --workspace @flowstate/worker",
     "watch:review-alerts": "npm run watch:review-alerts --workspace @flowstate/worker",

@@ -75,6 +75,13 @@ FLOWSTATE_WATCH_WORKFLOW_ID=<workflow-id> # recommended
 # FLOWSTATE_WATCH_DOCUMENT_TYPE=invoice
 ```
 
+To run automatic connector queue draining in the worker, set:
+
+```bash
+FLOWSTATE_ENABLE_CONNECTOR_PUMP=1
+FLOWSTATE_CONNECTOR_PUMP_TYPES=webhook,slack,jira,sqs,db
+```
+
 Stop services:
 
 ```bash
@@ -116,9 +123,46 @@ Web app:
 - `FLOWSTATE_MAGIC_LINK_EXPOSE_TOKEN` (default: `true` for local development)
 - `FLOWSTATE_DATA_DIR` (optional override for storage directory)
 - `FLOWSTATE_MAX_UPLOAD_BYTES` (default: `20971520`)
+- `FLOWSTATE_ENABLE_FOLDER_WATCHER` (`0|1`, default: `0`)
+- `FLOWSTATE_ENABLE_CONNECTOR_PUMP` (`0|1`, default: `0`)
 - `FLOWSTATE_EDGE_HEARTBEAT_STALE_MS` (default: `60000`)
 - `FLOWSTATE_EDGE_COMMAND_LEASE_MS` (default: `30000`)
 - `FLOWSTATE_DB_READ_CACHE_MS` (default: `250`)
+- `FLOWSTATE_CONNECTOR_PUMP_TYPES` (default: `webhook,slack,jira,sqs,db`)
+- `FLOWSTATE_CONNECTOR_PUMP_LIMIT` (default: `25`, max: `100`)
+- `FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_ENABLED` (`0|1`, default: `1`)
+- `FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_RETRYING` (default: `50`)
+- `FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MAX_DUE_NOW` (default: `100`)
+- `FLOWSTATE_CONNECTOR_PUMP_BACKPRESSURE_MIN_LIMIT` (default: `1`, max: `100`)
+- `FLOWSTATE_CONNECTOR_PUMP_POLL_MS` (default: `5000`)
+- `FLOWSTATE_CONNECTOR_PUMP_PROJECT_IDS` (optional CSV list of project IDs)
+- `FLOWSTATE_CONNECTOR_PUMP_ORGANIZATION_ID` (optional project discovery filter)
+- `FLOWSTATE_CONNECTOR_PUMP_API_KEY` (optional bearer key for strict auth mode)
+- `FLOWSTATE_CONNECTOR_PUMP_ACTOR_EMAIL` (default actor email when auth mode is optional)
+- `FLOWSTATE_CONNECTOR_WEBHOOK_URL` (default target URL for `webhook` connector)
+- `FLOWSTATE_CONNECTOR_SLACK_WEBHOOK_URL` (default target URL for `slack` connector)
+- `FLOWSTATE_CONNECTOR_JIRA_BASE_URL` (example: `https://your-org.atlassian.net`)
+- `FLOWSTATE_CONNECTOR_JIRA_EMAIL`
+- `FLOWSTATE_CONNECTOR_JIRA_API_TOKEN`
+- `FLOWSTATE_CONNECTOR_JIRA_PROJECT_KEY`
+- `FLOWSTATE_CONNECTOR_JIRA_ISSUE_TYPE` (default: `Task`)
+- `FLOWSTATE_CONNECTOR_SQS_QUEUE_URL` (required for `sqs`)
+- `FLOWSTATE_CONNECTOR_SQS_REGION` (default: `us-east-1`)
+- `FLOWSTATE_CONNECTOR_SQS_ACCESS_KEY_ID`
+- `FLOWSTATE_CONNECTOR_SQS_SECRET_ACCESS_KEY`
+- `FLOWSTATE_CONNECTOR_SQS_SESSION_TOKEN` (optional for temporary credentials)
+- `FLOWSTATE_CONNECTOR_SQS_MESSAGE_GROUP_ID` (required for FIFO queues)
+- `FLOWSTATE_CONNECTOR_SQS_DELAY_SECONDS` (optional `0-900`)
+- `FLOWSTATE_CONNECTOR_DB_INGEST_URL` (required for `db`)
+- `FLOWSTATE_CONNECTOR_DB_TABLE` (default: `flowstate_events`)
+- `FLOWSTATE_CONNECTOR_DB_API_KEY` (optional bearer auth for DB ingest endpoint)
+
+## CI (Self-Hosted Only)
+
+- Workflow: `.github/workflows/ci.yml`
+- All jobs run on: `runs-on: self-hosted`
+- Local runner validation: `bash scripts/ci/ci-local.sh`
+- Runner setup guide: `docs/self-hosted-runner.md`
 
 ## Workspace Layout
 
@@ -200,6 +244,7 @@ docs/         # architecture notes
 - `POST /api/v2/connectors/:type/test`
 - `GET /api/v2/connectors/:type/deliver?projectId=...`
 - `POST /api/v2/connectors/:type/deliver`
+- `PATCH /api/v2/connectors/:type/deliver?action=process|redrive`
 - `GET /api/v2/edge/agents?projectId=...`
 - `POST /api/v2/edge/agents/register`
 - `GET /api/v2/edge/agents/:agentId/config`
@@ -224,12 +269,16 @@ npm run flowstate -- logs
 npm run dev:up
 npm run dev:down
 npm run watch:inbox
+npm run watch:connectors
+npm run watch:connector-backpressure-drafts
 npm run dev
 npm run build
 npm run lint
 npm run typecheck
 npm run test
 npm run format:write
+bash scripts/ci/ci-local.sh
+bash scripts/ci/ci-local.sh --skip-install
 ```
 
 ## Public Repository

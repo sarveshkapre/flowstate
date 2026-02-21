@@ -31,7 +31,7 @@ async function runTick() {
       );
     } else {
       console.log(
-        `[connector-backpressure-drafts] tick scanned=${result.scanned_draft_count} ready=${result.ready_count} applied=${result.applied_count} blocked=${result.blocked_count} failed=${result.failed_count}`,
+        `[connector-backpressure-drafts] tick scanned=${result.scanned_draft_count} ready=${result.ready_count} applied=${result.applied_count} blocked=${result.blocked_count} failed=${result.failed_count} notifications=${result.notification_sent_count}`,
       );
     }
   } catch (error) {

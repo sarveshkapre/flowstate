@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Backpressure draft activation worker now supports blocked-draft notification dispatch via connector transports with per-project caps, improving escalation for approval/time-gated rollout stalls.
 - 2026-02-21: Worker automation for connector backpressure due-draft activation shipped (job + poll watcher + local runtime wiring + env controls), enabling unattended promotion of ready drafts at scheduled intervals.
 - 2026-02-21: Connector backpressure due-draft activation sweep shipped (global API + Flow Builder control + unit-tested readiness gating), enabling one-run promotion of all ready drafts while preserving approval/activation-time constraints.
 - 2026-02-21: Connector backpressure drafts now support approval thresholds and activation-time gates with an approve endpoint and Flow Builder controls, preventing premature apply of high-impact policy changes.
@@ -91,4 +92,4 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 ## Risks And Blockers
 - Scope growth across "general-purpose CV" surfaces.
 - Need to keep v1 compatibility while accelerating v2 rollout.
-- Need notification/escalation hooks for blocked backpressure drafts that miss approval windows.
+- Need richer escalation routing (pager/email policies) beyond connector transport notifications.

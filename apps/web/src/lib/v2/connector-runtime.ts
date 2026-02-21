@@ -1,5 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 
+import { canonicalConnectorType, SUPPORTED_CONNECTOR_TYPES } from "./connectors.ts";
+
 type JsonRecord = Record<string, unknown>;
 
 export type ConnectorNormalizedType = "webhook" | "slack" | "jira" | "sqs" | "db";
@@ -132,25 +134,7 @@ function parseHeaders(config: JsonRecord): Record<string, string> {
 }
 
 export function normalizeConnectorType(rawType: string): ConnectorNormalizedType | null {
-  const value = rawType.trim().toLowerCase();
-
-  if (value === "webhook") {
-    return "webhook";
-  }
-  if (value === "slack" || value === "slack_webhook") {
-    return "slack";
-  }
-  if (value === "jira" || value === "jira_issue") {
-    return "jira";
-  }
-  if (value === "sqs" || value === "sink_sqs" || value === "aws_sqs") {
-    return "sqs";
-  }
-  if (value === "db" || value === "sink_db" || value === "database") {
-    return "db";
-  }
-
-  return null;
+  return canonicalConnectorType(rawType);
 }
 
 function resolveWebhookConfig(config: JsonRecord): ResolvedWebhookConfig | null {
@@ -282,7 +266,7 @@ export function validateConnectorConfig(connectorTypeRaw: string, configInput: u
     return {
       ok: false,
       connectorType: null,
-      errors: ["Unsupported connector type. Supported: webhook, slack, jira, sqs, db."],
+      errors: [`Unsupported connector type. Supported: ${SUPPORTED_CONNECTOR_TYPES.join(", ")}.`],
       sanitizedConfig: redactSecrets(config) as JsonRecord,
     };
   }

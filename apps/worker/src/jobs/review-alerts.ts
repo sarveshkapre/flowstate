@@ -54,6 +54,7 @@ const DEFAULT_MIN_STALE = 3;
 const DEFAULT_MIN_AVG_ERROR_RATE = 0.35;
 const DEFAULT_WINDOW_MINUTES = 30;
 const DEFAULT_CONNECTOR_TYPE = "slack";
+const SUPPORTED_CONNECTOR_TYPES = new Set(["webhook", "slack", "jira", "sqs", "db"]);
 
 function parseCsv(value: string | undefined) {
   if (!value) {
@@ -182,7 +183,10 @@ function clampRate(value: number | undefined, fallback: number) {
 
 function normalizeConnectorType(value: string | undefined, fallback: string) {
   const normalized = value?.trim().toLowerCase() ?? "";
-  return normalized.length > 0 ? normalized : fallback;
+  if (!normalized) {
+    return fallback;
+  }
+  return SUPPORTED_CONNECTOR_TYPES.has(normalized) ? normalized : fallback;
 }
 
 type ProjectReviewAlertPolicy = {
@@ -303,7 +307,7 @@ function asReviewQueues(raw: unknown) {
 export function parseReviewAlertsConfig(env: NodeJS.ProcessEnv = process.env): ReviewAlertsConfig {
   return {
     apiBaseUrl: normalizeBaseUrl(env.FLOWSTATE_LOCAL_API_BASE),
-    connectorType: env.FLOWSTATE_REVIEW_ALERTS_CONNECTOR_TYPE?.trim().toLowerCase() || DEFAULT_CONNECTOR_TYPE,
+    connectorType: normalizeConnectorType(env.FLOWSTATE_REVIEW_ALERTS_CONNECTOR_TYPE, DEFAULT_CONNECTOR_TYPE),
     useProjectPolicies: parseBoolean(env.FLOWSTATE_REVIEW_ALERTS_USE_PROJECT_POLICIES, true),
     pollMs: parsePositiveInt(env.FLOWSTATE_REVIEW_ALERTS_POLL_MS, DEFAULT_POLL_MS, 60 * 60 * 1000),
     projectIds: normalizeProjectIds(env.FLOWSTATE_REVIEW_ALERTS_PROJECT_IDS),

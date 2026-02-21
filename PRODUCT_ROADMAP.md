@@ -25,6 +25,7 @@ Build a managed SaaS-first, OpenAI-native computer vision operations platform th
 - Expand automated test coverage across worker/jobs and v1 extraction/review APIs.
 
 ## Delivered Features
+- 2026-02-21: Connector type hardening shipped with canonical type parsing (including aliases), worker-side unsupported type filtering, and Flow Builder connector selectors for safer operations.
 - 2026-02-21: Production connector transport coverage expanded to SQS + DB ingest connectors, with worker pump/redrive defaults, runtime validation, and Flow Builder config templates.
 - 2026-02-21: Review alerts API is now policy-aware, resolving thresholds/connector settings from request overrides, saved project policy, or defaults for consistent external automation behavior.
 - 2026-02-21: Project-level review alert policies shipped with persisted thresholds/connector settings, Flow Builder save/load controls, and worker-side policy-aware automation fallback.

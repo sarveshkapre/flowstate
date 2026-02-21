@@ -36,6 +36,14 @@ test("parseConnectorPumpConfig normalizes custom values and clamps limits", () =
   assert.deepEqual(config.projectIds, ["p1", "p2"]);
 });
 
+test("parseConnectorPumpConfig ignores unsupported connector types", () => {
+  const config = parseConnectorPumpConfig({
+    FLOWSTATE_CONNECTOR_PUMP_TYPES: "webhook,unknown,db,custom",
+  });
+
+  assert.deepEqual(config.connectorTypes, ["webhook", "db"]);
+});
+
 test("pumpConnectorQueuesOnce uses explicit project IDs without listing projects", async () => {
   const seenRequests: Array<{ method?: string; url: string }> = [];
 

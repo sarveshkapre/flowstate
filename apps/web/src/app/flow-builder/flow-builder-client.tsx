@@ -4,6 +4,7 @@
 import { type MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { FlowGraph, FlowNodeType } from "@flowstate/types";
 
+import { SUPPORTED_CONNECTOR_TYPES } from "@/lib/v2/connectors";
 import { selectTopCandidateRunIds } from "@/lib/v2/eval-pack";
 
 type Organization = {
@@ -268,6 +269,7 @@ const NODE_TYPES: FlowNodeType[] = [
 ];
 
 const ROLE_OPTIONS: ProjectMemberRole[] = ["owner", "admin", "builder", "reviewer", "viewer"];
+const CONNECTOR_TYPES = [...SUPPORTED_CONNECTOR_TYPES];
 
 const API_KEY_SCOPES: ApiKeyScope[] = [
   "manage_projects",
@@ -3006,7 +3008,13 @@ export function FlowBuilderClient() {
             </label>
             <label className="field small">
               <span>Alert Connector Type</span>
-              <input value={reviewAlertConnectorType} onChange={(event) => setReviewAlertConnectorType(event.target.value)} />
+              <select value={reviewAlertConnectorType} onChange={(event) => setReviewAlertConnectorType(event.target.value)}>
+                {CONNECTOR_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="field small">
               <span>Min Unreviewed Queues</span>
@@ -3247,7 +3255,13 @@ export function FlowBuilderClient() {
 
           <label className="field small">
             <span>Connector Type</span>
-            <input value={connectorType} onChange={(event) => setConnectorType(event.target.value)} />
+            <select value={connectorType} onChange={(event) => setConnectorType(event.target.value)}>
+              {CONNECTOR_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field small">
             <span>Delivery Mode</span>

@@ -24,6 +24,7 @@ export type ConnectorRedriveResult = {
 };
 
 const DEFAULT_TYPES = ["webhook", "slack", "jira", "sqs", "db"];
+const SUPPORTED_CONNECTOR_TYPES = new Set(DEFAULT_TYPES);
 const DEFAULT_POLL_MS = 60_000;
 const DEFAULT_REDRIVE_LIMIT = 10;
 const DEFAULT_MIN_DEAD_LETTER = 3;
@@ -147,7 +148,9 @@ async function listProjectIds(input: {
 }
 
 export function parseConnectorRedriveConfig(env: NodeJS.ProcessEnv = process.env): ConnectorRedriveConfig {
-  const connectorTypes = unique(parseCsv(env.FLOWSTATE_CONNECTOR_REDRIVE_TYPES));
+  const connectorTypes = unique(parseCsv(env.FLOWSTATE_CONNECTOR_REDRIVE_TYPES)).filter((type) =>
+    SUPPORTED_CONNECTOR_TYPES.has(type),
+  );
 
   return {
     apiBaseUrl: normalizeBaseUrl(env.FLOWSTATE_LOCAL_API_BASE),

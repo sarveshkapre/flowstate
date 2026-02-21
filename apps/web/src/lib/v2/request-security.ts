@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { canonicalConnectorType, SUPPORTED_CONNECTOR_TYPES } from "@/lib/v2/connectors";
+
 const DEFAULT_MAX_JSON_BYTES = 256 * 1024;
 const DEFAULT_MAX_DEPTH = 8;
 const DEFAULT_MAX_KEYS = 100;
@@ -14,7 +16,8 @@ export const connectorTypeSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(/^[a-z0-9][a-z0-9_-]{1,62}$/);
+  .transform((value) => canonicalConnectorType(value))
+  .pipe(z.enum(SUPPORTED_CONNECTOR_TYPES));
 
 export const edgeCommandTypeSchema = z
   .string()

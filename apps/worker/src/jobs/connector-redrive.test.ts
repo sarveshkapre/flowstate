@@ -41,6 +41,14 @@ test("parseConnectorRedriveConfig normalizes custom values", () => {
   assert.equal(config.processAfterRedrive, false);
 });
 
+test("parseConnectorRedriveConfig ignores unsupported connector types", () => {
+  const config = parseConnectorRedriveConfig({
+    FLOWSTATE_CONNECTOR_REDRIVE_TYPES: "sqs,unknown,db,custom",
+  });
+
+  assert.deepEqual(config.connectorTypes, ["sqs", "db"]);
+});
+
 test("runConnectorRedriveOnce skips when dead-letter threshold is not met", async () => {
   const seenRequests: Array<{ method?: string; url: string }> = [];
   const config = parseConnectorRedriveConfig({

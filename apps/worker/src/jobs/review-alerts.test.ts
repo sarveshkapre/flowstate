@@ -29,6 +29,14 @@ test("parseReviewAlertsConfig applies defaults", () => {
   assert.equal(config.minAvgErrorRate, 0.35);
 });
 
+test("parseReviewAlertsConfig falls back for unsupported connector type", () => {
+  const config = parseReviewAlertsConfig({
+    FLOWSTATE_REVIEW_ALERTS_CONNECTOR_TYPE: "custom_sink",
+  });
+
+  assert.equal(config.connectorType, "slack");
+});
+
 test("shouldDispatchReviewAlert triggers when thresholds are exceeded", () => {
   const byUnreviewed = shouldDispatchReviewAlert({
     summary: {

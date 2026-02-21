@@ -19,6 +19,7 @@ export type ConnectorPumpResult = {
 };
 
 const DEFAULT_TYPES = ["webhook", "slack", "jira", "sqs", "db"];
+const SUPPORTED_CONNECTOR_TYPES = new Set(DEFAULT_TYPES);
 const DEFAULT_LIMIT = 25;
 const DEFAULT_POLL_MS = 5_000;
 
@@ -80,7 +81,9 @@ function normalizeBaseUrl(url: string | undefined) {
 }
 
 export function parseConnectorPumpConfig(env: NodeJS.ProcessEnv = process.env): ConnectorPumpConfig {
-  const connectorTypes = unique(parseCsv(env.FLOWSTATE_CONNECTOR_PUMP_TYPES));
+  const connectorTypes = unique(parseCsv(env.FLOWSTATE_CONNECTOR_PUMP_TYPES)).filter((type) =>
+    SUPPORTED_CONNECTOR_TYPES.has(type),
+  );
 
   return {
     apiBaseUrl: normalizeBaseUrl(env.FLOWSTATE_LOCAL_API_BASE),

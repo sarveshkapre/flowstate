@@ -250,6 +250,41 @@ type ConnectorBackpressureSuggestionItem = {
   recommendation: ConnectorBackpressureSuggestion;
 };
 
+type ConnectorBackpressurePolicyUpdate = {
+  id: string;
+  actor: string | null;
+  created_at: string;
+  is_enabled: boolean;
+  max_retrying: number;
+  max_due_now: number;
+  min_limit: number;
+};
+
+type ConnectorBackpressureOutcomeSnapshot = {
+  window_start: string;
+  window_end: string;
+  lookback_hours: number;
+  total_deliveries: number;
+  delivered: number;
+  dead_lettered: number;
+  retrying: number;
+  queued: number;
+  delivery_success_rate: number;
+  dead_letter_rate: number;
+};
+
+type ConnectorBackpressureOutcomeTrend = {
+  current: ConnectorBackpressureOutcomeSnapshot;
+  baseline: ConnectorBackpressureOutcomeSnapshot;
+  delta: {
+    delivery_success_rate: number;
+    dead_letter_rate: number;
+    delivered: number;
+    dead_lettered: number;
+    total_deliveries: number;
+  };
+};
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -469,6 +504,40 @@ const EMPTY_CONNECTOR_ACTION_TIMELINE_SUMMARY: ConnectorActionTimelineSummary = 
   dead_lettered: 0,
   redrive_queued: 0,
   by_connector: [],
+};
+
+const EMPTY_BACKPRESSURE_OUTCOME_TREND: ConnectorBackpressureOutcomeTrend = {
+  current: {
+    window_start: "",
+    window_end: "",
+    lookback_hours: 24,
+    total_deliveries: 0,
+    delivered: 0,
+    dead_lettered: 0,
+    retrying: 0,
+    queued: 0,
+    delivery_success_rate: 0,
+    dead_letter_rate: 0,
+  },
+  baseline: {
+    window_start: "",
+    window_end: "",
+    lookback_hours: 24,
+    total_deliveries: 0,
+    delivered: 0,
+    dead_lettered: 0,
+    retrying: 0,
+    queued: 0,
+    delivery_success_rate: 0,
+    dead_letter_rate: 0,
+  },
+  delta: {
+    delivery_success_rate: 0,
+    dead_letter_rate: 0,
+    delivered: 0,
+    dead_lettered: 0,
+    total_deliveries: 0,
+  },
 };
 
 function connectorRecommendationLabel(recommendation: ConnectorReliabilityRecommendation) {
@@ -987,6 +1056,13 @@ export function FlowBuilderClient() {
     ConnectorRecommendationPreviewSkippedAction[]
   >([]);
   const [connectorBackpressureByConnector, setConnectorBackpressureByConnector] = useState<ConnectorBackpressureSuggestionItem[]>([]);
+  const [connectorBackpressurePolicyUpdates, setConnectorBackpressurePolicyUpdates] = useState<
+    ConnectorBackpressurePolicyUpdate[]
+  >([]);
+  const [connectorBackpressureOutcomes, setConnectorBackpressureOutcomes] = useState<ConnectorBackpressureOutcomeTrend>(
+    EMPTY_BACKPRESSURE_OUTCOME_TREND,
+  );
+  const [connectorBackpressureInsightsLookbackHours, setConnectorBackpressureInsightsLookbackHours] = useState("24");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -1429,6 +1505,47 @@ export function FlowBuilderClient() {
     [authHeaders],
   );
 
+  const loadConnectorBackpressureInsights = useCallback(
+    async (projectId: string) => {
+      if (!projectId) {
+        setConnectorBackpressurePolicyUpdates([]);
+        setConnectorBackpressureOutcomes(EMPTY_BACKPRESSURE_OUTCOME_TREND);
+        return;
+      }
+
+      const parsedLookback = Number(connectorBackpressureInsightsLookbackHours);
+      const lookbackHours =
+        Number.isFinite(parsedLookback) && parsedLookback > 0 ? Math.min(Math.floor(parsedLookback), 24 * 30) : 24;
+      const query = new URLSearchParams({
+        lookbackHours: String(lookbackHours),
+        limit: "20",
+      });
+      const response = await fetch(
+        `/api/v2/projects/${encodeURIComponent(projectId)}/connector-backpressure-policy/insights?${query.toString()}`,
+        {
+          cache: "no-store",
+          headers: authHeaders(false),
+        },
+      );
+      const payload = (await response.json()) as {
+        updates?: ConnectorBackpressurePolicyUpdate[];
+        outcomes?: ConnectorBackpressureOutcomeTrend;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(payload.error || "Unable to load connector backpressure policy insights.");
+        setConnectorBackpressurePolicyUpdates([]);
+        setConnectorBackpressureOutcomes(EMPTY_BACKPRESSURE_OUTCOME_TREND);
+        return;
+      }
+
+      setConnectorBackpressurePolicyUpdates(Array.isArray(payload.updates) ? payload.updates : []);
+      setConnectorBackpressureOutcomes(payload.outcomes ?? EMPTY_BACKPRESSURE_OUTCOME_TREND);
+    },
+    [authHeaders, connectorBackpressureInsightsLookbackHours],
+  );
+
   const loadActiveLearning = useCallback(
     async (projectId: string) => {
       if (!projectId) {
@@ -1698,6 +1815,9 @@ export function FlowBuilderClient() {
       setConnectorRecommendationPreviewSelected([]);
       setConnectorRecommendationPreviewSkipped([]);
       setConnectorBackpressureByConnector([]);
+      setConnectorBackpressurePolicyUpdates([]);
+      setConnectorBackpressureOutcomes(EMPTY_BACKPRESSURE_OUTCOME_TREND);
+      setConnectorBackpressureInsightsLookbackHours("24");
       setConnectorReliabilityIncludeTrend(true);
       setConnectorReliabilityTrendLookbackHours("24");
       setConnectorProcessBackpressureEnabled(true);
@@ -1746,6 +1866,10 @@ export function FlowBuilderClient() {
     loadRuns,
     selectedProjectId,
   ]);
+
+  useEffect(() => {
+    void loadConnectorBackpressureInsights(selectedProjectId);
+  }, [loadConnectorBackpressureInsights, selectedProjectId]);
 
   useEffect(() => {
     void loadDatasetVersions(selectedDatasetId);
@@ -2417,6 +2541,7 @@ export function FlowBuilderClient() {
     setSuccess("Connector backpressure policy saved.");
     setConnectorResult(JSON.stringify(result, null, 2));
     await loadConnectorBackpressurePolicy(selectedProjectId);
+    await loadConnectorBackpressureInsights(selectedProjectId);
     setBusyAction(null);
   }
 
@@ -2804,6 +2929,7 @@ export function FlowBuilderClient() {
     setConnectorBackpressureByConnector(Array.isArray(result.by_connector) ? result.by_connector : []);
     setConnectorResult(JSON.stringify(result, null, 2));
     setSuccess(`Applied suggested backpressure settings from ${connectorTypes.length} connector type(s).`);
+    await loadConnectorBackpressureInsights(selectedProjectId);
     setBusyAction(null);
   }
 
@@ -3026,6 +3152,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -3065,6 +3192,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -3118,6 +3246,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -3151,6 +3280,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -3191,6 +3321,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -3247,6 +3378,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -3308,6 +3440,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -3394,6 +3527,7 @@ export function FlowBuilderClient() {
     await loadConnectorDeliveries();
     await loadConnectorInsights();
     await loadConnectorReliability();
+    await loadConnectorBackpressureInsights(selectedProjectId);
     await loadConnectorActionTimeline();
     setBusyAction(null);
   }
@@ -4636,6 +4770,7 @@ export function FlowBuilderClient() {
                 void loadConnectorDeliveries();
                 void loadConnectorInsights();
                 void loadConnectorReliability();
+                void loadConnectorBackpressureInsights(selectedProjectId);
                 void loadConnectorActionTimeline();
               }}
             >
@@ -4689,6 +4824,53 @@ export function FlowBuilderClient() {
               </ul>
             </div>
           ) : null}
+
+          <div className="stack">
+            <div className="row wrap">
+              <label className="field small" style={{ minWidth: "14rem" }}>
+                <span>Backpressure Insight Lookback (hours)</span>
+                <input
+                  value={connectorBackpressureInsightsLookbackHours}
+                  onChange={(event) => setConnectorBackpressureInsightsLookbackHours(event.target.value)}
+                />
+              </label>
+              <button
+                className="button secondary"
+                disabled={busyAction !== null}
+                onClick={() => void loadConnectorBackpressureInsights(selectedProjectId)}
+              >
+                Refresh Backpressure Insights
+              </button>
+            </div>
+            <p className="muted">
+              current success {(connectorBackpressureOutcomes.current.delivery_success_rate * 100).toFixed(1)}% | dead-letter{" "}
+              {(connectorBackpressureOutcomes.current.dead_letter_rate * 100).toFixed(1)}% | deliveries{" "}
+              {connectorBackpressureOutcomes.current.total_deliveries}
+            </p>
+            <p className="muted">
+              baseline success {(connectorBackpressureOutcomes.baseline.delivery_success_rate * 100).toFixed(1)}% | dead-letter{" "}
+              {(connectorBackpressureOutcomes.baseline.dead_letter_rate * 100).toFixed(1)}% | deliveries{" "}
+              {connectorBackpressureOutcomes.baseline.total_deliveries}
+            </p>
+            <p className="muted">
+              delta success {(connectorBackpressureOutcomes.delta.delivery_success_rate * 100).toFixed(1)} pts | delta dead-letter{" "}
+              {(connectorBackpressureOutcomes.delta.dead_letter_rate * 100).toFixed(1)} pts | delta deliveries{" "}
+              {connectorBackpressureOutcomes.delta.total_deliveries}
+            </p>
+            {connectorBackpressurePolicyUpdates.length > 0 ? (
+              <ul className="list">
+                {connectorBackpressurePolicyUpdates.map((update) => (
+                  <li key={`policy-update:${update.id}`}>
+                    {new Date(update.created_at).toLocaleString()} by {update.actor ?? "system"} - enabled{" "}
+                    {update.is_enabled ? "yes" : "no"} - max retrying {update.max_retrying}, max due now {update.max_due_now}, min
+                    limit {update.min_limit}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">No backpressure policy updates recorded yet.</p>
+            )}
+          </div>
 
           {connectorResult ? <pre className="json small">{connectorResult}</pre> : <p className="muted">No connector result yet.</p>}
         </article>

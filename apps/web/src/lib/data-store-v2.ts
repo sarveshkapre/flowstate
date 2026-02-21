@@ -58,7 +58,9 @@ import {
 
 import { getOrganization } from "@/lib/data-store";
 import {
+  connectorRedriveResetFields,
   computeRetryBackoffMs,
+  isConnectorDeadLetterEligibleForRedrive,
   isConnectorDeliveryDue,
   type ConnectorDeliveryStatus,
 } from "@/lib/v2/connector-queue";
@@ -1638,11 +1640,7 @@ export async function redriveConnectorDelivery(input: {
       return connectorDeliveryRecordSchema.parse(delivery);
     }
 
-    delivery.status = "queued";
-    delivery.next_attempt_at = null;
-    delivery.dead_letter_reason = null;
-    delivery.last_error = null;
-    delivery.updated_at = new Date().toISOString();
+    Object.assign(delivery, connectorRedriveResetFields(new Date().toISOString()));
 
     appendAuditEvent(state, {
       eventType: "connector_delivery_queued_v2",
@@ -1656,6 +1654,59 @@ export async function redriveConnectorDelivery(input: {
     });
 
     return connectorDeliveryRecordSchema.parse(delivery);
+  });
+}
+
+export async function redriveConnectorDeliveryBatch(input: {
+  projectId: string;
+  connectorType: string;
+  limit?: number;
+  minDeadLetterMinutes?: number;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const normalizedType = input.connectorType.trim().toLowerCase();
+    const limit = Math.max(1, Math.min(input.limit ?? 10, 100));
+    const nowMs = Date.now();
+
+    const redriven = state.connector_deliveries
+      .filter((delivery) => {
+        if (delivery.project_id !== input.projectId || delivery.connector_type !== normalizedType) {
+          return false;
+        }
+
+        return isConnectorDeadLetterEligibleForRedrive({
+          status: delivery.status as ConnectorDeliveryStatus,
+          updatedAt: delivery.updated_at,
+          minDeadLetterMinutes: input.minDeadLetterMinutes,
+          nowMs,
+        });
+      })
+      .sort((left, right) => Date.parse(left.updated_at) - Date.parse(right.updated_at))
+      .slice(0, limit);
+
+    const redriveNow = new Date(nowMs).toISOString();
+
+    for (const delivery of redriven) {
+      Object.assign(delivery, connectorRedriveResetFields(redriveNow));
+
+      appendAuditEvent(state, {
+        eventType: "connector_delivery_queued_v2",
+        actor: input.actor ?? "system",
+        metadata: {
+          delivery_id: delivery.id,
+          connector_type: delivery.connector_type,
+          project_id: delivery.project_id,
+          redrive: true,
+          batch: true,
+        },
+      });
+    }
+
+    return {
+      redriven_count: redriven.length,
+      deliveries: redriven.map((delivery) => connectorDeliveryRecordSchema.parse(delivery)),
+    };
   });
 }
 

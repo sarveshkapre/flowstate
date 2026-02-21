@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { computeRetryBackoffMs, isConnectorDeliveryDue, isTerminalConnectorStatus } from "./connector-queue.ts";
+import {
+  computeRetryBackoffMs,
+  connectorRedriveResetFields,
+  isConnectorDeadLetterEligibleForRedrive,
+  isConnectorDeliveryDue,
+  isTerminalConnectorStatus,
+} from "./connector-queue.ts";
 
 test("computeRetryBackoffMs grows exponentially and clamps initial value", () => {
   assert.equal(computeRetryBackoffMs(500, 1), 500);
@@ -53,4 +59,53 @@ test("isConnectorDeliveryDue handles queued, retry timing, and terminal states",
     }),
     false,
   );
+});
+
+test("isConnectorDeadLetterEligibleForRedrive enforces minimum dead-letter age", () => {
+  const nowMs = Date.parse("2026-02-21T00:30:00.000Z");
+
+  assert.equal(
+    isConnectorDeadLetterEligibleForRedrive({
+      status: "dead_lettered",
+      updatedAt: "2026-02-21T00:00:00.000Z",
+      minDeadLetterMinutes: 20,
+      nowMs,
+    }),
+    true,
+  );
+
+  assert.equal(
+    isConnectorDeadLetterEligibleForRedrive({
+      status: "dead_lettered",
+      updatedAt: "2026-02-21T00:20:00.000Z",
+      minDeadLetterMinutes: 20,
+      nowMs,
+    }),
+    false,
+  );
+
+  assert.equal(
+    isConnectorDeadLetterEligibleForRedrive({
+      status: "queued",
+      updatedAt: "2026-02-21T00:00:00.000Z",
+      minDeadLetterMinutes: 0,
+      nowMs,
+    }),
+    false,
+  );
+});
+
+test("connectorRedriveResetFields resets delivery state for retry", () => {
+  const reset = connectorRedriveResetFields("2026-02-21T01:00:00.000Z");
+
+  assert.deepEqual(reset, {
+    status: "queued",
+    attempt_count: 0,
+    next_attempt_at: null,
+    dead_letter_reason: null,
+    last_error: null,
+    last_status_code: null,
+    delivered_at: null,
+    updated_at: "2026-02-21T01:00:00.000Z",
+  });
 });

@@ -632,6 +632,8 @@ export function FlowBuilderClient() {
   const [connectorIdempotencyKey, setConnectorIdempotencyKey] = useState("");
   const [connectorMaxAttempts, setConnectorMaxAttempts] = useState("3");
   const [connectorProcessLimit, setConnectorProcessLimit] = useState("10");
+  const [connectorBatchRedriveLimit, setConnectorBatchRedriveLimit] = useState("10");
+  const [connectorBatchRedriveMinAgeMinutes, setConnectorBatchRedriveMinAgeMinutes] = useState("15");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -1923,6 +1925,43 @@ export function FlowBuilderClient() {
     setBusyAction(null);
   }
 
+  async function redriveConnectorBatch() {
+    if (!selectedProjectId) {
+      setError("Select a project before batch redrive.");
+      return;
+    }
+
+    const parsedLimit = Number(connectorBatchRedriveLimit);
+    const parsedMinAge = Number(connectorBatchRedriveMinAgeMinutes);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 10;
+    const minDeadLetterMinutes = Number.isFinite(parsedMinAge) && parsedMinAge >= 0 ? Math.floor(parsedMinAge) : 0;
+
+    setBusyAction("connector_redrive_batch");
+    const response = await fetch(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver?action=redrive_batch`, {
+      method: "PATCH",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        limit,
+        minDeadLetterMinutes,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Connector batch redrive failed.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    const redrivenCount = typeof result.redriven_count === "number" ? result.redriven_count : 0;
+    setSuccess(`Connector batch redrive completed (${redrivenCount} redriven).`);
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+    setBusyAction(null);
+  }
+
   async function deliverConnector() {
     if (!selectedProjectId) {
       setError("Select a project before connector delivery.");
@@ -2922,6 +2961,17 @@ export function FlowBuilderClient() {
               <span>Queue Process Limit</span>
               <input value={connectorProcessLimit} onChange={(event) => setConnectorProcessLimit(event.target.value)} />
             </label>
+            <label className="field">
+              <span>Batch Redrive Limit</span>
+              <input value={connectorBatchRedriveLimit} onChange={(event) => setConnectorBatchRedriveLimit(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Min Dead-letter Age (minutes)</span>
+              <input
+                value={connectorBatchRedriveMinAgeMinutes}
+                onChange={(event) => setConnectorBatchRedriveMinAgeMinutes(event.target.value)}
+              />
+            </label>
           </div>
 
           <div className="row wrap">
@@ -2933,6 +2983,9 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void processConnectorQueue()}>
               {busyAction === "connector_process_queue" ? "Processing..." : "Process Queue"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveConnectorBatch()}>
+              {busyAction === "connector_redrive_batch" ? "Redriving..." : "Batch Redrive"}
             </button>
             <button className="button secondary" onClick={() => void loadConnectorDeliveries()}>
               Refresh History

@@ -6,6 +6,7 @@ import {
   listConnectorDeliveryAttempts,
   processConnectorDelivery,
   processConnectorDeliveryQueue,
+  redriveConnectorDeliveryBatch,
   redriveConnectorDelivery,
   summarizeConnectorDeliveries,
 } from "@/lib/data-store-v2";
@@ -38,6 +39,12 @@ const processQueueSchema = z.object({
 const redriveSchema = z.object({
   projectId: z.string().min(1),
   deliveryId: z.string().min(1),
+});
+
+const redriveBatchSchema = z.object({
+  projectId: z.string().min(1),
+  limit: z.number().int().positive().max(100).default(10),
+  minDeadLetterMinutes: z.number().int().nonnegative().max(7 * 24 * 60).default(0),
 });
 
 export async function GET(request: Request, { params }: Params) {
@@ -231,5 +238,39 @@ export async function PATCH(request: Request, { params }: Params) {
     });
   }
 
-  return NextResponse.json({ error: "Unsupported action. Use action=process or action=redrive" }, { status: 400 });
+  if (action === "redrive_batch") {
+    const body = await request.json().catch(() => null);
+    const parsed = redriveBatchSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
+    }
+
+    const auth = await requirePermission({
+      request,
+      permission: "run_flow",
+      projectId: parsed.data.projectId,
+    });
+
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const result = await redriveConnectorDeliveryBatch({
+      projectId: parsed.data.projectId,
+      connectorType: type,
+      limit: parsed.data.limit,
+      minDeadLetterMinutes: parsed.data.minDeadLetterMinutes,
+      actor: auth.actor.email ?? "api-key",
+    });
+
+    return NextResponse.json({
+      connector_type: type,
+      project_id: parsed.data.projectId,
+      redriven_count: result.redriven_count,
+      deliveries: result.deliveries,
+    });
+  }
+
+  return NextResponse.json({ error: "Unsupported action. Use action=process, action=redrive, or action=redrive_batch" }, { status: 400 });
 }

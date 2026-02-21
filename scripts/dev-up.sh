@@ -11,11 +11,13 @@ WEB_LOG="$LOG_DIR/web.log"
 WORKER_LOG="$LOG_DIR/worker.log"
 WATCHER_LOG="$LOG_DIR/inbox-watcher.log"
 CONNECTOR_PUMP_LOG="$LOG_DIR/connector-pump.log"
+CONNECTOR_REDRIVE_LOG="$LOG_DIR/connector-redrive.log"
 REVIEW_ALERTS_LOG="$LOG_DIR/review-alerts.log"
 WEB_PID_FILE="$PID_DIR/web.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
 WATCHER_PID_FILE="$PID_DIR/inbox-watcher.pid"
 CONNECTOR_PUMP_PID_FILE="$PID_DIR/connector-pump.pid"
+CONNECTOR_REDRIVE_PID_FILE="$PID_DIR/connector-redrive.pid"
 REVIEW_ALERTS_PID_FILE="$PID_DIR/review-alerts.pid"
 
 print_error() {
@@ -114,6 +116,8 @@ FOLDER_WATCHER_ENABLED="$(read_env_value FLOWSTATE_ENABLE_FOLDER_WATCHER || true
 FOLDER_WATCHER_ENABLED_NORMALIZED="$(printf '%s' "$FOLDER_WATCHER_ENABLED" | tr '[:upper:]' '[:lower:]')"
 CONNECTOR_PUMP_ENABLED="$(read_env_value FLOWSTATE_ENABLE_CONNECTOR_PUMP || true)"
 CONNECTOR_PUMP_ENABLED_NORMALIZED="$(printf '%s' "$CONNECTOR_PUMP_ENABLED" | tr '[:upper:]' '[:lower:]')"
+CONNECTOR_REDRIVE_ENABLED="$(read_env_value FLOWSTATE_ENABLE_CONNECTOR_REDRIVE || true)"
+CONNECTOR_REDRIVE_ENABLED_NORMALIZED="$(printf '%s' "$CONNECTOR_REDRIVE_ENABLED" | tr '[:upper:]' '[:lower:]')"
 REVIEW_ALERTS_ENABLED="$(read_env_value FLOWSTATE_ENABLE_REVIEW_ALERTS || true)"
 REVIEW_ALERTS_ENABLED_NORMALIZED="$(printf '%s' "$REVIEW_ALERTS_ENABLED" | tr '[:upper:]' '[:lower:]')"
 
@@ -147,6 +151,14 @@ if [[ "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "1" || "$CONNECTOR_PUMP_ENABLED_NO
     env FLOWSTATE_EFFECTIVE_OPENAI_API_KEY="$OPENAI_API_KEY_VALUE" bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && export OPENAI_API_KEY=\"\$FLOWSTATE_EFFECTIVE_OPENAI_API_KEY\" && npm run watch:connectors --workspace @flowstate/worker"
 fi
 
+if [[ "$CONNECTOR_REDRIVE_ENABLED_NORMALIZED" == "1" || "$CONNECTOR_REDRIVE_ENABLED_NORMALIZED" == "true" || "$CONNECTOR_REDRIVE_ENABLED_NORMALIZED" == "yes" ]]; then
+  start_service \
+    "connector-redrive" \
+    "$CONNECTOR_REDRIVE_PID_FILE" \
+    "$CONNECTOR_REDRIVE_LOG" \
+    env FLOWSTATE_EFFECTIVE_OPENAI_API_KEY="$OPENAI_API_KEY_VALUE" bash -lc "cd '$ROOT_DIR' && set -a && source '$ENV_FILE' && set +a && export OPENAI_API_KEY=\"\$FLOWSTATE_EFFECTIVE_OPENAI_API_KEY\" && npm run watch:connector-redrive --workspace @flowstate/worker"
+fi
+
 if [[ "$REVIEW_ALERTS_ENABLED_NORMALIZED" == "1" || "$REVIEW_ALERTS_ENABLED_NORMALIZED" == "true" || "$REVIEW_ALERTS_ENABLED_NORMALIZED" == "yes" ]]; then
   start_service \
     "review-alerts" \
@@ -164,6 +176,9 @@ if [[ "$FOLDER_WATCHER_ENABLED_NORMALIZED" == "1" || "$FOLDER_WATCHER_ENABLED_NO
 fi
 if [[ "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "1" || "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "true" || "$CONNECTOR_PUMP_ENABLED_NORMALIZED" == "yes" ]]; then
   printf "  Pump log:     %s\n" "$CONNECTOR_PUMP_LOG"
+fi
+if [[ "$CONNECTOR_REDRIVE_ENABLED_NORMALIZED" == "1" || "$CONNECTOR_REDRIVE_ENABLED_NORMALIZED" == "true" || "$CONNECTOR_REDRIVE_ENABLED_NORMALIZED" == "yes" ]]; then
+  printf "  Redrive log:  %s\n" "$CONNECTOR_REDRIVE_LOG"
 fi
 if [[ "$REVIEW_ALERTS_ENABLED_NORMALIZED" == "1" || "$REVIEW_ALERTS_ENABLED_NORMALIZED" == "true" || "$REVIEW_ALERTS_ENABLED_NORMALIZED" == "yes" ]]; then
   printf "  Alerts log:   %s\n" "$REVIEW_ALERTS_LOG"

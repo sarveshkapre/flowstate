@@ -1437,6 +1437,18 @@ export async function getConnectorBackpressurePolicyDraft(projectId: string) {
   return state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === projectId) ?? null;
 }
 
+export async function listConnectorBackpressurePolicyDrafts(filters?: { projectIds?: string[] }) {
+  const state = await readState();
+  const allowedProjectIds = filters?.projectIds ? new Set(filters.projectIds) : null;
+
+  return state.connector_backpressure_policy_drafts.filter((draft) => {
+    if (allowedProjectIds && !allowedProjectIds.has(draft.project_id)) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export async function upsertConnectorGuardianPolicy(input: {
   projectId: string;
   isEnabled?: boolean;
@@ -1729,7 +1741,11 @@ export async function deleteConnectorBackpressurePolicyDraft(input: { projectId:
   });
 }
 
-export async function applyConnectorBackpressurePolicyDraft(input: { projectId: string; actor?: string }) {
+export async function applyConnectorBackpressurePolicyDraft(input: {
+  projectId: string;
+  actor?: string;
+  creditActorApproval?: boolean;
+}) {
   const draft = await getConnectorBackpressurePolicyDraft(input.projectId);
   if (!draft) {
     throw new Error("Backpressure policy draft not found");
@@ -1737,7 +1753,7 @@ export async function applyConnectorBackpressurePolicyDraft(input: { projectId: 
 
   const readiness = computeConnectorBackpressureDraftReadiness({
     draft,
-    actor: input.actor ?? null,
+    actor: input.creditActorApproval === false ? null : input.actor ?? null,
   });
   if (!readiness.activation_ready) {
     throw new Error("Backpressure policy draft activation time not reached");

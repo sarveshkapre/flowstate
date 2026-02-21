@@ -339,6 +339,35 @@ type ConnectorBackpressurePolicySimulation = {
   per_connector: ConnectorBackpressurePolicySimulationItem[];
 };
 
+type ConnectorBackpressureDraftActivationResultItem = {
+  project_id: string;
+  project_name: string | null;
+  draft_id: string;
+  status: "ready" | "blocked" | "applied" | "failed";
+  reason: "activation_time_pending" | "approvals_pending" | "apply_failed" | null;
+  message: string | null;
+  activate_at: string | null;
+  required_approvals: number;
+  approval_count: number;
+  approvals_remaining: number;
+  activation_ready: boolean;
+  policy_id: string | null;
+};
+
+type ConnectorBackpressureDraftActivationResult = {
+  dry_run: boolean;
+  limit: number;
+  project_count: number;
+  total_draft_count: number;
+  scanned_draft_count: number;
+  limited: boolean;
+  ready_count: number;
+  blocked_count: number;
+  applied_count: number;
+  failed_count: number;
+  results: ConnectorBackpressureDraftActivationResultItem[];
+};
+
 type ReviewDecisionSummary = {
   total: number;
   by_decision: Record<ReviewDecisionValue, number>;
@@ -1188,6 +1217,10 @@ export function FlowBuilderClient() {
   const [connectorBackpressureDraft, setConnectorBackpressureDraft] = useState<ConnectorBackpressurePolicyDraft | null>(null);
   const [connectorBackpressureDraftRequiredApprovals, setConnectorBackpressureDraftRequiredApprovals] = useState("1");
   const [connectorBackpressureDraftActivateAt, setConnectorBackpressureDraftActivateAt] = useState("");
+  const [connectorBackpressureDraftActivationDryRun, setConnectorBackpressureDraftActivationDryRun] = useState(false);
+  const [connectorBackpressureDraftActivationLimit, setConnectorBackpressureDraftActivationLimit] = useState("100");
+  const [connectorBackpressureDraftActivationResult, setConnectorBackpressureDraftActivationResult] =
+    useState<ConnectorBackpressureDraftActivationResult | null>(null);
   const [connectorBackpressureInsightsLookbackHours, setConnectorBackpressureInsightsLookbackHours] = useState("24");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
@@ -1626,6 +1659,7 @@ export function FlowBuilderClient() {
         setConnectorBackpressureDraft(null);
         setConnectorBackpressureDraftRequiredApprovals("1");
         setConnectorBackpressureDraftActivateAt("");
+        setConnectorBackpressureDraftActivationResult(null);
         return;
       }
 
@@ -1653,6 +1687,7 @@ export function FlowBuilderClient() {
         setConnectorBackpressureDraft(null);
         setConnectorBackpressureDraftRequiredApprovals("1");
         setConnectorBackpressureDraftActivateAt("");
+        setConnectorBackpressureDraftActivationResult(null);
         return;
       }
 
@@ -1667,6 +1702,7 @@ export function FlowBuilderClient() {
         setConnectorBackpressureDraft(null);
         setConnectorBackpressureDraftRequiredApprovals("1");
         setConnectorBackpressureDraftActivateAt("");
+        setConnectorBackpressureDraftActivationResult(null);
         return;
       }
 
@@ -2923,6 +2959,60 @@ export function FlowBuilderClient() {
     await loadConnectorBackpressurePolicy(selectedProjectId);
     await loadConnectorBackpressureDraft(selectedProjectId);
     await loadConnectorBackpressureInsights(selectedProjectId);
+    setBusyAction(null);
+  }
+
+  async function activateDueConnectorBackpressureDrafts() {
+    const parsedLimit = Number(connectorBackpressureDraftActivationLimit);
+    const limit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), 500) : 100;
+
+    setBusyAction("connector_backpressure_draft_activate_due");
+    const response = await fetch("/api/v2/connectors/backpressure/drafts/activate", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        dryRun: connectorBackpressureDraftActivationDryRun,
+        limit,
+      }),
+    });
+    const result = (await response.json()) as
+      | ConnectorBackpressureDraftActivationResult
+      | {
+          error?: string;
+        };
+
+    if (
+      !response.ok ||
+      !("results" in result) ||
+      !Array.isArray(result.results)
+    ) {
+      const maybeError = "error" in result ? result.error : undefined;
+      setError(typeof maybeError === "string" ? maybeError : "Unable to activate due connector backpressure drafts.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setConnectorBackpressureDraftActivationResult(result);
+    setConnectorResult(JSON.stringify(result, null, 2));
+
+    if (result.dry_run) {
+      setSuccess(
+        `Draft sweep complete: ready ${result.ready_count}, blocked ${result.blocked_count}, failed ${result.failed_count}.`,
+      );
+    } else {
+      setSuccess(
+        `Activated ${result.applied_count} due draft(s); blocked ${result.blocked_count}, failed ${result.failed_count}.`,
+      );
+    }
+
+    if (selectedProjectId) {
+      await loadConnectorBackpressurePolicy(selectedProjectId);
+      await loadConnectorBackpressureDraft(selectedProjectId);
+      await loadConnectorBackpressureInsights(selectedProjectId);
+    }
+
     setBusyAction(null);
   }
 
@@ -5299,6 +5389,23 @@ export function FlowBuilderClient() {
                 onChange={(event) => setConnectorBackpressureDraftActivateAt(event.target.value)}
               />
             </label>
+            <label className="field">
+              <span>Draft Activation Sweep Limit</span>
+              <input
+                value={connectorBackpressureDraftActivationLimit}
+                onChange={(event) => setConnectorBackpressureDraftActivationLimit(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Draft Activation Sweep Mode</span>
+              <select
+                value={connectorBackpressureDraftActivationDryRun ? "dry_run" : "apply"}
+                onChange={(event) => setConnectorBackpressureDraftActivationDryRun(event.target.value === "dry_run")}
+              >
+                <option value="apply">activate ready drafts</option>
+                <option value="dry_run">dry run (no apply)</option>
+              </select>
+            </label>
           </div>
 
           <div className="field">
@@ -5362,6 +5469,15 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void applyConnectorBackpressurePolicyDraft()}>
               {busyAction === "connector_backpressure_draft_apply" ? "Applying Draft..." : "Apply Backpressure Draft"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void activateDueConnectorBackpressureDrafts()}>
+              {busyAction === "connector_backpressure_draft_activate_due"
+                ? connectorBackpressureDraftActivationDryRun
+                  ? "Scanning Drafts..."
+                  : "Activating Drafts..."
+                : connectorBackpressureDraftActivationDryRun
+                  ? "Scan Due Drafts"
+                  : "Activate Due Drafts"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void saveConnectorBackpressurePolicy()}>
               {busyAction === "connector_backpressure_policy_save" ? "Saving..." : "Save Backpressure Policy"}
@@ -5478,6 +5594,40 @@ export function FlowBuilderClient() {
               </div>
             ) : (
               <p className="muted">No saved backpressure draft.</p>
+            )}
+            {connectorBackpressureDraftActivationResult ? (
+              <div className="stack">
+                <p className="muted">
+                  draft activation sweep ({connectorBackpressureDraftActivationResult.dry_run ? "dry run" : "apply"}) | projects{" "}
+                  {connectorBackpressureDraftActivationResult.project_count} | scanned{" "}
+                  {connectorBackpressureDraftActivationResult.scanned_draft_count}/{connectorBackpressureDraftActivationResult.total_draft_count}
+                  {connectorBackpressureDraftActivationResult.limited ? " (limited)" : ""} | ready{" "}
+                  {connectorBackpressureDraftActivationResult.ready_count} | applied{" "}
+                  {connectorBackpressureDraftActivationResult.applied_count} | blocked{" "}
+                  {connectorBackpressureDraftActivationResult.blocked_count} | failed{" "}
+                  {connectorBackpressureDraftActivationResult.failed_count}
+                </p>
+                {connectorBackpressureDraftActivationResult.results.length > 0 ? (
+                  <ul className="list">
+                    {connectorBackpressureDraftActivationResult.results.slice(0, 20).map((item) => (
+                      <li key={`draft-activation:${item.draft_id}`}>
+                        <strong>{item.project_name ?? item.project_id}</strong> - {item.status}
+                        {item.reason ? ` (${item.reason})` : ""}
+                        {item.message ? ` - ${item.message}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">No draft records were scanned in the latest sweep.</p>
+                )}
+                {connectorBackpressureDraftActivationResult.results.length > 20 ? (
+                  <p className="muted">
+                    showing first 20 results of {connectorBackpressureDraftActivationResult.results.length}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="muted">Run due-draft activation to apply ready drafts across accessible projects.</p>
             )}
             {connectorBackpressurePolicyUpdates.length > 0 ? (
               <ul className="list">

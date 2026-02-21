@@ -12,6 +12,10 @@ export type ConnectorRedriveConfig = {
   minDeadLetterCount: number;
   minDeadLetterMinutes: number;
   processAfterRedrive: boolean;
+  backpressureEnabled: boolean;
+  backpressureMaxRetrying: number;
+  backpressureMaxDueNow: number;
+  backpressureMinLimit: number;
 };
 
 export type ConnectorRedriveResult = {
@@ -29,6 +33,9 @@ const DEFAULT_POLL_MS = 60_000;
 const DEFAULT_REDRIVE_LIMIT = 10;
 const DEFAULT_MIN_DEAD_LETTER = 3;
 const DEFAULT_MIN_DEAD_LETTER_MINUTES = 15;
+const DEFAULT_BACKPRESSURE_MAX_RETRYING = 50;
+const DEFAULT_BACKPRESSURE_MAX_DUE_NOW = 100;
+const DEFAULT_BACKPRESSURE_MIN_LIMIT = 1;
 
 function parseCsv(value: string | undefined) {
   if (!value) {
@@ -168,6 +175,22 @@ export function parseConnectorRedriveConfig(env: NodeJS.ProcessEnv = process.env
       7 * 24 * 60,
     ),
     processAfterRedrive: parseBoolean(env.FLOWSTATE_CONNECTOR_REDRIVE_PROCESS_AFTER_REDRIVE, true),
+    backpressureEnabled: parseBoolean(env.FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_ENABLED, true),
+    backpressureMaxRetrying: parsePositiveInt(
+      env.FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MAX_RETRYING,
+      DEFAULT_BACKPRESSURE_MAX_RETRYING,
+      10_000,
+    ),
+    backpressureMaxDueNow: parsePositiveInt(
+      env.FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MAX_DUE_NOW,
+      DEFAULT_BACKPRESSURE_MAX_DUE_NOW,
+      10_000,
+    ),
+    backpressureMinLimit: parsePositiveInt(
+      env.FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MIN_LIMIT,
+      DEFAULT_BACKPRESSURE_MIN_LIMIT,
+      100,
+    ),
   };
 }
 
@@ -202,6 +225,12 @@ export async function runConnectorRedriveOnce(input: {
         minDeadLetterCount: input.config.minDeadLetterCount,
         minDeadLetterMinutes: input.config.minDeadLetterMinutes,
         processAfterRedrive: input.config.processAfterRedrive,
+        backpressure: {
+          enabled: input.config.backpressureEnabled,
+          maxRetrying: input.config.backpressureMaxRetrying,
+          maxDueNow: input.config.backpressureMaxDueNow,
+          minLimit: input.config.backpressureMinLimit,
+        },
       }),
     });
     const redrivePayload = await parseJson(redriveResponse);

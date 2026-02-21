@@ -2904,6 +2904,7 @@ export function FlowBuilderClient() {
         minDeadLetterCount,
         processAfterRedrive: true,
         connectorTypes: CONNECTOR_TYPES,
+        backpressure: buildConnectorProcessBackpressure(),
       }),
     });
     const result = (await response.json()) as Record<string, unknown>;

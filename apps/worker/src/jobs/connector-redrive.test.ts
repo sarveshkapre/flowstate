@@ -19,6 +19,10 @@ test("parseConnectorRedriveConfig applies defaults", () => {
   assert.equal(config.minDeadLetterCount, 3);
   assert.equal(config.minDeadLetterMinutes, 15);
   assert.equal(config.processAfterRedrive, true);
+  assert.equal(config.backpressureEnabled, true);
+  assert.equal(config.backpressureMaxRetrying, 50);
+  assert.equal(config.backpressureMaxDueNow, 100);
+  assert.equal(config.backpressureMinLimit, 1);
 });
 
 test("parseConnectorRedriveConfig normalizes custom values", () => {
@@ -30,6 +34,10 @@ test("parseConnectorRedriveConfig normalizes custom values", () => {
     FLOWSTATE_CONNECTOR_REDRIVE_MIN_DEAD_LETTER: "2",
     FLOWSTATE_CONNECTOR_REDRIVE_MIN_DEAD_LETTER_MINUTES: "0",
     FLOWSTATE_CONNECTOR_REDRIVE_PROCESS_AFTER_REDRIVE: "false",
+    FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_ENABLED: "0",
+    FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MAX_RETRYING: "999999",
+    FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MAX_DUE_NOW: "250",
+    FLOWSTATE_CONNECTOR_REDRIVE_BACKPRESSURE_MIN_LIMIT: "300",
   });
 
   assert.equal(config.apiBaseUrl, "http://localhost:3010");
@@ -39,6 +47,10 @@ test("parseConnectorRedriveConfig normalizes custom values", () => {
   assert.equal(config.minDeadLetterCount, 2);
   assert.equal(config.minDeadLetterMinutes, 15);
   assert.equal(config.processAfterRedrive, false);
+  assert.equal(config.backpressureEnabled, false);
+  assert.equal(config.backpressureMaxRetrying, 10_000);
+  assert.equal(config.backpressureMaxDueNow, 250);
+  assert.equal(config.backpressureMinLimit, 100);
 });
 
 test("parseConnectorRedriveConfig ignores unsupported connector types", () => {
@@ -119,6 +131,12 @@ test("runConnectorRedriveOnce redrives batch and processes queue", async () => {
   assert.equal(requestBodies[0]?.projectId, "proj-1");
   assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook"]);
   assert.equal(requestBodies[0]?.processAfterRedrive, true);
+  assert.deepEqual(requestBodies[0]?.backpressure, {
+    enabled: true,
+    maxRetrying: 50,
+    maxDueNow: 100,
+    minLimit: 1,
+  });
 });
 
 test("runConnectorRedriveOnce continues after project-level failures", async () => {

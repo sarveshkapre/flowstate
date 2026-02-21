@@ -11,6 +11,7 @@ type Params = {
 const updatePolicySchema = z
   .object({
     isEnabled: z.boolean().optional(),
+    dryRun: z.boolean().optional(),
     lookbackHours: z.coerce.number().int().positive().max(24 * 30).optional(),
     riskThreshold: z.coerce.number().positive().max(500).optional(),
     maxActionsPerProject: z.coerce.number().int().positive().max(20).optional(),
@@ -68,6 +69,7 @@ export async function PUT(request: Request, { params }: Params) {
     const policy = await upsertConnectorGuardianPolicy({
       projectId,
       isEnabled: parsed.data.isEnabled,
+      dryRun: parsed.data.dryRun,
       lookbackHours: parsed.data.lookbackHours,
       riskThreshold: parsed.data.riskThreshold,
       maxActionsPerProject: parsed.data.maxActionsPerProject,

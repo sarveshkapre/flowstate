@@ -516,6 +516,7 @@ export const connectorGuardianPolicyRecordSchema = z.object({
   id: z.string(),
   project_id: z.string(),
   is_enabled: z.boolean(),
+  dry_run: z.boolean(),
   lookback_hours: z.number().int().positive(),
   risk_threshold: z.number().positive(),
   max_actions_per_project: z.number().int().positive(),

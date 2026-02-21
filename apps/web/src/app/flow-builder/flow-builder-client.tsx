@@ -284,6 +284,7 @@ type ConnectorGuardianPolicy = {
   id: string;
   project_id: string;
   is_enabled: boolean;
+  dry_run: boolean;
   lookback_hours: number;
   risk_threshold: number;
   max_actions_per_project: number;
@@ -973,6 +974,7 @@ export function FlowBuilderClient() {
   const [reviewAlertMinAvgErrorRate, setReviewAlertMinAvgErrorRate] = useState("0.35");
   const [reviewAlertResult, setReviewAlertResult] = useState("");
   const [connectorGuardianPolicyEnabled, setConnectorGuardianPolicyEnabled] = useState(true);
+  const [connectorGuardianDryRun, setConnectorGuardianDryRun] = useState(false);
   const [connectorGuardianLookbackHours, setConnectorGuardianLookbackHours] = useState("24");
   const [connectorGuardianRiskThreshold, setConnectorGuardianRiskThreshold] = useState("20");
   const [connectorGuardianMaxActionsPerProject, setConnectorGuardianMaxActionsPerProject] = useState("2");
@@ -1288,6 +1290,7 @@ export function FlowBuilderClient() {
     async (projectId: string) => {
       if (!projectId) {
         setConnectorGuardianPolicyEnabled(true);
+        setConnectorGuardianDryRun(false);
         setConnectorGuardianLookbackHours("24");
         setConnectorGuardianRiskThreshold("20");
         setConnectorGuardianMaxActionsPerProject("2");
@@ -1315,6 +1318,7 @@ export function FlowBuilderClient() {
 
       if (!payload.policy) {
         setConnectorGuardianPolicyEnabled(true);
+        setConnectorGuardianDryRun(false);
         setConnectorGuardianLookbackHours("24");
         setConnectorGuardianRiskThreshold("20");
         setConnectorGuardianMaxActionsPerProject("2");
@@ -1327,6 +1331,7 @@ export function FlowBuilderClient() {
       }
 
       setConnectorGuardianPolicyEnabled(payload.policy.is_enabled);
+      setConnectorGuardianDryRun(payload.policy.dry_run);
       setConnectorGuardianLookbackHours(String(payload.policy.lookback_hours));
       setConnectorGuardianRiskThreshold(String(payload.policy.risk_threshold));
       setConnectorGuardianMaxActionsPerProject(String(payload.policy.max_actions_per_project));
@@ -1619,6 +1624,7 @@ export function FlowBuilderClient() {
       setReviewAlertMinStale("3");
       setReviewAlertMinAvgErrorRate("0.35");
       setConnectorGuardianPolicyEnabled(true);
+      setConnectorGuardianDryRun(false);
       setConnectorGuardianLookbackHours("24");
       setConnectorGuardianRiskThreshold("20");
       setConnectorGuardianMaxActionsPerProject("2");
@@ -2320,6 +2326,7 @@ export function FlowBuilderClient() {
       headers: authHeaders(true),
       body: JSON.stringify({
         isEnabled: connectorGuardianPolicyEnabled,
+        dryRun: connectorGuardianDryRun,
         lookbackHours: parsed.lookbackHours,
         riskThreshold: parsed.riskThreshold,
         maxActionsPerProject: parsed.maxActionsPerProject,
@@ -4530,6 +4537,16 @@ export function FlowBuilderClient() {
               <select
                 value={connectorGuardianPolicyEnabled ? "enabled" : "disabled"}
                 onChange={(event) => setConnectorGuardianPolicyEnabled(event.target.value === "enabled")}
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </label>
+            <label className="field small">
+              <span>Dry Run</span>
+              <select
+                value={connectorGuardianDryRun ? "enabled" : "disabled"}
+                onChange={(event) => setConnectorGuardianDryRun(event.target.value === "enabled")}
               >
                 <option value="enabled">Enabled</option>
                 <option value="disabled">Disabled</option>

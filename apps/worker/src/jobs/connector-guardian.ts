@@ -4,6 +4,7 @@ export type ConnectorGuardianConfig = {
   apiBaseUrl: string;
   connectorTypes: string[];
   useProjectPolicies: boolean;
+  dryRun: boolean;
   projectIds: string[];
   organizationId: string | null;
   apiKey: string | null;
@@ -24,6 +25,7 @@ export type ConnectorGuardianResult = {
   connector_count: number;
   candidate_count: number;
   actioned_count: number;
+  dry_run_count: number;
   process_actions: number;
   redrive_actions: number;
   skipped_count: number;
@@ -38,6 +40,7 @@ type ConnectorReliabilityItem = {
 
 type ProjectConnectorGuardianPolicy = {
   isEnabled: boolean;
+  dryRun: boolean;
   lookbackHours: number;
   riskThreshold: number;
   maxActionsPerProject: number;
@@ -211,6 +214,7 @@ function asProjectConnectorGuardianPolicy(raw: unknown): ProjectConnectorGuardia
   const value = raw as Record<string, unknown>;
   return {
     isEnabled: value.is_enabled !== false,
+    dryRun: value.dry_run === true,
     lookbackHours: clampPositiveInt(asFiniteNumber(value.lookback_hours), DEFAULT_LOOKBACK_HOURS, 24 * 30),
     riskThreshold: clampPositiveNumber(asFiniteNumber(value.risk_threshold), DEFAULT_RISK_THRESHOLD, 500),
     maxActionsPerProject: clampPositiveInt(
@@ -237,6 +241,7 @@ function resolveProjectConfig(input: {
   if (!input.policy) {
     return {
       isEnabled: true,
+      dryRun: input.config.dryRun,
       lookbackHours: input.config.lookbackHours,
       riskThreshold: input.config.riskThreshold,
       maxActionsPerProject: input.config.maxActionsPerProject,
@@ -328,6 +333,7 @@ export function parseConnectorGuardianConfig(env: NodeJS.ProcessEnv = process.en
     apiBaseUrl: normalizeBaseUrl(env.FLOWSTATE_LOCAL_API_BASE),
     connectorTypes: connectorTypes.length > 0 ? connectorTypes : DEFAULT_TYPES,
     useProjectPolicies: parseBoolean(env.FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES, true),
+    dryRun: parseBoolean(env.FLOWSTATE_CONNECTOR_GUARDIAN_DRY_RUN, false),
     projectIds: normalizeProjectIds(env.FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS),
     organizationId: env.FLOWSTATE_CONNECTOR_GUARDIAN_ORGANIZATION_ID?.trim() || null,
     apiKey: env.FLOWSTATE_CONNECTOR_GUARDIAN_API_KEY?.trim() || null,
@@ -372,6 +378,7 @@ export async function runConnectorGuardianOnce(input: {
   let connectorCount = 0;
   let candidateCount = 0;
   let actionedCount = 0;
+  let dryRunCount = 0;
   let processActions = 0;
   let redriveActions = 0;
   let skipped = 0;
@@ -412,6 +419,7 @@ export async function runConnectorGuardianOnce(input: {
         cooldownMinutes: projectConfig.cooldownMinutes,
         allowProcessQueue: projectConfig.allowProcessQueue,
         allowRedriveDeadLetters: projectConfig.allowRedriveDeadLetters,
+        dryRun: projectConfig.dryRun,
       }),
     });
     const runPayload = await parseJson(runResponse);
@@ -425,6 +433,12 @@ export async function runConnectorGuardianOnce(input: {
     const selected = Array.isArray(runPayload.selected_actions) ? runPayload.selected_actions : [];
     const actionResults = asConnectorActionResults(runPayload.action_results);
     candidateCount += selected.length;
+
+    if (projectConfig.dryRun && selected.length > 0) {
+      dryRunCount += 1;
+      logger.info(`[connector-guardian] dry-run selected ${selected.length} recommendation(s) for ${projectId}`);
+      continue;
+    }
 
     if (actionResults.length === 0) {
       skipped += 1;
@@ -447,6 +461,7 @@ export async function runConnectorGuardianOnce(input: {
     connector_count: connectorCount,
     candidate_count: candidateCount,
     actioned_count: actionedCount,
+    dry_run_count: dryRunCount,
     process_actions: processActions,
     redrive_actions: redriveActions,
     skipped_count: skipped,

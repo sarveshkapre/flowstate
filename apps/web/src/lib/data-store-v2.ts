@@ -268,7 +268,10 @@ async function readState(): Promise<DbStateV2> {
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
     review_alert_policies: (parsed.review_alert_policies ?? []).map((item) => reviewAlertPolicyRecordSchema.parse(item)),
     connector_guardian_policies: (parsed.connector_guardian_policies ?? []).map((item) =>
-      connectorGuardianPolicyRecordSchema.parse(item),
+      connectorGuardianPolicyRecordSchema.parse({
+        dry_run: false,
+        ...(item as Record<string, unknown>),
+      }),
     ),
     connector_deliveries: (parsed.connector_deliveries ?? []).map((item) => connectorDeliveryRecordSchema.parse(item)),
     connector_delivery_attempts: (parsed.connector_delivery_attempts ?? []).map((item) =>
@@ -1221,6 +1224,7 @@ const REVIEW_ALERT_POLICY_DEFAULTS = {
 
 const CONNECTOR_GUARDIAN_POLICY_DEFAULTS = {
   isEnabled: true,
+  dryRun: false,
   lookbackHours: 24,
   riskThreshold: 20,
   maxActionsPerProject: 2,
@@ -1363,6 +1367,7 @@ export async function getConnectorGuardianPolicy(projectId: string) {
 export async function upsertConnectorGuardianPolicy(input: {
   projectId: string;
   isEnabled?: boolean;
+  dryRun?: boolean;
   lookbackHours?: number;
   riskThreshold?: number;
   maxActionsPerProject?: number;
@@ -1386,6 +1391,7 @@ export async function upsertConnectorGuardianPolicy(input: {
       id: existing?.id ?? randomUUID(),
       project_id: input.projectId,
       is_enabled: input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.isEnabled,
+      dry_run: input.dryRun ?? existing?.dry_run ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.dryRun,
       lookback_hours: clampPositiveInt(
         input.lookbackHours ?? existing?.lookback_hours,
         CONNECTOR_GUARDIAN_POLICY_DEFAULTS.lookbackHours,
@@ -1440,6 +1446,7 @@ export async function upsertConnectorGuardianPolicy(input: {
         policy_id: policy.id,
         project_id: policy.project_id,
         is_enabled: policy.is_enabled,
+        dry_run: policy.dry_run,
         risk_threshold: policy.risk_threshold,
         max_actions_per_project: policy.max_actions_per_project,
       },

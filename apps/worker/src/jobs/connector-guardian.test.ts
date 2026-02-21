@@ -16,6 +16,7 @@ test("parseConnectorGuardianConfig applies defaults", () => {
   assert.equal(config.apiBaseUrl, "http://localhost:3000");
   assert.deepEqual(config.connectorTypes, ["webhook", "slack", "jira", "sqs", "db"]);
   assert.equal(config.useProjectPolicies, true);
+  assert.equal(config.dryRun, false);
   assert.equal(config.pollMs, 60_000);
   assert.equal(config.lookbackHours, 24);
   assert.equal(config.riskThreshold, 20);
@@ -32,6 +33,7 @@ test("parseConnectorGuardianConfig normalizes values and ignores unsupported con
     FLOWSTATE_LOCAL_API_BASE: "http://localhost:3010/",
     FLOWSTATE_CONNECTOR_GUARDIAN_TYPES: "Slack,custom,webhook",
     FLOWSTATE_CONNECTOR_GUARDIAN_USE_PROJECT_POLICIES: "false",
+    FLOWSTATE_CONNECTOR_GUARDIAN_DRY_RUN: "true",
     FLOWSTATE_CONNECTOR_GUARDIAN_PROJECT_IDS: " p1, p2, p1 ",
     FLOWSTATE_CONNECTOR_GUARDIAN_POLL_MS: "1",
     FLOWSTATE_CONNECTOR_GUARDIAN_LOOKBACK_HOURS: "9999",
@@ -47,6 +49,7 @@ test("parseConnectorGuardianConfig normalizes values and ignores unsupported con
   assert.equal(config.apiBaseUrl, "http://localhost:3010");
   assert.deepEqual(config.connectorTypes, ["slack", "webhook"]);
   assert.equal(config.useProjectPolicies, false);
+  assert.equal(config.dryRun, true);
   assert.deepEqual(config.projectIds, ["p1", "p2"]);
   assert.equal(config.pollMs, 1);
   assert.equal(config.lookbackHours, 720);
@@ -96,6 +99,7 @@ test("runConnectorGuardianOnce executes top recommendations above threshold", as
   assert.equal(result.connector_count, 3);
   assert.equal(result.candidate_count, 2);
   assert.equal(result.actioned_count, 2);
+  assert.equal(result.dry_run_count, 0);
   assert.equal(result.process_actions, 1);
   assert.equal(result.redrive_actions, 1);
   assert.equal(result.skipped_count, 0);
@@ -107,6 +111,7 @@ test("runConnectorGuardianOnce executes top recommendations above threshold", as
   assert.equal(requestBodies[0]?.projectId, "proj-1");
   assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook", "jira", "slack"]);
   assert.equal(requestBodies[0]?.cooldownMinutes, 10);
+  assert.equal(requestBodies[0]?.dryRun, false);
 });
 
 test("runConnectorGuardianOnce skips projects with no actionable recommendations", async () => {
@@ -127,6 +132,7 @@ test("runConnectorGuardianOnce skips projects with no actionable recommendations
   assert.equal(result.connector_count, 1);
   assert.equal(result.candidate_count, 0);
   assert.equal(result.actioned_count, 0);
+  assert.equal(result.dry_run_count, 0);
   assert.equal(result.skipped_count, 1);
   assert.deepEqual(result.failures, []);
 });
@@ -166,6 +172,7 @@ test("runConnectorGuardianOnce continues after action failures", async () => {
   assert.equal(result.connector_count, 4);
   assert.equal(result.candidate_count, 2);
   assert.equal(result.actioned_count, 2);
+  assert.equal(result.dry_run_count, 0);
   assert.equal(result.failures.length, 1);
   assert.ok(result.failures[0]?.includes("failed to run connector recommendations"));
 });
@@ -190,6 +197,7 @@ test("runConnectorGuardianOnce applies project policy overrides when enabled", a
         return jsonResponse(200, {
           policy: {
             is_enabled: true,
+            dry_run: true,
             lookback_hours: 72,
             risk_threshold: 44.5,
             max_actions_per_project: 5,
@@ -206,6 +214,14 @@ test("runConnectorGuardianOnce applies project policy overrides when enabled", a
         requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
       }
 
+      const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : {};
+      if (body.dryRun === true) {
+        return jsonResponse(200, {
+          selected_actions: [{ connector_type: "webhook", recommendation: "redrive_dead_letters", risk_score: 55 }],
+          action_results: [],
+        });
+      }
+
       return jsonResponse(200, {
         selected_actions: [{ connector_type: "webhook", recommendation: "redrive_dead_letters", risk_score: 55 }],
         action_results: [{ connector_type: "webhook", recommendation: "redrive_dead_letters" }],
@@ -215,7 +231,8 @@ test("runConnectorGuardianOnce applies project policy overrides when enabled", a
   });
 
   assert.equal(result.project_count, 1);
-  assert.equal(result.actioned_count, 1);
+  assert.equal(result.actioned_count, 0);
+  assert.equal(result.dry_run_count, 1);
   assert.equal(seenRequests.length, 2);
   assert.ok(seenRequests[0]?.url.includes("/connector-guardian-policy"));
   assert.ok(seenRequests[1]?.url.endsWith("/api/v2/connectors/recommendations/run"));
@@ -228,6 +245,7 @@ test("runConnectorGuardianOnce applies project policy overrides when enabled", a
   assert.equal(requestBodies[0]?.minDeadLetterMinutes, 30);
   assert.equal(requestBodies[0]?.allowProcessQueue, false);
   assert.equal(requestBodies[0]?.allowRedriveDeadLetters, true);
+  assert.equal(requestBodies[0]?.dryRun, true);
 });
 
 test("runConnectorGuardianOnce skips projects with disabled guardian policy", async () => {
@@ -256,6 +274,7 @@ test("runConnectorGuardianOnce skips projects with disabled guardian policy", as
   assert.equal(result.connector_count, 1);
   assert.equal(result.candidate_count, 0);
   assert.equal(result.actioned_count, 0);
+  assert.equal(result.dry_run_count, 0);
   assert.equal(result.skipped_count, 1);
   assert.deepEqual(result.failures, []);
   assert.equal(seenRequests.length, 1);

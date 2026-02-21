@@ -62,9 +62,9 @@ test("runConnectorRedriveOnce skips when dead-letter threshold is not met", asyn
     fetchImpl: async (url, init) => {
       seenRequests.push({ method: init?.method, url: String(url) });
       return jsonResponse(200, {
-        summary: {
-          dead_lettered: 2,
-        },
+        redriven_count: 0,
+        processed_count: 0,
+        skipped_count: 1,
       });
     },
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
@@ -77,10 +77,13 @@ test("runConnectorRedriveOnce skips when dead-letter threshold is not met", asyn
   assert.equal(result.skipped_count, 1);
   assert.deepEqual(result.failures, []);
   assert.equal(seenRequests.length, 1);
+  assert.equal(seenRequests[0]?.method, "POST");
+  assert.ok(seenRequests[0]?.url.endsWith("/api/v2/connectors/redrive"));
 });
 
 test("runConnectorRedriveOnce redrives batch and processes queue", async () => {
   const seenRequests: Array<{ method?: string; url: string }> = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
   const config = parseConnectorRedriveConfig({
     FLOWSTATE_CONNECTOR_REDRIVE_PROJECT_IDS: "proj-1",
     FLOWSTATE_CONNECTOR_REDRIVE_TYPES: "webhook",
@@ -93,22 +96,13 @@ test("runConnectorRedriveOnce redrives batch and processes queue", async () => {
     fetchImpl: async (url, init) => {
       const request = { method: init?.method, url: String(url) };
       seenRequests.push(request);
-
-      if (request.method === "GET") {
-        return jsonResponse(200, {
-          summary: {
-            dead_lettered: 8,
-          },
-        });
+      if (typeof init?.body === "string") {
+        requestBodies.push(JSON.parse(init.body) as Record<string, unknown>);
       }
-
-      if (request.url.includes("action=redrive_batch")) {
-        return jsonResponse(200, {
-          redriven_count: 4,
-        });
-      }
-
       return jsonResponse(200, {
+        per_connector: [{ connector_type: "webhook", redriven_count: 4, processed_count: 3, skipped: false }],
+        skipped_count: 0,
+        redriven_count: 4,
         processed_count: 3,
       });
     },
@@ -119,39 +113,37 @@ test("runConnectorRedriveOnce redrives batch and processes queue", async () => {
   assert.equal(result.processed_count, 3);
   assert.equal(result.skipped_count, 0);
   assert.deepEqual(result.failures, []);
-  assert.equal(seenRequests.length, 3);
-  assert.ok(seenRequests[1]?.url.includes("action=redrive_batch"));
-  assert.ok(seenRequests[2]?.url.includes("action=process"));
+  assert.equal(seenRequests.length, 1);
+  assert.ok(seenRequests[0]?.url.endsWith("/api/v2/connectors/redrive"));
+  assert.equal(requestBodies.length, 1);
+  assert.equal(requestBodies[0]?.projectId, "proj-1");
+  assert.deepEqual(requestBodies[0]?.connectorTypes, ["webhook"]);
+  assert.equal(requestBodies[0]?.processAfterRedrive, true);
 });
 
-test("runConnectorRedriveOnce continues after connector-specific failures", async () => {
+test("runConnectorRedriveOnce continues after project-level failures", async () => {
   let call = 0;
   const config = parseConnectorRedriveConfig({
-    FLOWSTATE_CONNECTOR_REDRIVE_PROJECT_IDS: "proj-1",
+    FLOWSTATE_CONNECTOR_REDRIVE_PROJECT_IDS: "proj-1,proj-2",
     FLOWSTATE_CONNECTOR_REDRIVE_TYPES: "webhook,slack",
   });
 
   const result = await runConnectorRedriveOnce({
     config,
-    fetchImpl: async () => {
+    fetchImpl: async (url) => {
       call += 1;
       if (call === 1) {
-        return jsonResponse(500, { error: "list failed" });
+        return jsonResponse(500, { error: "bulk redrive unavailable" });
       }
-      if (call === 2) {
-        return jsonResponse(200, { summary: { dead_lettered: 4 } });
-      }
-      if (call === 3) {
-        return jsonResponse(200, { redriven_count: 2 });
-      }
-      return jsonResponse(200, { processed_count: 2 });
+      assert.ok(String(url).endsWith("/api/v2/connectors/redrive"));
+      return jsonResponse(200, { redriven_count: 2, processed_count: 2, skipped_count: 0 });
     },
     logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
   });
 
-  assert.equal(result.connector_count, 2);
+  assert.equal(result.connector_count, 4);
   assert.equal(result.failures.length, 1);
-  assert.ok(result.failures[0]?.includes("failed to inspect dead-letter queue"));
+  assert.ok(result.failures[0]?.includes("proj-1: failed to redrive connector queues"));
   assert.equal(result.redriven_count, 2);
   assert.equal(result.processed_count, 2);
 });

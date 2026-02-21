@@ -709,6 +709,7 @@ export function FlowBuilderClient() {
   const [connectorProcessLimit, setConnectorProcessLimit] = useState("10");
   const [connectorBatchRedriveLimit, setConnectorBatchRedriveLimit] = useState("10");
   const [connectorBatchRedriveMinAgeMinutes, setConnectorBatchRedriveMinAgeMinutes] = useState("15");
+  const [connectorRedriveAllMinDeadLetterCount, setConnectorRedriveAllMinDeadLetterCount] = useState("1");
   const [connectorResult, setConnectorResult] = useState("");
   const [connectorDeliveries, setConnectorDeliveries] = useState<ConnectorDelivery[]>([]);
   const [connectorSummary, setConnectorSummary] = useState<ConnectorDeliverySummary>(EMPTY_CONNECTOR_SUMMARY);
@@ -2330,6 +2331,56 @@ export function FlowBuilderClient() {
     setBusyAction(null);
   }
 
+  async function redriveAllConnectorQueues() {
+    if (!selectedProjectId) {
+      setError("Select a project before batch redrive across connectors.");
+      return;
+    }
+
+    const parsedLimit = Number(connectorBatchRedriveLimit);
+    const parsedMinAge = Number(connectorBatchRedriveMinAgeMinutes);
+    const parsedMinDeadLetterCount = Number(connectorRedriveAllMinDeadLetterCount);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 10;
+    const minDeadLetterMinutes = Number.isFinite(parsedMinAge) && parsedMinAge >= 0 ? Math.floor(parsedMinAge) : 0;
+    const minDeadLetterCount =
+      Number.isFinite(parsedMinDeadLetterCount) && parsedMinDeadLetterCount >= 0
+        ? Math.floor(parsedMinDeadLetterCount)
+        : 1;
+
+    setBusyAction("connector_redrive_all");
+    const response = await fetch("/api/v2/connectors/redrive", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        limit,
+        minDeadLetterMinutes,
+        minDeadLetterCount,
+        processAfterRedrive: true,
+        connectorTypes: CONNECTOR_TYPES,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Connector multi-queue redrive failed.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    const redrivenCount = typeof result.redriven_count === "number" ? result.redriven_count : 0;
+    const processedCount = typeof result.processed_count === "number" ? result.processed_count : 0;
+    const skippedCount = typeof result.skipped_count === "number" ? result.skipped_count : 0;
+    setSuccess(
+      `Redriven ${redrivenCount} dead-letter deliveries across all connectors (${processedCount} processed, ${skippedCount} skipped).`,
+    );
+    setConnectorResult(JSON.stringify(result, null, 2));
+    await loadConnectorDeliveries();
+    await loadConnectorInsights();
+    setBusyAction(null);
+  }
+
   async function redriveConnectorDeliveryEntry(deliveryId: string) {
     if (!selectedProjectId) {
       setError("Select a project before redrive.");
@@ -3479,6 +3530,13 @@ export function FlowBuilderClient() {
               />
             </label>
             <label className="field">
+              <span>Min Dead-letter Count (all connectors)</span>
+              <input
+                value={connectorRedriveAllMinDeadLetterCount}
+                onChange={(event) => setConnectorRedriveAllMinDeadLetterCount(event.target.value)}
+              />
+            </label>
+            <label className="field">
               <span>Insights Lookback (hours)</span>
               <input value={connectorInsightsLookbackHours} onChange={(event) => setConnectorInsightsLookbackHours(event.target.value)} />
             </label>
@@ -3499,6 +3557,9 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void processAllConnectorQueues()}>
               {busyAction === "connector_process_all" ? "Processing All..." : "Process All Connectors"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveAllConnectorQueues()}>
+              {busyAction === "connector_redrive_all" ? "Redriving All..." : "Redrive All Connectors"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveConnectorBatch()}>
               {busyAction === "connector_redrive_batch" ? "Redriving..." : "Batch Redrive"}

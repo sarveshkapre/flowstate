@@ -189,90 +189,38 @@ export async function runConnectorRedriveOnce(input: {
   let skipped = 0;
 
   for (const projectId of projectIds) {
-    for (const connectorType of input.config.connectorTypes) {
-      connectorCount += 1;
+    connectorCount += input.config.connectorTypes.length;
 
-      const listUrl = new URL(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver`, input.config.apiBaseUrl);
-      listUrl.searchParams.set("projectId", projectId);
-      listUrl.searchParams.set("status", "dead_lettered");
-      listUrl.searchParams.set("limit", "1");
+    const redriveUrl = new URL("/api/v2/connectors/redrive", input.config.apiBaseUrl);
+    const redriveResponse = await fetchImpl(redriveUrl, {
+      method: "POST",
+      headers: authHeaders(input.config),
+      body: JSON.stringify({
+        projectId,
+        connectorTypes: input.config.connectorTypes,
+        limit: input.config.redriveLimit,
+        minDeadLetterCount: input.config.minDeadLetterCount,
+        minDeadLetterMinutes: input.config.minDeadLetterMinutes,
+        processAfterRedrive: input.config.processAfterRedrive,
+      }),
+    });
+    const redrivePayload = await parseJson(redriveResponse);
 
-      const listResponse = await fetchImpl(listUrl, {
-        method: "GET",
-        headers: authHeaders(input.config),
-      });
-      const listPayload = await parseJson(listResponse);
+    if (!redriveResponse.ok) {
+      const reason = typeof redrivePayload.error === "string" ? redrivePayload.error : `status ${redriveResponse.status}`;
+      failures.push(`${projectId}: failed to redrive connector queues (${reason})`);
+      continue;
+    }
 
-      if (!listResponse.ok) {
-        const reason = typeof listPayload.error === "string" ? listPayload.error : `status ${listResponse.status}`;
-        failures.push(`${projectId}/${connectorType}: failed to inspect dead-letter queue (${reason})`);
-        continue;
-      }
+    const redriven = asNumber(redrivePayload.redriven_count);
+    const processed = asNumber(redrivePayload.processed_count);
+    const skippedForProject = asNumber(redrivePayload.skipped_count);
+    redrivenCount += redriven;
+    processedCount += processed;
+    skipped += skippedForProject;
 
-      const summary =
-        listPayload.summary && typeof listPayload.summary === "object"
-          ? (listPayload.summary as Record<string, unknown>)
-          : {};
-      const deadLettered = asNumber(summary.dead_lettered);
-
-      if (deadLettered < input.config.minDeadLetterCount) {
-        skipped += 1;
-        continue;
-      }
-
-      const redriveUrl = new URL(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver`, input.config.apiBaseUrl);
-      redriveUrl.searchParams.set("action", "redrive_batch");
-      const redriveResponse = await fetchImpl(redriveUrl, {
-        method: "PATCH",
-        headers: authHeaders(input.config),
-        body: JSON.stringify({
-          projectId,
-          limit: input.config.redriveLimit,
-          minDeadLetterMinutes: input.config.minDeadLetterMinutes,
-        }),
-      });
-      const redrivePayload = await parseJson(redriveResponse);
-
-      if (!redriveResponse.ok) {
-        const reason = typeof redrivePayload.error === "string" ? redrivePayload.error : `status ${redriveResponse.status}`;
-        failures.push(`${projectId}/${connectorType}: failed to redrive batch (${reason})`);
-        continue;
-      }
-
-      const redriven = asNumber(redrivePayload.redriven_count);
-      redrivenCount += redriven;
-
-      if (redriven <= 0) {
-        skipped += 1;
-        continue;
-      }
-
-      if (!input.config.processAfterRedrive) {
-        logger.info(`[connector-redrive] redriven ${redriven} delivery(s) for ${projectId}/${connectorType}`);
-        continue;
-      }
-
-      const processUrl = new URL(`/api/v2/connectors/${encodeURIComponent(connectorType)}/deliver`, input.config.apiBaseUrl);
-      processUrl.searchParams.set("action", "process");
-      const processResponse = await fetchImpl(processUrl, {
-        method: "PATCH",
-        headers: authHeaders(input.config),
-        body: JSON.stringify({
-          projectId,
-          limit: redriven,
-        }),
-      });
-      const processPayload = await parseJson(processResponse);
-
-      if (!processResponse.ok) {
-        const reason = typeof processPayload.error === "string" ? processPayload.error : `status ${processResponse.status}`;
-        failures.push(`${projectId}/${connectorType}: redriven but failed processing (${reason})`);
-        continue;
-      }
-
-      const processed = asNumber(processPayload.processed_count);
-      processedCount += processed;
-      logger.info(`[connector-redrive] redriven=${redriven} processed=${processed} for ${projectId}/${connectorType}`);
+    if (redriven > 0 || processed > 0) {
+      logger.info(`[connector-redrive] redriven=${redriven} processed=${processed} skipped=${skippedForProject} for ${projectId}`);
     }
   }
 

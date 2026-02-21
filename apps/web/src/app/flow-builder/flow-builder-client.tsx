@@ -288,6 +288,42 @@ function normalizeRect(start: { x: number; y: number }, end: { x: number; y: num
   };
 }
 
+function connectorConfigTemplate(type: string) {
+  const normalized = type.trim().toLowerCase();
+
+  if (normalized === "slack" || normalized === "slack_webhook") {
+    return JSON.stringify(
+      {
+        webhookUrl: "https://hooks.slack.com/services/T000/B000/XXXX",
+      },
+      null,
+      2,
+    );
+  }
+
+  if (normalized === "jira" || normalized === "jira_issue") {
+    return JSON.stringify(
+      {
+        baseUrl: "https://your-company.atlassian.net",
+        email: "ops@company.com",
+        apiToken: "jira_api_token",
+        projectKey: "OPS",
+        issueType: "Task",
+      },
+      null,
+      2,
+    );
+  }
+
+  return JSON.stringify(
+    {
+      targetUrl: "https://example.com/webhook",
+    },
+    null,
+    2,
+  );
+}
+
 function toDraftGraph(graph: FlowGraph): { nodes: GraphNodeDraft[]; edges: GraphEdgeDraft[] } {
   return {
     nodes: graph.nodes.map((node) => ({
@@ -491,6 +527,7 @@ export function FlowBuilderClient() {
   const [replayResult, setReplayResult] = useState<string>("");
   const [connectorType, setConnectorType] = useState("webhook");
   const [connectorPayloadText, setConnectorPayloadText] = useState('{"event":"ticket.created","severity":"high"}');
+  const [connectorConfigText, setConnectorConfigText] = useState(connectorConfigTemplate("webhook"));
   const [connectorIdempotencyKey, setConnectorIdempotencyKey] = useState("");
   const [connectorMaxAttempts, setConnectorMaxAttempts] = useState("3");
   const [connectorResult, setConnectorResult] = useState("");
@@ -1526,6 +1563,43 @@ export function FlowBuilderClient() {
     void loadConnectorDeliveries();
   }, [loadConnectorDeliveries]);
 
+  async function testConnectorConfig() {
+    if (!selectedProjectId) {
+      setError("Select a project before connector config test.");
+      return;
+    }
+
+    let config: Record<string, unknown> = {};
+    try {
+      config = connectorConfigText.trim() ? (JSON.parse(connectorConfigText) as Record<string, unknown>) : {};
+    } catch {
+      setError("Connector config must be valid JSON.");
+      return;
+    }
+
+    setBusyAction("connector_test");
+    const response = await fetch(`/api/v2/connectors/${encodeURIComponent(connectorType)}/test`, {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        projectId: selectedProjectId,
+        config,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Connector config test failed.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    setSuccess("Connector config validated.");
+    setConnectorResult(JSON.stringify(result, null, 2));
+    setBusyAction(null);
+  }
+
   async function deliverConnector() {
     if (!selectedProjectId) {
       setError("Select a project before connector delivery.");
@@ -1533,10 +1607,17 @@ export function FlowBuilderClient() {
     }
 
     let payload: unknown = {};
+    let config: Record<string, unknown> = {};
     try {
       payload = JSON.parse(connectorPayloadText);
     } catch {
       setError("Connector payload must be valid JSON.");
+      return;
+    }
+    try {
+      config = connectorConfigText.trim() ? (JSON.parse(connectorConfigText) as Record<string, unknown>) : {};
+    } catch {
+      setError("Connector config must be valid JSON.");
       return;
     }
 
@@ -1551,6 +1632,7 @@ export function FlowBuilderClient() {
       body: JSON.stringify({
         projectId: selectedProjectId,
         payload,
+        config,
         idempotencyKey: connectorIdempotencyKey.trim() || undefined,
         maxAttempts,
       }),
@@ -2337,12 +2419,21 @@ export function FlowBuilderClient() {
       <div className="grid two-col">
         <article className="card stack">
           <h3>Connector Delivery Lab</h3>
-          <p className="muted">Simulate retries and dead-lettering using `__simulateFailureCount` or `__simulateAlwaysFail` in payload.</p>
+          <p className="muted">
+            Validate connector config and deliver events to webhook/slack/jira transports. You can still simulate failures
+            using `__simulateFailureCount` or `__simulateAlwaysFail` in payload.
+          </p>
 
           <label className="field small">
             <span>Connector Type</span>
             <input value={connectorType} onChange={(event) => setConnectorType(event.target.value)} />
           </label>
+          <button
+            className="button secondary"
+            onClick={() => setConnectorConfigText(connectorConfigTemplate(connectorType))}
+          >
+            Load Config Template
+          </button>
 
           <label className="field">
             <span>Payload JSON</span>
@@ -2350,6 +2441,15 @@ export function FlowBuilderClient() {
               rows={7}
               value={connectorPayloadText}
               onChange={(event) => setConnectorPayloadText(event.target.value)}
+            />
+          </label>
+
+          <label className="field">
+            <span>Connector Config JSON</span>
+            <textarea
+              rows={6}
+              value={connectorConfigText}
+              onChange={(event) => setConnectorConfigText(event.target.value)}
             />
           </label>
 
@@ -2366,6 +2466,9 @@ export function FlowBuilderClient() {
           </div>
 
           <div className="row wrap">
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void testConnectorConfig()}>
+              {busyAction === "connector_test" ? "Testing..." : "Test Config"}
+            </button>
             <button className="button" disabled={busyAction !== null} onClick={() => void deliverConnector()}>
               {busyAction === "connector_deliver" ? "Delivering..." : "Deliver Event"}
             </button>

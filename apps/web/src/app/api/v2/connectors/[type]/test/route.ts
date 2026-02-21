@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { assertJsonBodySize, connectorTypeSchema, invalidRequestResponse, sanitizeForStorage } from "@/lib/v2/request-security";
 import { requirePermission } from "@/lib/v2/auth";
+import { normalizeConnectorType, validateConnectorConfig } from "@/lib/v2/connector-runtime";
 
 type Params = {
   params: Promise<{ type: string }>;
@@ -20,6 +21,7 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid connector type" }, { status: 400 });
   }
   const type = parsedType.data;
+  const normalizedType = normalizeConnectorType(type);
   const payload = await request.json().catch(() => null);
   const parsed = testConnectorSchema.safeParse(payload);
 
@@ -43,11 +45,29 @@ export async function POST(request: Request, { params }: Params) {
     return invalidRequestResponse(error);
   }
 
+  const validation = validateConnectorConfig(type, parsed.data.config ?? {});
+
+  if (!validation.ok) {
+    return NextResponse.json(
+      {
+        connector_type: type,
+        connector_normalized_type: normalizedType,
+        project_id: parsed.data.projectId,
+        status: "invalid",
+        errors: validation.errors,
+        sanitized_config_preview: sanitizeForStorage(parsed.data.config ?? {}),
+      },
+      { status: 400 },
+    );
+  }
+
   return NextResponse.json({
     connector_type: type,
+    connector_normalized_type: normalizedType,
     project_id: parsed.data.projectId,
     status: "ok",
+    mode: "validated",
     sanitized_config_preview: sanitizeForStorage(parsed.data.config ?? {}),
-    message: "Connector config accepted for test in this milestone slice.",
+    message: "Connector config validated and ready for delivery attempts.",
   });
 }

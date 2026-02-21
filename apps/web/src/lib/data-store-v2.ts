@@ -57,6 +57,7 @@ import {
 } from "@flowstate/types";
 
 import { getOrganization } from "@/lib/data-store";
+import { dispatchConnectorDelivery } from "@/lib/v2/connector-runtime";
 
 type DbStateV2 = {
   projects: ProjectRecord[];
@@ -1220,6 +1221,7 @@ export async function processConnectorDelivery(input: {
   projectId: string;
   connectorType: string;
   payload: unknown;
+  config?: unknown;
   idempotencyKey?: string;
   maxAttempts?: number;
   initialBackoffMs?: number;
@@ -1288,9 +1290,23 @@ export async function processConnectorDelivery(input: {
 
     for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber += 1) {
       const attemptNow = new Date().toISOString();
-      const failThisAttempt = simulation.alwaysFail || attemptNumber <= simulation.failureCount;
-      const statusCode = failThisAttempt ? simulation.statusCode : 200;
-      const errorMessage = failThisAttempt ? simulation.errorMessage : null;
+      const forceFailure = simulation.alwaysFail || attemptNumber <= simulation.failureCount;
+      const runtimeResult = forceFailure
+        ? {
+            success: false,
+            statusCode: simulation.statusCode,
+            errorMessage: simulation.errorMessage,
+            responseBody: null,
+          }
+        : await dispatchConnectorDelivery({
+            connectorTypeRaw: normalizedType,
+            payload: input.payload,
+            config: input.config,
+          });
+
+      const failThisAttempt = !runtimeResult.success;
+      const statusCode = runtimeResult.statusCode ?? (failThisAttempt ? 503 : 200);
+      const errorMessage = failThisAttempt ? runtimeResult.errorMessage ?? "Connector delivery failed" : null;
 
       const attempt = connectorDeliveryAttemptRecordSchema.parse({
         id: randomUUID(),
@@ -1299,7 +1315,7 @@ export async function processConnectorDelivery(input: {
         success: !failThisAttempt,
         status_code: statusCode,
         error_message: errorMessage,
-        response_body: failThisAttempt ? null : JSON.stringify({ accepted: true }),
+        response_body: runtimeResult.responseBody,
         created_at: attemptNow,
       });
       state.connector_delivery_attempts.unshift(attempt);

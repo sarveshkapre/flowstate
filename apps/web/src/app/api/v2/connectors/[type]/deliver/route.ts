@@ -6,7 +6,6 @@ import {
   assertJsonBodySize,
   connectorTypeSchema,
   invalidRequestResponse,
-  sanitizeForStorage,
 } from "@/lib/v2/request-security";
 import { requirePermission } from "@/lib/v2/auth";
 
@@ -17,6 +16,7 @@ type Params = {
 const deliverConnectorSchema = z.object({
   projectId: z.string().min(1),
   payload: z.unknown(),
+  config: z.record(z.string(), z.unknown()).optional(),
   idempotencyKey: z.string().min(1).optional(),
   maxAttempts: z.number().int().positive().max(10).optional(),
   initialBackoffMs: z.number().int().positive().max(60_000).optional(),
@@ -98,6 +98,7 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     assertJsonBodySize(parsed.data.payload);
+    assertJsonBodySize(parsed.data.config ?? {});
   } catch (error) {
     return invalidRequestResponse(error);
   }
@@ -105,7 +106,8 @@ export async function POST(request: Request, { params }: Params) {
   const result = await processConnectorDelivery({
     projectId: parsed.data.projectId,
     connectorType: type,
-    payload: sanitizeForStorage(parsed.data.payload),
+    payload: parsed.data.payload,
+    config: parsed.data.config,
     idempotencyKey: parsed.data.idempotencyKey,
     maxAttempts: parsed.data.maxAttempts,
     initialBackoffMs: parsed.data.initialBackoffMs,

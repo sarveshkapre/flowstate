@@ -2902,10 +2902,10 @@ export function FlowBuilderClient() {
     setBusyAction(null);
   }
 
-  async function runTopConnectorRecommendations() {
+  function buildTopConnectorRecommendationRequest() {
     if (!selectedProjectId) {
       setError("Select a project before running top connector recommendations.");
-      return;
+      return null;
     }
 
     const parsedLookback = Number(connectorInsightsLookbackHours);
@@ -2924,20 +2924,29 @@ export function FlowBuilderClient() {
     const cooldownMinutes =
       Number.isFinite(parsedCooldownMinutes) && parsedCooldownMinutes >= 0 ? Math.floor(parsedCooldownMinutes) : 10;
 
+    return {
+      projectId: selectedProjectId,
+      lookbackHours,
+      connectorTypes: CONNECTOR_TYPES,
+      limit,
+      minDeadLetterMinutes,
+      riskThreshold,
+      maxActions,
+      cooldownMinutes,
+    };
+  }
+
+  async function runTopConnectorRecommendations() {
+    const requestBody = buildTopConnectorRecommendationRequest();
+    if (!requestBody) {
+      return;
+    }
+
     setBusyAction("connector_recommendations_run_top");
     const response = await fetch("/api/v2/connectors/recommendations/run", {
       method: "POST",
       headers: authHeaders(true),
-      body: JSON.stringify({
-        projectId: selectedProjectId,
-        lookbackHours,
-        connectorTypes: CONNECTOR_TYPES,
-        limit,
-        minDeadLetterMinutes,
-        riskThreshold,
-        maxActions,
-        cooldownMinutes,
-      }),
+      body: JSON.stringify(requestBody),
     });
     const result = (await response.json()) as Record<string, unknown>;
 
@@ -2956,6 +2965,37 @@ export function FlowBuilderClient() {
     await loadConnectorInsights();
     await loadConnectorReliability();
     await loadConnectorActionTimeline();
+    setBusyAction(null);
+  }
+
+  async function previewTopConnectorRecommendations() {
+    const requestBody = buildTopConnectorRecommendationRequest();
+    if (!requestBody) {
+      return;
+    }
+
+    setBusyAction("connector_recommendations_preview_top");
+    const response = await fetch("/api/v2/connectors/recommendations/run", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        ...requestBody,
+        dryRun: true,
+      }),
+    });
+    const result = (await response.json()) as Record<string, unknown>;
+
+    if (!response.ok) {
+      setError(typeof result.error === "string" ? result.error : "Failed to preview top connector recommendations.");
+      setConnectorResult(JSON.stringify(result, null, 2));
+      setBusyAction(null);
+      return;
+    }
+
+    const selectedActions = Array.isArray(result.selected_actions) ? result.selected_actions : [];
+    const skippedActions = Array.isArray(result.skipped_actions) ? result.skipped_actions : [];
+    setSuccess(`Previewed ${selectedActions.length} top recommendation(s) with ${skippedActions.length} cooldown skip(s).`);
+    setConnectorResult(JSON.stringify(result, null, 2));
     setBusyAction(null);
   }
 
@@ -4040,6 +4080,9 @@ export function FlowBuilderClient() {
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void redriveAllConnectorQueues()}>
               {busyAction === "connector_redrive_all" ? "Redriving All..." : "Redrive All Connectors"}
+            </button>
+            <button className="button secondary" disabled={busyAction !== null} onClick={() => void previewTopConnectorRecommendations()}>
+              {busyAction === "connector_recommendations_preview_top" ? "Previewing Top..." : "Preview Top Recommendations"}
             </button>
             <button className="button secondary" disabled={busyAction !== null} onClick={() => void runTopConnectorRecommendations()}>
               {busyAction === "connector_recommendations_run_top" ? "Running Top..." : "Run Top Recommendations"}

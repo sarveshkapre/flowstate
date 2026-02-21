@@ -32,6 +32,7 @@ const runRecommendationsSchema = z.object({
   cooldownMinutes: z.number().int().nonnegative().max(24 * 60).default(0),
   allowProcessQueue: z.boolean().default(true),
   allowRedriveDeadLetters: z.boolean().default(true),
+  dryRun: z.boolean().default(false),
 });
 
 export async function POST(request: Request) {
@@ -144,7 +145,6 @@ export async function POST(request: Request) {
   const eligibleActions = cooldownFiltered.eligible;
   const skippedActions = cooldownFiltered.skipped;
 
-  const actor = auth.actor.email ?? "api-key";
   const actionResults: Array<{
     connector_type: string;
     recommendation: "process_queue" | "redrive_dead_letters";
@@ -154,53 +154,56 @@ export async function POST(request: Request) {
     delivery_ids: string[];
   }> = [];
 
-  for (const action of eligibleActions) {
-    if (action.recommendation === "process_queue") {
-      const process = await processConnectorDeliveryQueue({
+  if (!parsed.data.dryRun) {
+    const actor = auth.actor.email ?? "api-key";
+    for (const action of eligibleActions) {
+      if (action.recommendation === "process_queue") {
+        const process = await processConnectorDeliveryQueue({
+          projectId: parsed.data.projectId,
+          connectorType: action.connector_type,
+          limit: parsed.data.limit,
+          actor,
+        });
+
+        actionResults.push({
+          connector_type: action.connector_type,
+          recommendation: action.recommendation,
+          risk_score: action.risk_score,
+          processed_count: process.processed_count,
+          redriven_count: 0,
+          delivery_ids: process.deliveries.map((delivery) => delivery.id),
+        });
+        continue;
+      }
+
+      const redrive = await redriveConnectorDeliveryBatch({
         projectId: parsed.data.projectId,
         connectorType: action.connector_type,
         limit: parsed.data.limit,
+        minDeadLetterMinutes: parsed.data.minDeadLetterMinutes,
         actor,
       });
+
+      let processedCount = 0;
+      if (redrive.redriven_count > 0) {
+        const process = await processConnectorDeliveryQueue({
+          projectId: parsed.data.projectId,
+          connectorType: action.connector_type,
+          limit: redrive.redriven_count,
+          actor,
+        });
+        processedCount = process.processed_count;
+      }
 
       actionResults.push({
         connector_type: action.connector_type,
         recommendation: action.recommendation,
         risk_score: action.risk_score,
-        processed_count: process.processed_count,
-        redriven_count: 0,
-        delivery_ids: process.deliveries.map((delivery) => delivery.id),
+        processed_count: processedCount,
+        redriven_count: redrive.redriven_count,
+        delivery_ids: redrive.deliveries.map((delivery) => delivery.id),
       });
-      continue;
     }
-
-    const redrive = await redriveConnectorDeliveryBatch({
-      projectId: parsed.data.projectId,
-      connectorType: action.connector_type,
-      limit: parsed.data.limit,
-      minDeadLetterMinutes: parsed.data.minDeadLetterMinutes,
-      actor,
-    });
-
-    let processedCount = 0;
-    if (redrive.redriven_count > 0) {
-      const process = await processConnectorDeliveryQueue({
-        projectId: parsed.data.projectId,
-        connectorType: action.connector_type,
-        limit: redrive.redriven_count,
-        actor,
-      });
-      processedCount = process.processed_count;
-    }
-
-    actionResults.push({
-      connector_type: action.connector_type,
-      recommendation: action.recommendation,
-      risk_score: action.risk_score,
-      processed_count: processedCount,
-      redriven_count: redrive.redriven_count,
-      delivery_ids: redrive.deliveries.map((delivery) => delivery.id),
-    });
   }
 
   return NextResponse.json({
@@ -210,6 +213,7 @@ export async function POST(request: Request) {
     risk_threshold: parsed.data.riskThreshold,
     max_actions: parsed.data.maxActions,
     cooldown_minutes: parsed.data.cooldownMinutes,
+    dry_run: parsed.data.dryRun,
     selected_actions: eligibleActions,
     skipped_actions: skippedActions,
     action_results: actionResults,

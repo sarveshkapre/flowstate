@@ -10,6 +10,7 @@ import {
 } from "@/lib/data-store-v2";
 import { inferImageDimensionsFromBuffer } from "@/lib/image-dimensions";
 import { resolveOpenAIModel } from "@/lib/openai-model";
+import { createResponseWithReasoningFallback } from "@/lib/openai-responses";
 import { getOpenAIClient } from "@/lib/openai";
 
 export const autoLabelModelShapeSchema = z.object({
@@ -105,7 +106,7 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
   }
 
   const openai = getOpenAIClient();
-  const response = await openai.responses.create({
+  const response = await createResponseWithReasoningFallback(openai, {
     model: resolveOpenAIModel(),
     reasoning: {
       effort: options?.reasoningEffort ?? "medium",

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { readArtifactBytes } from "@/lib/data-store";
 import { inferImageDimensionsFromBuffer } from "@/lib/image-dimensions";
 import { getOpenAIClient } from "@/lib/openai";
+import { createResponseWithReasoningFallback } from "@/lib/openai-responses";
 import { requireV1Permission } from "@/lib/v1/auth";
 
 const LAYOUT_MODEL = "gpt-5.2";
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
         ? parsed.data.maxObjects
         : DEFAULT_MAX_OBJECTS;
     const openai = getOpenAIClient();
-    const response = await openai.responses.create({
+    const response = await createResponseWithReasoningFallback(openai, {
       model: LAYOUT_MODEL,
       reasoning: {
         effort: parsed.data.reasoningEffort ?? "medium",

@@ -9,6 +9,7 @@ import { z } from "zod";
 import { resolveArtifactFilePath } from "../data-store.ts";
 import { getProject } from "../data-store-v2.ts";
 import { resolveOpenAIModel } from "../openai-model.ts";
+import { createResponseWithReasoningFallback } from "../openai-responses.ts";
 import { getOpenAIClient } from "../openai.ts";
 
 const execFile = promisify(execFileCallback);
@@ -692,7 +693,7 @@ async function detectObjectsOnFrame(input: {
   ].join("\n");
 
   const openai = getOpenAIClient();
-  const response = await openai.responses.create({
+  const response = await createResponseWithReasoningFallback(openai, {
     model,
     reasoning: {
       effort: input.reasoningEffort,

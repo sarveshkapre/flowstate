@@ -8,6 +8,7 @@ import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
 import { Card, CardContent } from "@shadcn-ui/card";
 import { Input } from "@shadcn-ui/input";
+import { NativeSelect } from "@shadcn-ui/native-select";
 
 type Project = {
   id: string;
@@ -36,6 +37,8 @@ type BatchAsset = {
   asset_type: "image" | "video_frame" | "pdf_page";
   latest_annotation?: { id: string } | null;
 };
+
+type ReasoningEffort = "medium" | "high";
 
 function defaultBatchName() {
   return `Uploaded on ${new Date().toLocaleString()}`;
@@ -75,6 +78,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [batchName, setBatchName] = useState(defaultBatchName);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const [loading, setLoading] = useState(true);
@@ -269,6 +273,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               filter: "unlabeled",
+              reasoningEffort,
             }),
           },
         );
@@ -362,6 +367,16 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                 <label className="space-y-1">
                   <span className="text-sm font-medium">Batch Name</span>
                   <Input value={batchName} onChange={(event) => setBatchName(event.target.value)} />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-sm font-medium">Reasoning</span>
+                  <NativeSelect
+                    value={reasoningEffort}
+                    onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
+                  >
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </NativeSelect>
                 </label>
               </div>
 

@@ -40,6 +40,7 @@ type Asset = {
 };
 
 type FilterStatus = "all" | "unlabeled" | "auto_labeled" | "reviewed";
+type ReasoningEffort = "medium" | "high";
 
 function assetPreviewUrl(asset: Asset) {
   return `/api/v2/assets/${asset.id}/file`;
@@ -93,6 +94,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [maxConfidence, setMaxConfidence] = useState(1);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,7 +197,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/v2/assets/${assetId}/auto-label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ reasoningEffort }),
       });
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
@@ -258,7 +260,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
       </div>
 
       <Card>
-        <CardContent className="grid gap-3 p-4 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+        <CardContent className="grid gap-3 p-4 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -289,6 +291,16 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
               onChange={(event) => setMaxConfidence(Number(event.target.value))}
               className="w-full"
             />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            <span>Reasoning</span>
+            <NativeSelect
+              value={reasoningEffort}
+              onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
+            >
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </NativeSelect>
           </label>
           <Button
             type="button"

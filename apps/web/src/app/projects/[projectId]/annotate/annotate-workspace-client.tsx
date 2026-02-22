@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
+import { NativeSelect } from "@shadcn-ui/native-select";
 
 type Asset = {
   id: string;
@@ -50,6 +51,8 @@ type AutoLabelModelOutput = {
     };
   }>;
 };
+
+type ReasoningEffort = "medium" | "high";
 
 function formatConfidence(confidence: number | null) {
   if (confidence == null) {
@@ -98,6 +101,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [lastModelOutput, setLastModelOutput] = useState<AutoLabelModelOutput | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -180,7 +184,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/v2/assets/${selectedAsset.id}/auto-label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ reasoningEffort }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         annotation?: AnnotationRecord;
@@ -215,7 +219,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/v2/batches/${selectedAsset.batch_id}/auto-label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ filter: "unlabeled", maxAssets: 300 }),
+        body: JSON.stringify({ filter: "unlabeled", maxAssets: 300, reasoningEffort }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         processed?: number;
@@ -256,6 +260,17 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{supportedAssets.length} assets</Badge>
           <Badge variant="secondary">{unlabeledCount} pending</Badge>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Reasoning</span>
+            <NativeSelect
+              value={reasoningEffort}
+              onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
+              className="h-8 min-w-[110px]"
+            >
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </NativeSelect>
+          </label>
         </div>
       </div>
 

@@ -5,7 +5,7 @@ export default function HomePage() {
     <main className="page space-y-4">
       <PageHeader title="Home" links={[]} />
       <p className="text-sm leading-6 text-muted-foreground">
-        OpenAI-native VisionOps workspace for extraction and operations.
+        OpenAI-native workspace for extraction and operations.
       </p>
     </main>
   );

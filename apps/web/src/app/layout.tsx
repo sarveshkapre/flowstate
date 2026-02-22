@@ -9,7 +9,7 @@ const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variabl
 
 export const metadata: Metadata = {
   title: "Flowstate",
-  description: "OpenAI-native VisionOps platform",
+  description: "OpenAI-native extraction and operations platform",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

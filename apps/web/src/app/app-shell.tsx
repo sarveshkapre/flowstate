@@ -41,7 +41,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/" className="text-lg font-semibold tracking-tight">
             Flowstate
           </Link>
-          <p className="text-xs text-muted-foreground">VisionOps</p>
           <div className="mt-3">
             <ThemeToggle />
           </div>

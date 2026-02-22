@@ -1240,6 +1240,7 @@ export async function listDatasetVersions(datasetId: string) {
 export async function createDatasetBatch(input: {
   datasetId: string;
   name: string;
+  tags?: string[];
   sourceType: DatasetBatchSourceType;
   sourceArtifactIds?: string[];
   actor?: string;
@@ -1257,6 +1258,7 @@ export async function createDatasetBatch(input: {
       project_id: dataset.project_id,
       dataset_id: dataset.id,
       name: input.name.trim(),
+      tags: (input.tags ?? []).map((tag) => tag.trim()).filter(Boolean).slice(0, 40),
       source_type: datasetBatchSourceTypeSchema.parse(input.sourceType),
       status: "uploaded",
       source_artifact_ids: (input.sourceArtifactIds ?? []).map((artifactId) => artifactId.trim()).filter(Boolean),

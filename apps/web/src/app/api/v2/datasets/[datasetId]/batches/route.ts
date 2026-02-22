@@ -10,6 +10,7 @@ type Params = {
 
 const createDatasetBatchSchema = z.object({
   name: z.string().min(1).max(160),
+  tags: z.array(z.string().min(1).max(40)).max(40).optional(),
   sourceType: z.enum(["image", "video", "pdf", "mixed"]),
   sourceArtifactIds: z.array(z.string().min(1)).max(500).optional(),
 });
@@ -92,6 +93,7 @@ export async function POST(request: Request, { params }: Params) {
   const batch = await createDatasetBatch({
     datasetId,
     name: parsed.data.name,
+    tags: parsed.data.tags,
     sourceType: parsed.data.sourceType,
     sourceArtifactIds: parsed.data.sourceArtifactIds,
     actor: auth.actor.email ?? undefined,

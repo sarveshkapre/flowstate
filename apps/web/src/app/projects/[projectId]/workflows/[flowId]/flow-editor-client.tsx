@@ -1,12 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, History, Minus, Plus, Sparkles } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
 import { Card, CardContent } from "@shadcn-ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@shadcn-ui/dialog";
 
 type Flow = {
   id: string;
@@ -27,6 +35,14 @@ type FlowDeployment = {
   deployment_key: string;
   is_active: boolean;
   created_at: string;
+};
+
+type RunRecord = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  created_at: string;
+  updated_at: string;
+  error_message: string | null;
 };
 
 const DRAFT_GRAPH = {
@@ -67,10 +83,18 @@ export function FlowEditorClient({ projectId, flowId }: { projectId: string; flo
   const [flow, setFlow] = useState<Flow | null>(null);
   const [versions, setVersions] = useState<FlowVersion[]>([]);
   const [deployments, setDeployments] = useState<FlowDeployment[]>([]);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [runBusy, setRunBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const activeDeployment = useMemo(
+    () => deployments.find((deployment) => deployment.is_active) ?? null,
+    [deployments],
+  );
 
   async function load() {
     setLoading(true);
@@ -174,10 +198,60 @@ export function FlowEditorClient({ projectId, flowId }: { projectId: string; flo
     }
   }
 
-  const activeDeployment = useMemo(
-    () => deployments.find((deployment) => deployment.is_active) ?? null,
-    [deployments],
-  );
+  const loadRuns = useCallback(async () => {
+    const response = await fetch(`/api/v2/runs?projectId=${projectId}&flowId=${flowId}&limit=20`, { cache: "no-store" });
+    const payload = (await response.json().catch(() => ({}))) as { runs?: RunRecord[]; error?: string };
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to load run history.");
+    }
+    setRuns(payload.runs ?? []);
+  }, [projectId, flowId]);
+
+  async function onRunFlow() {
+    if (!activeDeployment) {
+      setError("Publish a workflow deployment before running.");
+      return;
+    }
+
+    setRunBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/v2/sources/webhook/${activeDeployment.deployment_key}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: "flow-editor",
+          flowId,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        run?: RunRecord;
+        error?: string;
+      };
+      if (!response.ok || !payload.run) {
+        throw new Error(payload.error || "Failed to run workflow.");
+      }
+
+      await loadRuns();
+      setMessage(`Run ${payload.run.id.slice(0, 8)} started (${payload.run.status}).`);
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : "Failed to run workflow.");
+    } finally {
+      setRunBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!historyOpen) {
+      return;
+    }
+
+    void loadRuns().catch((historyError) => {
+      setError(historyError instanceof Error ? historyError.message : "Failed to load run history.");
+    });
+  }, [historyOpen, loadRuns]);
 
   return (
     <section className="space-y-4">
@@ -195,12 +269,39 @@ export function FlowEditorClient({ projectId, flowId }: { projectId: string; flo
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm">
-            <History className="mr-2 h-4 w-4" />
-            History
-          </Button>
-          <Button variant="outline" size="sm" disabled>
-            Run
+          <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <History className="mr-2 h-4 w-4" />
+                History
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Run History</DialogTitle>
+                <DialogDescription>Recent workflow runs for this flow.</DialogDescription>
+              </DialogHeader>
+              <div className="max-h-96 space-y-2 overflow-auto pr-1">
+                {runs.length === 0 ? <p className="text-sm text-muted-foreground">No runs yet.</p> : null}
+                {runs.map((run) => (
+                  <div key={run.id} className="rounded-lg border border-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-mono text-xs">{run.id}</p>
+                      <Badge variant={run.status === "failed" ? "destructive" : "outline"}>{run.status}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {new Date(run.created_at).toLocaleString()}
+                    </p>
+                    {run.error_message ? (
+                      <p className="mt-1 text-xs text-destructive">{run.error_message}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Button variant="outline" size="sm" onClick={() => void onRunFlow()} disabled={runBusy || loading}>
+            {runBusy ? "Running..." : "Run"}
           </Button>
           <Button variant="outline" size="sm" onClick={() => void onSaveDraft()} disabled={busy || loading}>
             Save Draft

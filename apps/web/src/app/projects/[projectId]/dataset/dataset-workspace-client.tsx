@@ -17,6 +17,7 @@ type Dataset = {
 type Batch = {
   id: string;
   name: string;
+  tags?: string[];
   status:
     | "uploaded"
     | "preprocessing"
@@ -268,11 +269,24 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
                   <span>{batch.approved_count} approved</span>
                 </div>
 
+                {batch.tags?.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {batch.tags.slice(0, 6).map((tag) => (
+                      <Badge key={`${batch.id}-${tag}`} variant="secondary">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busyBatchId === batch.id}
+                    disabled={
+                      busyBatchId === batch.id ||
+                      !["uploaded", "ready_for_label", "in_labeling", "rework"].includes(batch.status)
+                    }
                     onClick={() => void updateBatchStatus(batch.id, "in_review")}
                   >
                     In Review
@@ -280,7 +294,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busyBatchId === batch.id}
+                    disabled={busyBatchId === batch.id || batch.status !== "in_review"}
                     onClick={() => void updateBatchStatus(batch.id, "approved")}
                   >
                     Approve
@@ -288,7 +302,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={busyBatchId === batch.id}
+                    disabled={busyBatchId === batch.id || batch.labeled_count === 0}
                     onClick={() => void buildVersion(batch.id)}
                   >
                     Build Version

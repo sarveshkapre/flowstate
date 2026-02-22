@@ -24,6 +24,7 @@ type Batch = {
   id: string;
   dataset_id: string;
   name: string;
+  tags?: string[];
   source_type: "image" | "video" | "pdf" | "mixed";
   status:
     | "uploaded"
@@ -223,11 +224,17 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       }
 
       const sourceType = selectedFiles.length ? inferSourceType(selectedFiles) : "mixed";
+      const parsedTags = tags
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 40);
       const createBatchResponse = await fetch(`/api/v2/datasets/${datasetId}/batches`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: batchName.trim() || defaultBatchName(),
+          tags: parsedTags,
           sourceType,
           sourceArtifactIds,
         }),
@@ -262,6 +269,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       await refreshBatches(datasetId);
       setSelectedFiles([]);
       setBatchName(defaultBatchName());
+      setTags("");
       const createdCount = ingestPayload.result?.created_assets_count ?? 0;
       const failedExtractionCount = ingestPayload.result?.failed_extraction_artifact_ids?.length ?? 0;
       if (failedExtractionCount > 0) {
@@ -449,6 +457,15 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                 <p className="text-xs text-muted-foreground">
                   {new Date(batch.created_at).toLocaleString()} • {batch.source_type}
                 </p>
+                {batch.tags?.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {batch.tags.slice(0, 6).map((tag) => (
+                      <Badge key={`${batch.id}-${tag}`} variant="secondary">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline">{batch.status}</Badge>

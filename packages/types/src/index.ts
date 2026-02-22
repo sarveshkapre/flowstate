@@ -490,6 +490,7 @@ export const datasetBatchRecordSchema = z.object({
   project_id: z.string(),
   dataset_id: z.string(),
   name: z.string(),
+  tags: z.array(z.string()).default([]),
   source_type: datasetBatchSourceTypeSchema,
   status: datasetBatchStatusSchema,
   source_artifact_ids: z.array(z.string()),

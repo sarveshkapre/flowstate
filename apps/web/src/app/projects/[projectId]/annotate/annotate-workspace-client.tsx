@@ -283,6 +283,9 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   const previewUrl = assetPreviewUrl(selectedAsset);
   const inProgressBbox = drawState ? toBbox(drawState) : null;
   const canDrawOnSelectedAsset = selectedAsset?.asset_type === "image" || selectedAsset?.asset_type === "video_frame";
+  const rawAssetUrl =
+    selectedAsset?.storage_path?.trim() ||
+    (selectedAsset?.artifact_id ? `/api/v1/uploads/${selectedAsset.artifact_id}/file` : null);
 
   function getPointerNormalizedPosition(event: React.PointerEvent<HTMLDivElement>) {
     const frame = previewFrameRef.current;
@@ -498,9 +501,9 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
                 <Button variant="outline" onClick={() => setDraftShapes([])} disabled={busy}>
                   Clear Draft
                 </Button>
-                {selectedAsset?.artifact_id ? (
+                {rawAssetUrl ? (
                   <Button variant="ghost" asChild>
-                    <a href={`/api/v1/uploads/${selectedAsset.artifact_id}/file`} target="_blank" rel="noreferrer">
+                    <a href={rawAssetUrl} target="_blank" rel="noreferrer">
                       Open Raw
                     </a>
                   </Button>

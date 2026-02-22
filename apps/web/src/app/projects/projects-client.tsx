@@ -308,7 +308,8 @@ export function ProjectsClient() {
   const doneCount = useMemo(() => jobs.filter((job) => job.status === "done").length, [jobs]);
 
   async function onSelectFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []).filter((file) => file.type.startsWith("image/"));
     const withPreviews = await Promise.all(
       files.map(async (file) => ({
         id: crypto.randomUUID(),
@@ -321,7 +322,9 @@ export function ProjectsClient() {
 
     setJobs(withPreviews);
     setError(null);
-    event.currentTarget.value = "";
+    if (input) {
+      input.value = "";
+    }
   }
 
   async function onRunAutoLabel() {

@@ -180,7 +180,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/v2/assets/${selectedAsset.id}/auto-label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reasoningEffort: "high" }),
+        body: JSON.stringify({}),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         annotation?: AnnotationRecord;
@@ -215,7 +215,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
       const response = await fetch(`/api/v2/batches/${selectedAsset.batch_id}/auto-label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ filter: "unlabeled", maxAssets: 300, reasoningEffort: "high" }),
+        body: JSON.stringify({ filter: "unlabeled", maxAssets: 300 }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         processed?: number;

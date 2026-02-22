@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Circle, Lock, Plus, Tag, X } from "lucide-react";
+import { Check, Circle, Lock, Plus, Tag, Trash2, X } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
@@ -82,6 +82,7 @@ export function ProjectsClient() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 
   const [name, setName] = useState("My First Project");
   const [annotationGroup, setAnnotationGroup] = useState("objects");
@@ -90,7 +91,9 @@ export function ProjectsClient() {
 
   async function loadProjects() {
     setLoading(true);
-    const response = await fetch("/api/v2/projects?organizationId=org_default", { cache: "no-store" });
+    const response = await fetch("/api/v2/projects?organizationId=org_default", {
+      cache: "no-store",
+    });
     const payload = (await response.json().catch(() => ({}))) as { projects?: Project[] };
     setProjects(payload.projects ?? []);
     setLoading(false);
@@ -153,7 +156,10 @@ export function ProjectsClient() {
           projectType,
         }),
       });
-      const createPayload = (await createResponse.json().catch(() => ({}))) as { project?: Project; error?: string };
+      const createPayload = (await createResponse.json().catch(() => ({}))) as {
+        project?: Project;
+        error?: string;
+      };
 
       if (!createResponse.ok || !createPayload.project) {
         throw new Error(createPayload.error || "Failed to create project.");
@@ -179,6 +185,34 @@ export function ProjectsClient() {
     }
   }
 
+  async function onDeleteProject(project: Project) {
+    const shouldDelete = window.confirm(`Delete project "${project.name}" and all related data?`);
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingProjectId(project.id);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/v2/projects/${project.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok && response.status !== 204) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "Failed to delete project.");
+      }
+
+      await loadProjects();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete project.");
+    } finally {
+      setDeletingProjectId(null);
+    }
+  }
+
   return (
     <section className="space-y-6">
       <Card className="max-w-[560px] overflow-hidden border-border bg-card">
@@ -187,14 +221,20 @@ export function ProjectsClient() {
           <h1 className="text-5xl font-semibold leading-[1.02] tracking-tight text-foreground">
             Build vision models to recognize anything
           </h1>
-          <p className="text-xl text-muted-foreground">Upload data, label it, and automate with OpenAI models.</p>
+          <p className="text-xl text-muted-foreground">
+            Upload data, label it, and automate with OpenAI models.
+          </p>
           <div className="space-y-2 pt-2">
             <Button className="h-12 w-full text-lg" onClick={() => setShowCreate(true)}>
               <Plus className="mr-2 h-4 w-4" />
               New Project
             </Button>
             <Button variant="outline" className="h-12 w-full text-lg" asChild>
-              <a href="https://platform.openai.com/docs/guides/images-vision" target="_blank" rel="noreferrer">
+              <a
+                href="https://platform.openai.com/docs/guides/images-vision"
+                target="_blank"
+                rel="noreferrer"
+              >
                 View a Tutorial
               </a>
             </Button>
@@ -217,7 +257,9 @@ export function ProjectsClient() {
           {loading ? <p className="text-sm text-muted-foreground">Loading projects...</p> : null}
 
           {!loading && filteredProjects.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No projects yet. Create your first project to start uploading data.</p>
+            <p className="text-sm text-muted-foreground">
+              No projects yet. Create your first project to start uploading data.
+            </p>
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -226,7 +268,9 @@ export function ProjectsClient() {
                 <CardContent className="space-y-3 p-4">
                   <div className="space-y-1">
                     <p className="truncate text-lg font-semibold text-foreground">{project.name}</p>
-                    <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{project.project_type}</p>
+                    <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                      {project.project_type}
+                    </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="outline">
@@ -238,12 +282,21 @@ export function ProjectsClient() {
                       {project.visibility}
                     </Badge>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     <Button size="sm" asChild>
                       <a href={`/projects/${project.id}/upload`}>Open</a>
                     </Button>
                     <Button size="sm" variant="outline" asChild>
                       <a href={`/projects/${project.id}/workflows`}>Workflows</a>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => void onDeleteProject(project)}
+                      disabled={deletingProjectId === project.id}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {deletingProjectId === project.id ? "Deleting..." : "Delete"}
                     </Button>
                   </div>
                 </CardContent>
@@ -257,7 +310,9 @@ export function ProjectsClient() {
         <div className="fixed inset-0 z-50 overflow-hidden bg-black/50 p-2 backdrop-blur-sm sm:p-4">
           <div className="mx-auto my-2 flex h-[calc(100vh-1rem)] max-w-6xl flex-col rounded-2xl border border-border bg-background shadow-2xl sm:my-6 sm:h-[calc(100vh-3rem)]">
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
-              <h2 className="text-4xl font-semibold tracking-tight text-foreground">Let&apos;s create your project.</h2>
+              <h2 className="text-4xl font-semibold tracking-tight text-foreground">
+                Let&apos;s create your project.
+              </h2>
               <Button variant="ghost" size="icon" onClick={() => setShowCreate(false)}>
                 <X className="h-4 w-4" />
               </Button>
@@ -265,82 +320,91 @@ export function ProjectsClient() {
 
             <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="grid gap-6 p-6 lg:grid-cols-[1.1fr_1fr]">
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1">
-                    <span className="text-sm font-medium">Project Name</span>
-                    <Input value={name} onChange={(event) => setName(event.target.value)} />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-sm font-medium">Annotation Group</span>
-                    <Input value={annotationGroup} onChange={(event) => setAnnotationGroup(event.target.value)} />
-                  </label>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Visibility</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant={visibility === "private" ? "default" : "outline"}
-                      onClick={() => setVisibility("private")}
-                    >
-                      <Lock className="mr-2 h-4 w-4" />
-                      Private
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={visibility === "public" ? "default" : "outline"}
-                      onClick={() => setVisibility("public")}
-                    >
-                      <Circle className="mr-2 h-4 w-4" />
-                      Public
-                    </Button>
+                <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1">
+                      <span className="text-sm font-medium">Project Name</span>
+                      <Input value={name} onChange={(event) => setName(event.target.value)} />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-sm font-medium">Annotation Group</span>
+                      <Input
+                        value={annotationGroup}
+                        onChange={(event) => setAnnotationGroup(event.target.value)}
+                      />
+                    </label>
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Project Type</p>
                   <div className="space-y-2">
-                    {PROJECT_TYPES.map((item) => (
-                      <button
-                        key={item.key}
+                    <p className="text-sm font-medium">Visibility</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
                         type="button"
-                        onClick={() => setProjectType(item.key)}
-                        className={cn(
-                          "w-full rounded-xl border px-4 py-3 text-left transition-colors",
-                          projectType === item.key ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
-                        )}
+                        variant={visibility === "private" ? "default" : "outline"}
+                        onClick={() => setVisibility("private")}
                       >
-                        <div className="flex items-center justify-between">
-                          <p className="text-lg font-semibold">{item.label}</p>
-                          {projectType === item.key ? <Check className="h-4 w-4 text-primary" /> : null}
-                        </div>
-                        <p className="text-sm text-muted-foreground">{item.summary}</p>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {item.pills.map((pill) => (
-                            <Badge key={pill} variant="outline">
-                              {pill}
-                            </Badge>
-                          ))}
-                        </div>
-                      </button>
-                    ))}
+                        <Lock className="mr-2 h-4 w-4" />
+                        Private
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={visibility === "public" ? "default" : "outline"}
+                        onClick={() => setVisibility("public")}
+                      >
+                        <Circle className="mr-2 h-4 w-4" />
+                        Public
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <Card className="overflow-hidden border-border">
-                <div className="h-full min-h-64 bg-gradient-to-br from-indigo-500/15 via-fuchsia-500/10 to-cyan-400/10 p-4">
-                  <p className="text-sm font-semibold text-muted-foreground">Preview</p>
-                  <p className="mt-2 text-2xl font-semibold">{name || "My First Project"}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{annotationGroup || "objects"}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge>{visibility}</Badge>
-                    <Badge variant="outline">{projectType.replaceAll("_", " ")}</Badge>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Project Type</p>
+                    <div className="space-y-2">
+                      {PROJECT_TYPES.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => setProjectType(item.key)}
+                          className={cn(
+                            "w-full rounded-xl border px-4 py-3 text-left transition-colors",
+                            projectType === item.key
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:bg-muted/50",
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <p className="text-lg font-semibold">{item.label}</p>
+                            {projectType === item.key ? (
+                              <Check className="h-4 w-4 text-primary" />
+                            ) : null}
+                          </div>
+                          <p className="text-sm text-muted-foreground">{item.summary}</p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {item.pills.map((pill) => (
+                              <Badge key={pill} variant="outline">
+                                {pill}
+                              </Badge>
+                            ))}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </Card>
+
+                <Card className="overflow-hidden border-border">
+                  <div className="h-full min-h-64 bg-gradient-to-br from-indigo-500/15 via-fuchsia-500/10 to-cyan-400/10 p-4">
+                    <p className="text-sm font-semibold text-muted-foreground">Preview</p>
+                    <p className="mt-2 text-2xl font-semibold">{name || "My First Project"}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {annotationGroup || "objects"}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge>{visibility}</Badge>
+                      <Badge variant="outline">{projectType.replaceAll("_", " ")}</Badge>
+                    </div>
+                  </div>
+                </Card>
               </div>
             </div>
 
@@ -351,7 +415,9 @@ export function ProjectsClient() {
               <div className="flex items-center gap-3">
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
                 <Button onClick={() => void onCreateProject()} disabled={creating}>
-                  {creating ? "Creating..." : `Continue with ${visibility === "private" ? "Private" : "Public"}`}
+                  {creating
+                    ? "Creating..."
+                    : `Continue with ${visibility === "private" ? "Private" : "Public"}`}
                 </Button>
               </div>
             </div>

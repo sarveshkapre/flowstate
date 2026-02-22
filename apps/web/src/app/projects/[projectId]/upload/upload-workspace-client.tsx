@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Code2, FolderOpen, ImageIcon, QrCode, Smartphone, Upload } from "lucide-react";
+import { FolderOpen, ImageIcon, Upload } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
+import { Card, CardContent } from "@shadcn-ui/card";
 import { Checkbox } from "@shadcn-ui/checkbox";
 import { Input } from "@shadcn-ui/input";
 
@@ -22,21 +22,6 @@ type Dataset = {
 
 type Batch = {
   id: string;
-  dataset_id: string;
-  name: string;
-  tags?: string[];
-  source_type: "image" | "video" | "pdf" | "mixed";
-  status:
-    | "uploaded"
-    | "preprocessing"
-    | "ready_for_label"
-    | "in_labeling"
-    | "in_review"
-    | "approved"
-    | "rework"
-    | "exported";
-  item_count: number;
-  created_at: string;
 };
 
 type UploadArtifactResponse = {
@@ -82,8 +67,6 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
 
   const [project, setProject] = useState<Project | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
-  const [batches, setBatches] = useState<Batch[]>([]);
-
   const [batchName, setBatchName] = useState(defaultBatchName);
   const [tags, setTags] = useState("");
   const [createBatchInstantly, setCreateBatchInstantly] = useState(false);
@@ -102,10 +85,16 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   }, []);
 
   async function ensureDataset(currentProjectId: string) {
-    const listResponse = await fetch(`/api/v2/datasets?projectId=${encodeURIComponent(currentProjectId)}`, {
-      cache: "no-store",
-    });
-    const listPayload = (await listResponse.json().catch(() => ({}))) as { datasets?: Dataset[]; error?: string };
+    const listResponse = await fetch(
+      `/api/v2/datasets?projectId=${encodeURIComponent(currentProjectId)}`,
+      {
+        cache: "no-store",
+      },
+    );
+    const listPayload = (await listResponse.json().catch(() => ({}))) as {
+      datasets?: Dataset[];
+      error?: string;
+    };
 
     if (!listResponse.ok) {
       throw new Error(listPayload.error || "Failed to load datasets.");
@@ -125,22 +114,15 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         description: "Default dataset for uploads.",
       }),
     });
-    const createPayload = (await createResponse.json().catch(() => ({}))) as { dataset?: Dataset; error?: string };
+    const createPayload = (await createResponse.json().catch(() => ({}))) as {
+      dataset?: Dataset;
+      error?: string;
+    };
     if (!createResponse.ok || !createPayload.dataset) {
       throw new Error(createPayload.error || "Failed to create dataset.");
     }
 
     return createPayload.dataset;
-  }
-
-  async function refreshBatches(currentDatasetId: string) {
-    const response = await fetch(`/api/v2/datasets/${currentDatasetId}/batches?limit=20`, { cache: "no-store" });
-    const payload = (await response.json().catch(() => ({}))) as { batches?: Batch[]; error?: string };
-    if (!response.ok) {
-      throw new Error(payload.error || "Failed to load batches.");
-    }
-
-    setBatches(payload.batches ?? []);
   }
 
   async function load() {
@@ -149,7 +131,10 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
 
     try {
       const projectResponse = await fetch(`/api/v2/projects/${projectId}`, { cache: "no-store" });
-      const projectPayload = (await projectResponse.json().catch(() => ({}))) as { project?: Project; error?: string };
+      const projectPayload = (await projectResponse.json().catch(() => ({}))) as {
+        project?: Project;
+        error?: string;
+      };
       if (!projectResponse.ok || !projectPayload.project) {
         throw new Error(projectPayload.error || "Project not found.");
       }
@@ -157,7 +142,6 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
 
       const dataset = await ensureDataset(projectId);
       setDatasetId(dataset.id);
-      await refreshBatches(dataset.id);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load upload workspace.");
     } finally {
@@ -215,7 +199,9 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
           method: "POST",
           body: form,
         });
-        const uploadPayload = (await uploadResponse.json().catch(() => ({}))) as UploadArtifactResponse & { error?: string };
+        const uploadPayload = (await uploadResponse
+          .json()
+          .catch(() => ({}))) as UploadArtifactResponse & { error?: string };
         if (!uploadResponse.ok || !uploadPayload.artifact?.id) {
           throw new Error(uploadPayload.error || `Upload failed for ${file.name}.`);
         }
@@ -266,12 +252,12 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         throw new Error(ingestPayload.error || "Batch ingest failed.");
       }
 
-      await refreshBatches(datasetId);
       setSelectedFiles([]);
       setBatchName(defaultBatchName());
       setTags("");
       const createdCount = ingestPayload.result?.created_assets_count ?? 0;
-      const failedExtractionCount = ingestPayload.result?.failed_extraction_artifact_ids?.length ?? 0;
+      const failedExtractionCount =
+        ingestPayload.result?.failed_extraction_artifact_ids?.length ?? 0;
       if (failedExtractionCount > 0) {
         const firstError = ingestPayload.result?.extraction_errors?.[0]?.message;
         const suffix = firstError ? ` ${firstError}` : "";
@@ -302,7 +288,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         <p className="text-sm text-muted-foreground">{project?.name ?? "Project"}</p>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
+      <div className="grid gap-5">
         <Card>
           <CardContent className="space-y-5 p-5">
             <div className="grid gap-3 md:grid-cols-2">
@@ -321,7 +307,10 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             </div>
 
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={createBatchInstantly} onCheckedChange={(value) => setCreateBatchInstantly(value === true)} />
+              <Checkbox
+                checked={createBatchInstantly}
+                onCheckedChange={(value) => setCreateBatchInstantly(value === true)}
+              />
               Create batch instantly
             </label>
 
@@ -348,7 +337,13 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   accept="image/*,video/*,application/pdf"
                   onChange={(event) => addFiles(event.target.files)}
                 />
-                <input ref={folderInputRef} type="file" multiple className="hidden" onChange={(event) => addFiles(event.target.files)} />
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => addFiles(event.target.files)}
+                />
                 <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                   <ImageIcon className="mr-2 h-4 w-4" />
                   Select Files
@@ -387,94 +382,13 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               ) : null}
             </div>
 
-            {message ? <p className="text-sm text-emerald-600 dark:text-emerald-400">{message}</p> : null}
+            {message ? (
+              <p className="text-sm text-emerald-600 dark:text-emerald-400">{message}</p>
+            ) : null}
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
           </CardContent>
         </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Upload from your phone</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-14 w-14 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-                  <Smartphone className="h-6 w-6" />
-                </div>
-                <div className="grid h-20 w-20 place-items-center rounded-md border border-border bg-background">
-                  <QrCode className="h-10 w-10 text-muted-foreground" />
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground">Scan a QR code to send photos directly to this project.</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Need sample images?</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Input placeholder="Search for images" />
-              <Button variant="outline" className="w-full justify-between">
-                Explore templates
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Bulk Upload Images</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Upload at scale using Flowstate API or worker automation hooks.
-              </p>
-              <Button variant="outline" className="w-full justify-between">
-                <span className="inline-flex items-center gap-2">
-                  <Code2 className="h-4 w-4" />
-                  Learn More
-                </span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Recent Batches</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {loading ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
-          {!loading && batches.length === 0 ? <p className="text-sm text-muted-foreground">No batches yet.</p> : null}
-          {batches.map((batch) => (
-            <div key={batch.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">{batch.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {new Date(batch.created_at).toLocaleString()} • {batch.source_type}
-                </p>
-                {batch.tags?.length ? (
-                  <div className="flex flex-wrap gap-1">
-                    {batch.tags.slice(0, 6).map((tag) => (
-                      <Badge key={`${batch.id}-${tag}`} variant="secondary">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">{batch.status}</Badge>
-                <Badge variant="secondary">{batch.item_count} assets</Badge>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
     </section>
   );
 }

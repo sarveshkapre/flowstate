@@ -209,6 +209,7 @@ export const auditEventTypeSchema = z.enum([
   "eval_run_created",
   "project_created",
   "project_member_assigned",
+  "project_deleted",
   "api_key_created",
   "api_key_used",
   "magic_link_requested",
@@ -308,7 +309,11 @@ export const workflowRunRecordSchema = z.object({
 
 export type WorkflowRunRecord = z.infer<typeof workflowRunRecordSchema>;
 
-export const edgeAdapterSchema = z.enum(["cloudflare_worker", "vercel_edge_function", "browser_wasm"]);
+export const edgeAdapterSchema = z.enum([
+  "cloudflare_worker",
+  "vercel_edge_function",
+  "browser_wasm",
+]);
 export type EdgeAdapter = z.infer<typeof edgeAdapterSchema>;
 
 export const edgeRuntimeSchema = z.enum(["workerd", "v8_isolate", "wasm_browser"]);
@@ -682,7 +687,9 @@ export const connectorBackpressurePolicyRecordSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
 });
-export type ConnectorBackpressurePolicyRecord = z.infer<typeof connectorBackpressurePolicyRecordSchema>;
+export type ConnectorBackpressurePolicyRecord = z.infer<
+  typeof connectorBackpressurePolicyRecordSchema
+>;
 
 export const connectorBackpressurePolicyDraftRecordSchema = z.object({
   id: z.string(),
@@ -716,12 +723,19 @@ export const connectorBackpressurePolicyDraftRecordSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
 });
-export type ConnectorBackpressurePolicyDraftRecord = z.infer<typeof connectorBackpressurePolicyDraftRecordSchema>;
+export type ConnectorBackpressurePolicyDraftRecord = z.infer<
+  typeof connectorBackpressurePolicyDraftRecordSchema
+>;
 
 export const environmentProfileSchema = z.enum(["local", "staging", "prod"]);
 export type EnvironmentProfile = z.infer<typeof environmentProfileSchema>;
 
-export const connectorDeliveryStatusSchema = z.enum(["queued", "retrying", "delivered", "dead_lettered"]);
+export const connectorDeliveryStatusSchema = z.enum([
+  "queued",
+  "retrying",
+  "delivered",
+  "dead_lettered",
+]);
 export type ConnectorDeliveryStatus = z.infer<typeof connectorDeliveryStatusSchema>;
 
 export const connectorDeliveryRecordSchema = z.object({
@@ -785,7 +799,12 @@ export const edgeAgentConfigRecordSchema = z.object({
 });
 export type EdgeAgentConfigRecord = z.infer<typeof edgeAgentConfigRecordSchema>;
 
-export const edgeAgentCommandStatusSchema = z.enum(["pending", "claimed", "acknowledged", "failed"]);
+export const edgeAgentCommandStatusSchema = z.enum([
+  "pending",
+  "claimed",
+  "acknowledged",
+  "failed",
+]);
 export type EdgeAgentCommandStatus = z.infer<typeof edgeAgentCommandStatusSchema>;
 
 export const edgeAgentCommandRecordSchema = z.object({

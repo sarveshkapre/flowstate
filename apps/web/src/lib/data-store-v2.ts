@@ -213,15 +213,22 @@ function connectorSimulationFromPayload(payload: unknown) {
 
   return {
     failureCount:
-      typeof failureCountValue === "number" && Number.isFinite(failureCountValue) && failureCountValue > 0
+      typeof failureCountValue === "number" &&
+      Number.isFinite(failureCountValue) &&
+      failureCountValue > 0
         ? Math.floor(failureCountValue)
         : 0,
     alwaysFail: alwaysFailValue === true,
     statusCode:
-      typeof statusCodeValue === "number" && Number.isFinite(statusCodeValue) && statusCodeValue >= 100
+      typeof statusCodeValue === "number" &&
+      Number.isFinite(statusCodeValue) &&
+      statusCodeValue >= 100
         ? Math.floor(statusCodeValue)
         : 503,
-    errorMessage: typeof errorValue === "string" && errorValue.trim().length > 0 ? errorValue.trim() : "Connector delivery failed",
+    errorMessage:
+      typeof errorValue === "string" && errorValue.trim().length > 0
+        ? errorValue.trim()
+        : "Connector delivery failed",
   };
 }
 
@@ -258,6 +265,10 @@ function connectorInputFilePath(deliveryId: string) {
   return path.join(CONNECTOR_INPUTS_DIR, `${deliveryId}.json`);
 }
 
+async function removeConnectorInputFile(deliveryId: string) {
+  await fs.rm(connectorInputFilePath(deliveryId), { force: true });
+}
+
 async function writeConnectorInput(input: {
   deliveryId: string;
   payload: unknown;
@@ -272,7 +283,9 @@ async function writeConnectorInput(input: {
   await fs.writeFile(connectorInputFilePath(input.deliveryId), JSON.stringify(record), "utf8");
 }
 
-async function readConnectorInput(deliveryId: string): Promise<ConnectorDeliveryInputRecord | null> {
+async function readConnectorInput(
+  deliveryId: string,
+): Promise<ConnectorDeliveryInputRecord | null> {
   try {
     const raw = await fs.readFile(connectorInputFilePath(deliveryId), "utf8");
     const parsed = JSON.parse(raw) as ConnectorDeliveryInputRecord;
@@ -306,7 +319,9 @@ export type DatasetAssetBinarySource = {
   fileName: string;
 };
 
-export async function resolveDatasetAssetBinarySource(asset: DatasetAssetRecord): Promise<DatasetAssetBinarySource | null> {
+export async function resolveDatasetAssetBinarySource(
+  asset: DatasetAssetRecord,
+): Promise<DatasetAssetBinarySource | null> {
   if (asset.asset_type === "video_frame") {
     if (!asset.artifact_id || !asset.frame_index) {
       return null;
@@ -353,28 +368,46 @@ async function readState(): Promise<DbStateV2> {
   const parsed = JSON.parse(raw) as Partial<DbStateV2>;
   const state = {
     projects: (parsed.projects ?? []).map((item) => projectRecordSchema.parse(item)),
-    project_memberships: (parsed.project_memberships ?? []).map((item) => projectMembershipRecordSchema.parse(item)),
+    project_memberships: (parsed.project_memberships ?? []).map((item) =>
+      projectMembershipRecordSchema.parse(item),
+    ),
     api_keys: (parsed.api_keys ?? []).map((item) => apiKeyRecordSchema.parse(item)),
     magic_links: (parsed.magic_links ?? []).map((item) => magicLinkRecordSchema.parse(item)),
     flows: (parsed.flows ?? []).map((item) => flowRecordV2Schema.parse(item)),
     flow_versions: (parsed.flow_versions ?? []).map((item) => flowVersionRecordSchema.parse(item)),
-    flow_deployments: (parsed.flow_deployments ?? []).map((item) => flowDeploymentRecordSchema.parse(item)),
+    flow_deployments: (parsed.flow_deployments ?? []).map((item) =>
+      flowDeploymentRecordSchema.parse(item),
+    ),
     runs: (parsed.runs ?? []).map((item) => runRecordV2Schema.parse(item)),
     run_traces: (parsed.run_traces ?? []).map((item) => runTraceRecordSchema.parse(item)),
     datasets: (parsed.datasets ?? []).map((item) => datasetRecordSchema.parse(item)),
-    dataset_versions: (parsed.dataset_versions ?? []).map((item) => datasetVersionRecordSchema.parse(item)),
-    dataset_batches: (parsed.dataset_batches ?? []).map((item) => datasetBatchRecordSchema.parse(item)),
-    dataset_assets: (parsed.dataset_assets ?? []).map((item) => datasetAssetRecordSchema.parse(item)),
-    asset_annotations: (parsed.asset_annotations ?? []).map((item) => assetAnnotationRecordSchema.parse(item)),
-    review_decisions: (parsed.review_decisions ?? []).map((item) => reviewDecisionRecordSchema.parse(item)),
-    evidence_regions: (parsed.evidence_regions ?? []).map((item) => evidenceRegionRecordSchema.parse(item)),
+    dataset_versions: (parsed.dataset_versions ?? []).map((item) =>
+      datasetVersionRecordSchema.parse(item),
+    ),
+    dataset_batches: (parsed.dataset_batches ?? []).map((item) =>
+      datasetBatchRecordSchema.parse(item),
+    ),
+    dataset_assets: (parsed.dataset_assets ?? []).map((item) =>
+      datasetAssetRecordSchema.parse(item),
+    ),
+    asset_annotations: (parsed.asset_annotations ?? []).map((item) =>
+      assetAnnotationRecordSchema.parse(item),
+    ),
+    review_decisions: (parsed.review_decisions ?? []).map((item) =>
+      reviewDecisionRecordSchema.parse(item),
+    ),
+    evidence_regions: (parsed.evidence_regions ?? []).map((item) =>
+      evidenceRegionRecordSchema.parse(item),
+    ),
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
-    review_alert_policies: (parsed.review_alert_policies ?? []).map((item) => reviewAlertPolicyRecordSchema.parse(item)),
+    review_alert_policies: (parsed.review_alert_policies ?? []).map((item) =>
+      reviewAlertPolicyRecordSchema.parse(item),
+    ),
     connector_backpressure_policies: (parsed.connector_backpressure_policies ?? []).map((item) =>
       connectorBackpressurePolicyRecordSchema.parse(item),
     ),
-    connector_backpressure_policy_drafts: (parsed.connector_backpressure_policy_drafts ?? []).map((item) =>
-      connectorBackpressurePolicyDraftRecordSchema.parse(item),
+    connector_backpressure_policy_drafts: (parsed.connector_backpressure_policy_drafts ?? []).map(
+      (item) => connectorBackpressurePolicyDraftRecordSchema.parse(item),
     ),
     connector_guardian_policies: (parsed.connector_guardian_policies ?? []).map((item) =>
       connectorGuardianPolicyRecordSchema.parse({
@@ -382,15 +415,25 @@ async function readState(): Promise<DbStateV2> {
         ...(item as Record<string, unknown>),
       }),
     ),
-    connector_deliveries: (parsed.connector_deliveries ?? []).map((item) => connectorDeliveryRecordSchema.parse(item)),
+    connector_deliveries: (parsed.connector_deliveries ?? []).map((item) =>
+      connectorDeliveryRecordSchema.parse(item),
+    ),
     connector_delivery_attempts: (parsed.connector_delivery_attempts ?? []).map((item) =>
       connectorDeliveryAttemptRecordSchema.parse(item),
     ),
     edge_agents: (parsed.edge_agents ?? []).map((item) => edgeAgentRecordSchema.parse(item)),
-    edge_agent_events: (parsed.edge_agent_events ?? []).map((item) => edgeAgentEventRecordSchema.parse(item)),
-    edge_agent_configs: (parsed.edge_agent_configs ?? []).map((item) => edgeAgentConfigRecordSchema.parse(item)),
-    edge_agent_commands: (parsed.edge_agent_commands ?? []).map((item) => edgeAgentCommandRecordSchema.parse(item)),
-    sync_checkpoints: (parsed.sync_checkpoints ?? []).map((item) => syncCheckpointRecordSchema.parse(item)),
+    edge_agent_events: (parsed.edge_agent_events ?? []).map((item) =>
+      edgeAgentEventRecordSchema.parse(item),
+    ),
+    edge_agent_configs: (parsed.edge_agent_configs ?? []).map((item) =>
+      edgeAgentConfigRecordSchema.parse(item),
+    ),
+    edge_agent_commands: (parsed.edge_agent_commands ?? []).map((item) =>
+      edgeAgentCommandRecordSchema.parse(item),
+    ),
+    sync_checkpoints: (parsed.sync_checkpoints ?? []).map((item) =>
+      syncCheckpointRecordSchema.parse(item),
+    ),
     audit_events: (parsed.audit_events ?? []).map((item) => auditEventRecordSchema.parse(item)),
   };
 
@@ -428,11 +471,14 @@ async function withWriteLock<T>(fn: (state: DbStateV2) => Promise<T> | T): Promi
   return resultPromise;
 }
 
-function appendAuditEvent(state: DbStateV2, input: {
-  eventType: AuditEventType;
-  actor?: string | null;
-  metadata?: unknown;
-}) {
+function appendAuditEvent(
+  state: DbStateV2,
+  input: {
+    eventType: AuditEventType;
+    actor?: string | null;
+    metadata?: unknown;
+  },
+) {
   const event = auditEventRecordSchema.parse({
     id: randomUUID(),
     job_id: null,
@@ -475,7 +521,11 @@ export async function createProject(input: {
     let slug = safeBaseSlug;
     let counter = 1;
 
-    while (state.projects.some((project) => project.organization_id === input.organizationId && project.slug === slug)) {
+    while (
+      state.projects.some(
+        (project) => project.organization_id === input.organizationId && project.slug === slug,
+      )
+    ) {
       counter += 1;
       slug = `${safeBaseSlug}-${counter}`;
     }
@@ -511,10 +561,142 @@ export async function createProject(input: {
   });
 }
 
-export async function listProjects(filters?: {
-  organizationId?: string;
-  isActive?: boolean;
-}) {
+export async function deleteProject(input: { projectId: string; actor?: string }) {
+  return withWriteLock(async (state) => {
+    const project = state.projects.find((item) => item.id === input.projectId);
+
+    if (!project) {
+      return null;
+    }
+
+    const datasetIds = new Set(
+      state.datasets
+        .filter((dataset) => dataset.project_id === input.projectId)
+        .map((dataset) => dataset.id),
+    );
+    const datasetBatchIds = new Set(
+      state.dataset_batches
+        .filter((batch) => datasetIds.has(batch.dataset_id) || batch.project_id === input.projectId)
+        .map((batch) => batch.id),
+    );
+    const datasetVersionFileNames = new Set(
+      state.dataset_versions
+        .filter((version) => datasetIds.has(version.dataset_id))
+        .map((version) => version.file_name),
+    );
+    const flowIds = new Set(
+      state.flows.filter((flow) => flow.project_id === input.projectId).map((flow) => flow.id),
+    );
+    const runIds = new Set(
+      state.runs.filter((run) => run.project_id === input.projectId).map((run) => run.id),
+    );
+    const reviewDecisionIds = new Set(
+      state.review_decisions
+        .filter((decision) => runIds.has(decision.run_id))
+        .map((decision) => decision.id),
+    );
+    const connectorDeliveryIds = new Set(
+      state.connector_deliveries
+        .filter((delivery) => delivery.project_id === input.projectId)
+        .map((delivery) => delivery.id),
+    );
+    const edgeAgentIds = new Set(
+      state.edge_agents
+        .filter((agent) => agent.project_id === input.projectId)
+        .map((agent) => agent.id),
+    );
+
+    for (const fileName of datasetVersionFileNames) {
+      await fs.rm(path.join(DATASETS_DIR, fileName), { force: true });
+    }
+
+    for (const batchId of datasetBatchIds) {
+      await fs.rm(videoFramesBatchDir(batchId), { recursive: true, force: true });
+    }
+
+    for (const deliveryId of connectorDeliveryIds) {
+      await removeConnectorInputFile(deliveryId);
+    }
+
+    state.project_memberships = state.project_memberships.filter(
+      (membership) => membership.project_id !== input.projectId,
+    );
+    state.flows = state.flows.filter((flow) => flow.project_id !== input.projectId);
+    state.flow_versions = state.flow_versions.filter((version) => !flowIds.has(version.flow_id));
+    state.flow_deployments = state.flow_deployments.filter(
+      (deployment) => !flowIds.has(deployment.flow_id),
+    );
+    state.runs = state.runs.filter((run) => run.project_id !== input.projectId);
+    state.run_traces = state.run_traces.filter((trace) => !runIds.has(trace.run_id));
+    state.datasets = state.datasets.filter((dataset) => !datasetIds.has(dataset.id));
+    state.dataset_versions = state.dataset_versions.filter(
+      (version) => !datasetIds.has(version.dataset_id),
+    );
+    state.dataset_batches = state.dataset_batches.filter((batch) => !datasetBatchIds.has(batch.id));
+    state.dataset_assets = state.dataset_assets.filter(
+      (asset) => !datasetBatchIds.has(asset.batch_id),
+    );
+    state.asset_annotations = state.asset_annotations.filter(
+      (annotation) => !datasetBatchIds.has(annotation.batch_id),
+    );
+    state.review_decisions = state.review_decisions.filter(
+      (decision) => !runIds.has(decision.run_id),
+    );
+    state.evidence_regions = state.evidence_regions.filter(
+      (region) => !reviewDecisionIds.has(region.review_decision_id),
+    );
+    state.eval_packs = state.eval_packs.filter((pack) => pack.project_id !== input.projectId);
+    state.review_alert_policies = state.review_alert_policies.filter(
+      (policy) => policy.project_id !== input.projectId,
+    );
+    state.connector_backpressure_policies = state.connector_backpressure_policies.filter(
+      (policy) => policy.project_id !== input.projectId,
+    );
+    state.connector_backpressure_policy_drafts = state.connector_backpressure_policy_drafts.filter(
+      (draft) => draft.project_id !== input.projectId,
+    );
+    state.connector_guardian_policies = state.connector_guardian_policies.filter(
+      (policy) => policy.project_id !== input.projectId,
+    );
+    state.connector_deliveries = state.connector_deliveries.filter(
+      (delivery) => !connectorDeliveryIds.has(delivery.id),
+    );
+    state.connector_delivery_attempts = state.connector_delivery_attempts.filter(
+      (attempt) => !connectorDeliveryIds.has(attempt.delivery_id),
+    );
+    state.edge_agents = state.edge_agents.filter((agent) => !edgeAgentIds.has(agent.id));
+    state.edge_agent_events = state.edge_agent_events.filter(
+      (event) => !edgeAgentIds.has(event.agent_id),
+    );
+    state.edge_agent_configs = state.edge_agent_configs.filter(
+      (config) => !edgeAgentIds.has(config.agent_id),
+    );
+    state.edge_agent_commands = state.edge_agent_commands.filter(
+      (command) => !edgeAgentIds.has(command.agent_id),
+    );
+    state.sync_checkpoints = state.sync_checkpoints.filter(
+      (checkpoint) => !edgeAgentIds.has(checkpoint.agent_id),
+    );
+    state.api_keys = state.api_keys.filter((key) => key.project_id !== input.projectId);
+    state.projects = state.projects.filter((item) => item.id !== input.projectId);
+
+    appendAuditEvent(state, {
+      eventType: "project_deleted",
+      actor: input.actor ?? "system",
+      metadata: {
+        project_id: project.id,
+        organization_id: project.organization_id,
+        deleted_flows: flowIds.size,
+        deleted_datasets: datasetIds.size,
+        deleted_runs: runIds.size,
+      },
+    });
+
+    return project;
+  });
+}
+
+export async function listProjects(filters?: { organizationId?: string; isActive?: boolean }) {
   const state = await readState();
 
   return state.projects.filter((project) => {
@@ -552,7 +734,8 @@ export async function assignProjectMember(input: {
     const normalizedEmail = input.userEmail.trim().toLowerCase();
 
     const existing = state.project_memberships.find(
-      (membership) => membership.project_id === input.projectId && membership.user_email === normalizedEmail,
+      (membership) =>
+        membership.project_id === input.projectId && membership.user_email === normalizedEmail,
     );
 
     const membership = projectMembershipRecordSchema.parse({
@@ -565,7 +748,9 @@ export async function assignProjectMember(input: {
     });
 
     if (existing) {
-      const index = state.project_memberships.findIndex((membershipItem) => membershipItem.id === existing.id);
+      const index = state.project_memberships.findIndex(
+        (membershipItem) => membershipItem.id === existing.id,
+      );
       state.project_memberships[index] = membership;
     } else {
       state.project_memberships.unshift(membership);
@@ -759,7 +944,9 @@ export async function verifyMagicLinkToken(token: string) {
     const hashed = hashToken(token);
     const now = Date.now();
 
-    const record = state.magic_links.find((item) => item.token_hash === hashed && item.consumed_at === null);
+    const record = state.magic_links.find(
+      (item) => item.token_hash === hashed && item.consumed_at === null,
+    );
 
     if (!record) {
       return null;
@@ -828,10 +1015,7 @@ export async function getFlowV2(flowId: string) {
   return state.flows.find((flow) => flow.id === flowId) ?? null;
 }
 
-export async function deleteFlowV2(input: {
-  flowId: string;
-  actor?: string;
-}) {
+export async function deleteFlowV2(input: { flowId: string; actor?: string }) {
   return withWriteLock(async (state) => {
     const flow = state.flows.find((item) => item.id === input.flowId);
 
@@ -845,17 +1029,19 @@ export async function deleteFlowV2(input: {
         .map((version) => version.id),
     );
     const runIds = new Set(
-      state.runs
-        .filter((run) => run.flow_id === input.flowId)
-        .map((run) => run.id),
+      state.runs.filter((run) => run.flow_id === input.flowId).map((run) => run.id),
     );
 
     state.flows = state.flows.filter((item) => item.id !== input.flowId);
     state.flow_versions = state.flow_versions.filter((version) => version.flow_id !== input.flowId);
-    state.flow_deployments = state.flow_deployments.filter((deployment) => deployment.flow_id !== input.flowId);
+    state.flow_deployments = state.flow_deployments.filter(
+      (deployment) => deployment.flow_id !== input.flowId,
+    );
     state.runs = state.runs.filter((run) => run.flow_id !== input.flowId);
     state.run_traces = state.run_traces.filter((trace) => !runIds.has(trace.run_id));
-    state.review_decisions = state.review_decisions.filter((decision) => !runIds.has(decision.run_id));
+    state.review_decisions = state.review_decisions.filter(
+      (decision) => !runIds.has(decision.run_id),
+    );
 
     appendAuditEvent(state, {
       eventType: "flow_deleted_v2",
@@ -872,11 +1058,7 @@ export async function deleteFlowV2(input: {
   });
 }
 
-export async function createFlowVersion(input: {
-  flowId: string;
-  graph: unknown;
-  actor?: string;
-}) {
+export async function createFlowVersion(input: { flowId: string; graph: unknown; actor?: string }) {
   return withWriteLock(async (state) => {
     const flow = state.flows.find((item) => item.id === input.flowId);
 
@@ -986,7 +1168,9 @@ export async function getFlowDeploymentById(deploymentId: string) {
 
 export async function getFlowDeploymentByKey(deploymentKey: string) {
   const state = await readState();
-  return state.flow_deployments.find((deployment) => deployment.deployment_key === deploymentKey) ?? null;
+  return (
+    state.flow_deployments.find((deployment) => deployment.deployment_key === deploymentKey) ?? null
+  );
 }
 
 export async function createRunV2(input: {
@@ -1066,10 +1250,7 @@ export async function setRunV2Completed(input: {
   });
 }
 
-export async function setRunV2Failed(input: {
-  runId: string;
-  errorMessage: string;
-}) {
+export async function setRunV2Failed(input: { runId: string; errorMessage: string }) {
   return withWriteLock(async (state) => {
     const run = state.runs.find((item) => item.id === input.runId);
 
@@ -1258,10 +1439,15 @@ export async function createDatasetBatch(input: {
       project_id: dataset.project_id,
       dataset_id: dataset.id,
       name: input.name.trim(),
-      tags: (input.tags ?? []).map((tag) => tag.trim()).filter(Boolean).slice(0, 40),
+      tags: (input.tags ?? [])
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 40),
       source_type: datasetBatchSourceTypeSchema.parse(input.sourceType),
       status: "uploaded",
-      source_artifact_ids: (input.sourceArtifactIds ?? []).map((artifactId) => artifactId.trim()).filter(Boolean),
+      source_artifact_ids: (input.sourceArtifactIds ?? [])
+        .map((artifactId) => artifactId.trim())
+        .filter(Boolean),
       item_count: 0,
       labeled_count: 0,
       reviewed_count: 0,
@@ -1384,8 +1570,14 @@ export async function createDatasetAssets(input: {
         asset_type: datasetAssetTypeSchema.parse(assetInput.assetType),
         status: datasetAssetStatusSchema.parse(assetInput.status ?? "ready"),
         storage_path: assetInput.storagePath.trim(),
-        width: typeof assetInput.width === "number" && Number.isFinite(assetInput.width) ? Math.floor(assetInput.width) : null,
-        height: typeof assetInput.height === "number" && Number.isFinite(assetInput.height) ? Math.floor(assetInput.height) : null,
+        width:
+          typeof assetInput.width === "number" && Number.isFinite(assetInput.width)
+            ? Math.floor(assetInput.width)
+            : null,
+        height:
+          typeof assetInput.height === "number" && Number.isFinite(assetInput.height)
+            ? Math.floor(assetInput.height)
+            : null,
         frame_index:
           typeof assetInput.frameIndex === "number" && Number.isFinite(assetInput.frameIndex)
             ? Math.max(0, Math.floor(assetInput.frameIndex))
@@ -1425,10 +1617,7 @@ export async function createDatasetAssets(input: {
   });
 }
 
-export async function resetDatasetBatchAssets(input: {
-  batchId: string;
-  actor?: string;
-}) {
+export async function resetDatasetBatchAssets(input: { batchId: string; actor?: string }) {
   return withWriteLock(async (state) => {
     const batch = state.dataset_batches.find((item) => item.id === input.batchId);
 
@@ -1822,7 +2011,9 @@ export async function createAssetAnnotation(input: {
 
       batch.labeled_count = labeledAssetIds.size;
       if (
-        (batch.status === "uploaded" || batch.status === "preprocessing" || batch.status === "ready_for_label") &&
+        (batch.status === "uploaded" ||
+          batch.status === "preprocessing" ||
+          batch.status === "ready_for_label") &&
         batch.labeled_count > 0
       ) {
         batch.status = "in_labeling";
@@ -1831,7 +2022,10 @@ export async function createAssetAnnotation(input: {
     }
 
     appendAuditEvent(state, {
-      eventType: annotation.source === "ai_prelabel" ? "asset_auto_labeled_v2" : "asset_annotation_created_v2",
+      eventType:
+        annotation.source === "ai_prelabel"
+          ? "asset_auto_labeled_v2"
+          : "asset_annotation_created_v2",
       actor: input.actor ?? "system",
       metadata: {
         project_id: annotation.project_id,
@@ -1854,7 +2048,11 @@ export async function listAssetAnnotations(assetId: string) {
 
 export async function getLatestAssetAnnotation(assetId: string) {
   const state = await readState();
-  return state.asset_annotations.find((annotation) => annotation.asset_id === assetId && annotation.is_latest) ?? null;
+  return (
+    state.asset_annotations.find(
+      (annotation) => annotation.asset_id === assetId && annotation.is_latest,
+    ) ?? null
+  );
 }
 
 export async function listLatestAssetAnnotations(assetIds: string[]) {
@@ -1863,7 +2061,11 @@ export async function listLatestAssetAnnotations(assetIds: string[]) {
   const latest = new Map<string, AssetAnnotationRecord>();
 
   for (const annotation of state.asset_annotations) {
-    if (!annotation.is_latest || !wanted.has(annotation.asset_id) || latest.has(annotation.asset_id)) {
+    if (
+      !annotation.is_latest ||
+      !wanted.has(annotation.asset_id) ||
+      latest.has(annotation.asset_id)
+    ) {
       continue;
     }
     latest.set(annotation.asset_id, annotation);
@@ -2047,7 +2249,9 @@ export async function getReviewDecision(reviewDecisionId: string) {
 
 export async function listEvidenceRegions(reviewDecisionId: string) {
   const state = await readState();
-  return state.evidence_regions.filter((evidence) => evidence.review_decision_id === reviewDecisionId);
+  return state.evidence_regions.filter(
+    (evidence) => evidence.review_decision_id === reviewDecisionId,
+  );
 }
 
 export async function listReviewQueuesV2(input: {
@@ -2062,7 +2266,9 @@ export async function listReviewQueuesV2(input: {
     (decision) => decision.project_id === input.projectId && runIds.has(decision.run_id),
   );
   const decisionIds = new Set(decisions.map((decision) => decision.id));
-  const evidenceRegions = state.evidence_regions.filter((evidence) => decisionIds.has(evidence.review_decision_id));
+  const evidenceRegions = state.evidence_regions.filter((evidence) =>
+    decisionIds.has(evidence.review_decision_id),
+  );
 
   return summarizeReviewQueues({
     runs,
@@ -2171,7 +2377,11 @@ function normalizeConnectorBackpressureOverrides(input: {
         existing?.max_due_now ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxDueNow,
         10_000,
       ),
-      min_limit: clampPositiveInt(override.minLimit, existing?.min_limit ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit, 100),
+      min_limit: clampPositiveInt(
+        override.minLimit,
+        existing?.min_limit ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit,
+        100,
+      ),
     };
   }
 
@@ -2202,7 +2412,8 @@ export async function upsertReviewAlertPolicy(input: {
       throw new Error("Project not found");
     }
 
-    const existing = state.review_alert_policies.find((policy) => policy.project_id === input.projectId) ?? null;
+    const existing =
+      state.review_alert_policies.find((policy) => policy.project_id === input.projectId) ?? null;
     const now = new Date().toISOString();
 
     const policy = reviewAlertPolicyRecordSchema.parse({
@@ -2218,7 +2429,11 @@ export async function upsertReviewAlertPolicy(input: {
         REVIEW_ALERT_POLICY_DEFAULTS.staleHours,
         24 * 30,
       ),
-      queue_limit: clampPositiveInt(input.queueLimit ?? existing?.queue_limit, REVIEW_ALERT_POLICY_DEFAULTS.queueLimit, 200),
+      queue_limit: clampPositiveInt(
+        input.queueLimit ?? existing?.queue_limit,
+        REVIEW_ALERT_POLICY_DEFAULTS.queueLimit,
+        200,
+      ),
       min_unreviewed_queues: clampNonNegativeInt(
         input.minUnreviewedQueues ?? existing?.min_unreviewed_queues,
         REVIEW_ALERT_POLICY_DEFAULTS.minUnreviewedQueues,
@@ -2247,7 +2462,9 @@ export async function upsertReviewAlertPolicy(input: {
       updated_at: now,
     });
 
-    const existingIndex = state.review_alert_policies.findIndex((item) => item.project_id === input.projectId);
+    const existingIndex = state.review_alert_policies.findIndex(
+      (item) => item.project_id === input.projectId,
+    );
     if (existingIndex >= 0) {
       state.review_alert_policies[existingIndex] = policy;
     } else {
@@ -2271,17 +2488,24 @@ export async function upsertReviewAlertPolicy(input: {
 
 export async function getConnectorGuardianPolicy(projectId: string) {
   const state = await readState();
-  return state.connector_guardian_policies.find((policy) => policy.project_id === projectId) ?? null;
+  return (
+    state.connector_guardian_policies.find((policy) => policy.project_id === projectId) ?? null
+  );
 }
 
 export async function getConnectorBackpressurePolicy(projectId: string) {
   const state = await readState();
-  return state.connector_backpressure_policies.find((policy) => policy.project_id === projectId) ?? null;
+  return (
+    state.connector_backpressure_policies.find((policy) => policy.project_id === projectId) ?? null
+  );
 }
 
 export async function getConnectorBackpressurePolicyDraft(projectId: string) {
   const state = await readState();
-  return state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === projectId) ?? null;
+  return (
+    state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === projectId) ??
+    null
+  );
 }
 
 export async function listConnectorBackpressurePolicyDrafts(filters?: { projectIds?: string[] }) {
@@ -2316,13 +2540,16 @@ export async function upsertConnectorGuardianPolicy(input: {
       throw new Error("Project not found");
     }
 
-    const existing = state.connector_guardian_policies.find((policy) => policy.project_id === input.projectId) ?? null;
+    const existing =
+      state.connector_guardian_policies.find((policy) => policy.project_id === input.projectId) ??
+      null;
     const now = new Date().toISOString();
 
     const policy = connectorGuardianPolicyRecordSchema.parse({
       id: existing?.id ?? randomUUID(),
       project_id: input.projectId,
-      is_enabled: input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.isEnabled,
+      is_enabled:
+        input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.isEnabled,
       dry_run: input.dryRun ?? existing?.dry_run ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.dryRun,
       lookback_hours: clampPositiveInt(
         input.lookbackHours ?? existing?.lookback_hours,
@@ -2355,7 +2582,9 @@ export async function upsertConnectorGuardianPolicy(input: {
         7 * 24 * 60,
       ),
       allow_process_queue:
-        input.allowProcessQueue ?? existing?.allow_process_queue ?? CONNECTOR_GUARDIAN_POLICY_DEFAULTS.allowProcessQueue,
+        input.allowProcessQueue ??
+        existing?.allow_process_queue ??
+        CONNECTOR_GUARDIAN_POLICY_DEFAULTS.allowProcessQueue,
       allow_redrive_dead_letters:
         input.allowRedriveDeadLetters ??
         existing?.allow_redrive_dead_letters ??
@@ -2364,7 +2593,9 @@ export async function upsertConnectorGuardianPolicy(input: {
       updated_at: now,
     });
 
-    const existingIndex = state.connector_guardian_policies.findIndex((item) => item.project_id === input.projectId);
+    const existingIndex = state.connector_guardian_policies.findIndex(
+      (item) => item.project_id === input.projectId,
+    );
     if (existingIndex >= 0) {
       state.connector_guardian_policies[existingIndex] = policy;
     } else {
@@ -2411,13 +2642,17 @@ export async function upsertConnectorBackpressurePolicy(input: {
       throw new Error("Project not found");
     }
 
-    const existing = state.connector_backpressure_policies.find((policy) => policy.project_id === input.projectId) ?? null;
+    const existing =
+      state.connector_backpressure_policies.find(
+        (policy) => policy.project_id === input.projectId,
+      ) ?? null;
     const now = new Date().toISOString();
 
     const policy = connectorBackpressurePolicyRecordSchema.parse({
       id: existing?.id ?? randomUUID(),
       project_id: input.projectId,
-      is_enabled: input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.isEnabled,
+      is_enabled:
+        input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.isEnabled,
       max_retrying: clampPositiveInt(
         input.maxRetrying ?? existing?.max_retrying,
         CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxRetrying,
@@ -2428,10 +2663,14 @@ export async function upsertConnectorBackpressurePolicy(input: {
         CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxDueNow,
         10_000,
       ),
-      min_limit: clampPositiveInt(input.minLimit ?? existing?.min_limit, CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit, 100),
+      min_limit: clampPositiveInt(
+        input.minLimit ?? existing?.min_limit,
+        CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit,
+        100,
+      ),
       connector_overrides:
         input.connectorOverrides === undefined
-          ? existing?.connector_overrides ?? {}
+          ? (existing?.connector_overrides ?? {})
           : normalizeConnectorBackpressureOverrides({
               overrides: input.connectorOverrides,
               existingOverrides: existing?.connector_overrides,
@@ -2440,7 +2679,9 @@ export async function upsertConnectorBackpressurePolicy(input: {
       updated_at: now,
     });
 
-    const existingIndex = state.connector_backpressure_policies.findIndex((item) => item.project_id === input.projectId);
+    const existingIndex = state.connector_backpressure_policies.findIndex(
+      (item) => item.project_id === input.projectId,
+    );
     if (existingIndex >= 0) {
       state.connector_backpressure_policies[existingIndex] = policy;
     } else {
@@ -2492,14 +2733,17 @@ export async function upsertConnectorBackpressurePolicyDraft(input: {
     }
 
     const existing =
-      state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === input.projectId) ?? null;
+      state.connector_backpressure_policy_drafts.find(
+        (policy) => policy.project_id === input.projectId,
+      ) ?? null;
     const now = new Date().toISOString();
     const activateAtMs = input.activateAt ? Date.parse(input.activateAt) : Number.NaN;
 
     const policy = connectorBackpressurePolicyDraftRecordSchema.parse({
       id: existing?.id ?? randomUUID(),
       project_id: input.projectId,
-      is_enabled: input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.isEnabled,
+      is_enabled:
+        input.isEnabled ?? existing?.is_enabled ?? CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.isEnabled,
       max_retrying: clampPositiveInt(
         input.maxRetrying ?? existing?.max_retrying,
         CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxRetrying,
@@ -2510,19 +2754,27 @@ export async function upsertConnectorBackpressurePolicyDraft(input: {
         CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.maxDueNow,
         10_000,
       ),
-      min_limit: clampPositiveInt(input.minLimit ?? existing?.min_limit, CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit, 100),
+      min_limit: clampPositiveInt(
+        input.minLimit ?? existing?.min_limit,
+        CONNECTOR_BACKPRESSURE_POLICY_DEFAULTS.minLimit,
+        100,
+      ),
       connector_overrides:
         input.connectorOverrides === undefined
-          ? existing?.connector_overrides ?? {}
+          ? (existing?.connector_overrides ?? {})
           : normalizeConnectorBackpressureOverrides({
               overrides: input.connectorOverrides,
               existingOverrides: existing?.connector_overrides,
             }),
-      required_approvals: clampPositiveInt(input.requiredApprovals ?? existing?.required_approvals, 1, 10),
+      required_approvals: clampPositiveInt(
+        input.requiredApprovals ?? existing?.required_approvals,
+        1,
+        10,
+      ),
       approvals: existing?.approvals ?? [],
       activate_at:
         input.activateAt === undefined
-          ? existing?.activate_at ?? null
+          ? (existing?.activate_at ?? null)
           : Number.isFinite(activateAtMs)
             ? new Date(activateAtMs).toISOString()
             : null,
@@ -2531,7 +2783,9 @@ export async function upsertConnectorBackpressurePolicyDraft(input: {
       updated_at: now,
     });
 
-    const existingIndex = state.connector_backpressure_policy_drafts.findIndex((item) => item.project_id === input.projectId);
+    const existingIndex = state.connector_backpressure_policy_drafts.findIndex(
+      (item) => item.project_id === input.projectId,
+    );
     if (existingIndex >= 0) {
       state.connector_backpressure_policy_drafts[existingIndex] = policy;
     } else {
@@ -2548,7 +2802,9 @@ export async function approveConnectorBackpressurePolicyDraft(input: {
 }) {
   return withWriteLock(async (state) => {
     const existing =
-      state.connector_backpressure_policy_drafts.find((policy) => policy.project_id === input.projectId) ?? null;
+      state.connector_backpressure_policy_drafts.find(
+        (policy) => policy.project_id === input.projectId,
+      ) ?? null;
     if (!existing) {
       throw new Error("Backpressure policy draft not found");
     }
@@ -2570,7 +2826,9 @@ export async function approveConnectorBackpressurePolicyDraft(input: {
       updated_at: now,
     });
 
-    const index = state.connector_backpressure_policy_drafts.findIndex((item) => item.project_id === input.projectId);
+    const index = state.connector_backpressure_policy_drafts.findIndex(
+      (item) => item.project_id === input.projectId,
+    );
     state.connector_backpressure_policy_drafts[index] = updated;
     return updated;
   });
@@ -2578,7 +2836,9 @@ export async function approveConnectorBackpressurePolicyDraft(input: {
 
 export async function deleteConnectorBackpressurePolicyDraft(input: { projectId: string }) {
   return withWriteLock(async (state) => {
-    const existingIndex = state.connector_backpressure_policy_drafts.findIndex((item) => item.project_id === input.projectId);
+    const existingIndex = state.connector_backpressure_policy_drafts.findIndex(
+      (item) => item.project_id === input.projectId,
+    );
     if (existingIndex < 0) {
       return false;
     }
@@ -2600,13 +2860,15 @@ export async function applyConnectorBackpressurePolicyDraft(input: {
 
   const readiness = computeConnectorBackpressureDraftReadiness({
     draft,
-    actor: input.creditActorApproval === false ? null : input.actor ?? null,
+    actor: input.creditActorApproval === false ? null : (input.actor ?? null),
   });
   if (!readiness.activation_ready) {
     throw new Error("Backpressure policy draft activation time not reached");
   }
   if (readiness.approvals_remaining > 0) {
-    throw new Error(`Backpressure policy draft requires ${readiness.approvals_remaining} more approval(s)`);
+    throw new Error(
+      `Backpressure policy draft requires ${readiness.approvals_remaining} more approval(s)`,
+    );
   }
 
   const policy = await upsertConnectorBackpressurePolicy({
@@ -2672,10 +2934,7 @@ export async function listEvalPacks(projectId: string) {
   return state.eval_packs.filter((pack) => pack.project_id === projectId);
 }
 
-export async function listActiveLearningCandidatesV2(input: {
-  projectId: string;
-  limit?: number;
-}) {
+export async function listActiveLearningCandidatesV2(input: { projectId: string; limit?: number }) {
   const state = await readState();
   const decisionsByRun = new Map<string, ReviewDecisionRecord[]>();
   const tracesByRun = new Map<string, RunTraceRecord[]>();
@@ -2698,14 +2957,20 @@ export async function listActiveLearningCandidatesV2(input: {
       const decisions = decisionsByRun.get(run.id) ?? [];
       const traces = tracesByRun.get(run.id) ?? [];
 
-      const incorrectCount = decisions.filter((item) => item.decision === "incorrect" || item.decision === "missing").length;
+      const incorrectCount = decisions.filter(
+        (item) => item.decision === "incorrect" || item.decision === "missing",
+      ).length;
       const uncertainCount = decisions.filter((item) => item.decision === "uncertain").length;
       const averageLatency = traces.length
         ? traces.reduce((sum, trace) => sum + trace.latency_ms, 0) / traces.length
         : 0;
       const cost = traces.reduce((sum, trace) => sum + trace.cost_usd, 0);
 
-      const score = incorrectCount * 4 + uncertainCount * 2 + Math.min(averageLatency / 1000, 3) + Math.min(cost * 10, 3);
+      const score =
+        incorrectCount * 4 +
+        uncertainCount * 2 +
+        Math.min(averageLatency / 1000, 3) +
+        Math.min(cost * 10, 3);
 
       return {
         run,
@@ -2777,7 +3042,12 @@ async function executeConnectorAttempt(input: {
   initialBackoffMs: number;
   actor?: string;
 }) {
-  if (!isConnectorDeliveryDue({ status: input.delivery.status as ConnectorDeliveryStatus, nextAttemptAt: input.delivery.next_attempt_at })) {
+  if (
+    !isConnectorDeliveryDue({
+      status: input.delivery.status as ConnectorDeliveryStatus,
+      nextAttemptAt: input.delivery.next_attempt_at,
+    })
+  ) {
     return null;
   }
 
@@ -2800,7 +3070,7 @@ async function executeConnectorAttempt(input: {
 
   const failed = !runtimeResult.success;
   const statusCode = runtimeResult.statusCode ?? (failed ? 503 : 200);
-  const errorMessage = failed ? runtimeResult.errorMessage ?? "Connector delivery failed" : null;
+  const errorMessage = failed ? (runtimeResult.errorMessage ?? "Connector delivery failed") : null;
 
   const attempt = connectorDeliveryAttemptRecordSchema.parse({
     id: randomUUID(),
@@ -2890,17 +3160,18 @@ export async function enqueueConnectorDelivery(input: {
   actor?: string;
 }) {
   return withWriteLock(async (state) => {
-    const { delivery, normalizedType, normalizedIdempotencyKey } = createConnectorDeliveryRecord(input);
+    const { delivery, normalizedType, normalizedIdempotencyKey } =
+      createConnectorDeliveryRecord(input);
 
     const existing =
       normalizedIdempotencyKey === null
         ? null
-        : state.connector_deliveries.find(
+        : (state.connector_deliveries.find(
             (item) =>
               item.project_id === input.projectId &&
               item.connector_type === normalizedType &&
               item.idempotency_key === normalizedIdempotencyKey,
-          ) ?? null;
+          ) ?? null);
 
     if (existing) {
       return {
@@ -2968,7 +3239,11 @@ export async function processConnectorDelivery(input: {
   }
 
   let iterations = 0;
-  while (first.status === "retrying" && first.attempt_count < first.max_attempts && iterations < first.max_attempts) {
+  while (
+    first.status === "retrying" &&
+    first.attempt_count < first.max_attempts &&
+    iterations < first.max_attempts
+  ) {
     iterations += 1;
     const processed = await processConnectorDeliveryQueue({
       projectId: input.projectId,
@@ -3043,7 +3318,10 @@ export async function processConnectorDeliveryQueue(input: {
         continue;
       }
 
-      const initialBackoffMs = Math.max(100, Math.min(connectorInput.initialBackoffMs ?? 500, 60_000));
+      const initialBackoffMs = Math.max(
+        100,
+        Math.min(connectorInput.initialBackoffMs ?? 500, 60_000),
+      );
       await executeConnectorAttempt({
         state,
         delivery,
@@ -3075,9 +3353,14 @@ export async function redriveConnectorDelivery(input: {
 }) {
   return withWriteLock(async (state) => {
     const normalizedType = input.connectorType.trim().toLowerCase();
-    const delivery = state.connector_deliveries.find((item) => item.id === input.deliveryId) ?? null;
+    const delivery =
+      state.connector_deliveries.find((item) => item.id === input.deliveryId) ?? null;
 
-    if (!delivery || delivery.project_id !== input.projectId || delivery.connector_type !== normalizedType) {
+    if (
+      !delivery ||
+      delivery.project_id !== input.projectId ||
+      delivery.connector_type !== normalizedType
+    ) {
       return null;
     }
 
@@ -3229,7 +3512,10 @@ export async function summarizeConnectorDeliveries(input: {
     }
 
     if (delivery.status === "retrying" && delivery.next_attempt_at) {
-      if (!earliestNextAttemptAt || Date.parse(delivery.next_attempt_at) < Date.parse(earliestNextAttemptAt)) {
+      if (
+        !earliestNextAttemptAt ||
+        Date.parse(delivery.next_attempt_at) < Date.parse(earliestNextAttemptAt)
+      ) {
         earliestNextAttemptAt = delivery.next_attempt_at;
       }
     }
@@ -3535,10 +3821,7 @@ export async function listEdgeAgentCommands(input: {
     .slice(0, limit);
 }
 
-export async function claimEdgeAgentCommands(input: {
-  agentId: string;
-  limit?: number;
-}) {
+export async function claimEdgeAgentCommands(input: { agentId: string; limit?: number }) {
   return withWriteLock(async (state) => {
     const agent = state.edge_agents.find((item) => item.id === input.agentId);
 
@@ -3590,7 +3873,9 @@ export async function acknowledgeEdgeAgentCommand(input: {
   actor?: string;
 }) {
   return withWriteLock(async (state) => {
-    const command = state.edge_agent_commands.find((item) => item.id === input.commandId && item.agent_id === input.agentId);
+    const command = state.edge_agent_commands.find(
+      (item) => item.id === input.commandId && item.agent_id === input.agentId,
+    );
 
     if (!command) {
       return null;

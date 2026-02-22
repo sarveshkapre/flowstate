@@ -76,7 +76,7 @@ import {
   type AuditEventType,
 } from "@flowstate/types";
 
-import { getOrganization } from "@/lib/data-store";
+import { getArtifact, getOrganization } from "@/lib/data-store";
 import {
   connectorRedriveResetFields,
   computeRetryBackoffMs,
@@ -158,6 +158,7 @@ const DATA_DIR = process.env.FLOWSTATE_DATA_DIR
 const DB_FILE = path.join(DATA_DIR, "db.v2.json");
 const DATASETS_DIR = path.join(DATA_DIR, "datasets-v2");
 const CONNECTOR_INPUTS_DIR = path.join(DATA_DIR, "connector-inputs-v2");
+const DEFAULT_VIDEO_SAMPLE_FRAMES = Number(process.env.FLOWSTATE_VIDEO_SAMPLE_FRAMES || 10);
 const EDGE_HEARTBEAT_STALE_MS = Number(process.env.FLOWSTATE_EDGE_HEARTBEAT_STALE_MS || 60_000);
 const EDGE_COMMAND_LEASE_MS = Number(process.env.FLOWSTATE_EDGE_COMMAND_LEASE_MS || 30_000);
 const DB_READ_CACHE_MS = Number(process.env.FLOWSTATE_DB_READ_CACHE_MS || 250);
@@ -1155,9 +1156,32 @@ export async function createDatasetBatch(input: {
   });
 }
 
-export async function listDatasetBatches(datasetId: string) {
+export async function listDatasetBatches(input: {
+  datasetId: string;
+  status?: DatasetBatchStatus;
+  limit?: number;
+}) {
   const state = await readState();
-  return state.dataset_batches.filter((batch) => batch.dataset_id === datasetId);
+  const statusFilter = input.status ? datasetBatchStatusSchema.parse(input.status) : null;
+  const safeLimit =
+    typeof input.limit === "number" && Number.isFinite(input.limit) && input.limit > 0
+      ? Math.floor(input.limit)
+      : 200;
+  const maxLimit = Math.min(safeLimit, 1000);
+
+  const batches = state.dataset_batches.filter((batch) => {
+    if (batch.dataset_id !== input.datasetId) {
+      return false;
+    }
+
+    if (statusFilter && batch.status !== statusFilter) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return batches.slice(0, maxLimit);
 }
 
 export async function getDatasetBatch(batchId: string) {
@@ -1266,6 +1290,227 @@ export async function createDatasetAssets(input: {
     });
 
     return createdAssets;
+  });
+}
+
+export async function resetDatasetBatchAssets(input: {
+  batchId: string;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const batch = state.dataset_batches.find((item) => item.id === input.batchId);
+
+    if (!batch) {
+      return null;
+    }
+
+    state.dataset_assets = state.dataset_assets.filter((asset) => asset.batch_id !== input.batchId);
+    batch.item_count = 0;
+    batch.labeled_count = 0;
+    batch.reviewed_count = 0;
+    batch.approved_count = 0;
+    batch.rejected_count = 0;
+    batch.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "dataset_batch_status_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        dataset_id: batch.dataset_id,
+        dataset_batch_id: batch.id,
+        reset_assets: true,
+      },
+    });
+
+    return batch;
+  });
+}
+
+export async function ingestDatasetBatch(input: {
+  batchId: string;
+  force?: boolean;
+  maxVideoFrames?: number;
+  actor?: string;
+}) {
+  const normalizedMaxFrames = Math.min(
+    120,
+    Math.max(
+      1,
+      typeof input.maxVideoFrames === "number" && Number.isFinite(input.maxVideoFrames)
+        ? Math.floor(input.maxVideoFrames)
+        : Math.floor(DEFAULT_VIDEO_SAMPLE_FRAMES),
+    ),
+  );
+
+  return withWriteLock(async (state) => {
+    const batch = state.dataset_batches.find((item) => item.id === input.batchId);
+
+    if (!batch) {
+      throw new Error("Dataset batch not found");
+    }
+
+    const existingAssets = state.dataset_assets.filter((asset) => asset.batch_id === batch.id);
+    if (existingAssets.length > 0 && input.force !== true) {
+      return {
+        batch,
+        created_assets_count: 0,
+        missing_artifact_ids: [] as string[],
+        unsupported_artifact_ids: [] as string[],
+        already_ingested: true,
+      };
+    }
+
+    if (input.force === true && existingAssets.length > 0) {
+      state.dataset_assets = state.dataset_assets.filter((asset) => asset.batch_id !== batch.id);
+      batch.item_count = 0;
+      batch.labeled_count = 0;
+      batch.reviewed_count = 0;
+      batch.approved_count = 0;
+      batch.rejected_count = 0;
+    }
+
+    const processingTimestamp = new Date().toISOString();
+    batch.status = "preprocessing";
+    batch.updated_at = processingTimestamp;
+    appendAuditEvent(state, {
+      eventType: "dataset_batch_status_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        dataset_id: batch.dataset_id,
+        dataset_batch_id: batch.id,
+        status: batch.status,
+      },
+    });
+
+    const missingArtifactIds: string[] = [];
+    const unsupportedArtifactIds: string[] = [];
+    const materializedAssets: DatasetAssetRecord[] = [];
+
+    for (const artifactId of batch.source_artifact_ids) {
+      const artifact = await getArtifact(artifactId);
+      if (!artifact) {
+        missingArtifactIds.push(artifactId);
+        continue;
+      }
+
+      const directPath = `/api/v1/uploads/${artifact.id}/file`;
+      if (artifact.mime_type.startsWith("image/")) {
+        materializedAssets.push(
+          datasetAssetRecordSchema.parse({
+            id: randomUUID(),
+            project_id: batch.project_id,
+            dataset_id: batch.dataset_id,
+            batch_id: batch.id,
+            artifact_id: artifact.id,
+            asset_type: "image",
+            status: "ready",
+            storage_path: directPath,
+            width: null,
+            height: null,
+            frame_index: null,
+            timestamp_ms: null,
+            page_number: null,
+            sha256: null,
+            created_at: processingTimestamp,
+            updated_at: processingTimestamp,
+          }),
+        );
+        continue;
+      }
+
+      if (artifact.mime_type === "application/pdf") {
+        materializedAssets.push(
+          datasetAssetRecordSchema.parse({
+            id: randomUUID(),
+            project_id: batch.project_id,
+            dataset_id: batch.dataset_id,
+            batch_id: batch.id,
+            artifact_id: artifact.id,
+            asset_type: "pdf_page",
+            status: "ready",
+            storage_path: `${directPath}#page=1`,
+            width: null,
+            height: null,
+            frame_index: null,
+            timestamp_ms: null,
+            page_number: 1,
+            sha256: null,
+            created_at: processingTimestamp,
+            updated_at: processingTimestamp,
+          }),
+        );
+        continue;
+      }
+
+      if (artifact.mime_type.startsWith("video/")) {
+        for (let index = 1; index <= normalizedMaxFrames; index += 1) {
+          materializedAssets.push(
+            datasetAssetRecordSchema.parse({
+              id: randomUUID(),
+              project_id: batch.project_id,
+              dataset_id: batch.dataset_id,
+              batch_id: batch.id,
+              artifact_id: artifact.id,
+              asset_type: "video_frame",
+              status: "ready",
+              storage_path: `${directPath}#frame=${index}`,
+              width: null,
+              height: null,
+              frame_index: index,
+              timestamp_ms: (index - 1) * 1000,
+              page_number: null,
+              sha256: null,
+              created_at: processingTimestamp,
+              updated_at: processingTimestamp,
+            }),
+          );
+        }
+        continue;
+      }
+
+      unsupportedArtifactIds.push(artifactId);
+    }
+
+    for (const asset of materializedAssets) {
+      state.dataset_assets.unshift(asset);
+    }
+
+    batch.item_count = materializedAssets.length;
+    batch.labeled_count = 0;
+    batch.reviewed_count = 0;
+    batch.approved_count = 0;
+    batch.rejected_count = 0;
+    batch.status = materializedAssets.length > 0 ? "ready_for_label" : "rework";
+    batch.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "dataset_asset_created_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        dataset_id: batch.dataset_id,
+        dataset_batch_id: batch.id,
+        asset_count: materializedAssets.length,
+        missing_artifact_count: missingArtifactIds.length,
+        unsupported_artifact_count: unsupportedArtifactIds.length,
+      },
+    });
+    appendAuditEvent(state, {
+      eventType: "dataset_batch_status_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        dataset_id: batch.dataset_id,
+        dataset_batch_id: batch.id,
+        status: batch.status,
+      },
+    });
+
+    return {
+      batch,
+      created_assets_count: materializedAssets.length,
+      missing_artifact_ids: missingArtifactIds,
+      unsupported_artifact_ids: unsupportedArtifactIds,
+      already_ingested: false,
+    };
   });
 }
 

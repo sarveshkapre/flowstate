@@ -32,7 +32,35 @@ export async function GET(request: Request, { params }: Params) {
     return auth.response;
   }
 
-  const batches = await listDatasetBatches(datasetId);
+  const url = new URL(request.url);
+  const statusParam = url.searchParams.get("status");
+  const limitParam = url.searchParams.get("limit");
+  const statusSchema = z.enum([
+    "uploaded",
+    "preprocessing",
+    "ready_for_label",
+    "in_labeling",
+    "in_review",
+    "approved",
+    "rework",
+    "exported",
+  ]);
+  const parsedStatus = statusParam ? statusSchema.safeParse(statusParam) : null;
+  const parsedLimit = limitParam ? Number(limitParam) : undefined;
+
+  if (parsedStatus && !parsedStatus.success) {
+    return NextResponse.json({ error: "Invalid status query parameter", details: parsedStatus.error.flatten() }, { status: 400 });
+  }
+
+  if (limitParam && (!Number.isFinite(parsedLimit) || Number(parsedLimit) <= 0)) {
+    return NextResponse.json({ error: "Invalid limit query parameter" }, { status: 400 });
+  }
+
+  const batches = await listDatasetBatches({
+    datasetId,
+    status: parsedStatus?.success ? parsedStatus.data : undefined,
+    limit: parsedLimit,
+  });
   return NextResponse.json({ batches });
 }
 

@@ -26,6 +26,7 @@
     "watch:connector-guardian": "npm run watch:connector-guardian --workspace @flowstate/worker",
     "watch:connector-redrive": "npm run watch:connector-redrive --workspace @flowstate/worker",
     "watch:review-alerts": "npm run watch:review-alerts --workspace @flowstate/worker",
+    "watch:dataset-ingest": "npm run watch:dataset-ingest --workspace @flowstate/worker",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

@@ -6,7 +6,7 @@ import { requireV1Permission } from "@/lib/v1/auth";
 const MAX_UPLOAD_BYTES = Number(process.env.FLOWSTATE_MAX_UPLOAD_BYTES || 20 * 1024 * 1024);
 
 function isSupportedMimeType(mimeType: string) {
-  return mimeType.startsWith("image/") || mimeType === "application/pdf";
+  return mimeType.startsWith("image/") || mimeType.startsWith("video/") || mimeType === "application/pdf";
 }
 
 export async function GET(request: Request) {
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
   if (!isSupportedMimeType(file.type)) {
     return NextResponse.json(
-      { error: "Unsupported file type. Use image/* or application/pdf." },
+      { error: "Unsupported file type. Use image/*, video/*, or application/pdf." },
       { status: 400 },
     );
   }

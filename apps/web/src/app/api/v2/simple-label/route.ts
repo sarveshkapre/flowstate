@@ -91,7 +91,7 @@ export async function POST(request: Request) {
                       required: ["x", "y", "width", "height"],
                     },
                   },
-                  required: ["label", "bbox"],
+                  required: ["label", "bbox", "confidence"],
                 },
               },
             },

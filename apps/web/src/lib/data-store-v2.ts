@@ -1517,6 +1517,93 @@ export async function getDataset(datasetId: string) {
   return state.datasets.find((dataset) => dataset.id === datasetId) ?? null;
 }
 
+async function removeLocalDatasetAssets(projectId: string, assetIds: Set<string>) {
+  if (assetIds.size === 0) {
+    return;
+  }
+
+  const annotationRemovals = [...assetIds].map((assetId) =>
+    fs.rm(localAnnotationPath(projectId, assetId), { force: true }),
+  );
+  await Promise.all(annotationRemovals);
+
+  try {
+    const imageDir = localProjectImagesDir(projectId);
+    const files = await fs.readdir(imageDir);
+    for (const fileName of files) {
+      const parsed = path.parse(fileName);
+      if (!assetIds.has(parsed.name)) {
+        continue;
+      }
+      await fs.rm(path.join(imageDir, fileName), { force: true });
+    }
+  } catch {
+    // Ignore local workspace cleanup failures so dataset deletion still succeeds.
+  }
+}
+
+export async function deleteDataset(input: { datasetId: string; actor?: string }) {
+  return withWriteLock(async (state) => {
+    const dataset = state.datasets.find((item) => item.id === input.datasetId);
+    if (!dataset) {
+      return null;
+    }
+
+    const datasetBatchIds = new Set(
+      state.dataset_batches
+        .filter((batch) => batch.dataset_id === input.datasetId)
+        .map((batch) => batch.id),
+    );
+    const datasetAssetIds = new Set(
+      state.dataset_assets
+        .filter((asset) => asset.dataset_id === input.datasetId || datasetBatchIds.has(asset.batch_id))
+        .map((asset) => asset.id),
+    );
+    const datasetVersionFileNames = new Set(
+      state.dataset_versions
+        .filter((version) => version.dataset_id === input.datasetId)
+        .map((version) => version.file_name),
+    );
+
+    for (const fileName of datasetVersionFileNames) {
+      await fs.rm(path.join(DATASETS_DIR, fileName), { force: true });
+    }
+
+    for (const batchId of datasetBatchIds) {
+      await fs.rm(videoFramesBatchDir(batchId), { recursive: true, force: true });
+    }
+
+    await removeLocalDatasetAssets(dataset.project_id, datasetAssetIds);
+
+    state.datasets = state.datasets.filter((item) => item.id !== input.datasetId);
+    state.dataset_versions = state.dataset_versions.filter(
+      (version) => version.dataset_id !== input.datasetId,
+    );
+    state.dataset_batches = state.dataset_batches.filter((batch) => !datasetBatchIds.has(batch.id));
+    state.dataset_assets = state.dataset_assets.filter((asset) => !datasetAssetIds.has(asset.id));
+    state.asset_annotations = state.asset_annotations.filter(
+      (annotation) =>
+        annotation.dataset_id !== input.datasetId &&
+        !datasetBatchIds.has(annotation.batch_id) &&
+        !datasetAssetIds.has(annotation.asset_id),
+    );
+
+    appendAuditEvent(state, {
+      eventType: "dataset_batch_status_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        dataset_id: input.datasetId,
+        dataset_deleted: true,
+        deleted_versions: datasetVersionFileNames.size,
+        deleted_batches: datasetBatchIds.size,
+        deleted_assets: datasetAssetIds.size,
+      },
+    });
+
+    return dataset;
+  });
+}
+
 export async function createDatasetVersion(input: {
   datasetId: string;
   itemCount: number;

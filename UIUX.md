@@ -144,3 +144,21 @@ A UI task is complete only if:
 4. Keep style tokens centralized in Tailwind v4 CSS variables and avoid page-scoped one-off color systems.
 5. Do not introduce new raw HTML controls (`button`, `input`, `select`, `textarea`) unless wrapped with the shared primitives.
 6. If introducing a new pattern, document it in this file in the same PR.
+
+## 13. Local Studio Layout Contract
+
+For local-only auto-annotation workflows, default information architecture is:
+1. Left sidebar: project switch + `Import`, `Dataset`, `Annotate`, `Review Queue`, `Exports`, `Settings`.
+2. Top workspace bar: project context + primary actions (`Import`, `Auto-annotate`, `Export`).
+3. Main center panel: current task surface.
+4. Dataset filters stay on a single row when possible: search, status, class filter, confidence threshold, clear.
+5. Review Queue is list-first and risk-ranked, not card-first.
+6. Exports are immutable snapshot cards with clear counts and download actions.
+
+## 14. Calm Visual Rules (LoveFrom-ish)
+
+1. Keep one accent color and neutral surfaces.
+2. Prefer soft borders and whitespace over heavy separators.
+3. Preserve one clear primary action per context region.
+4. Avoid dense, all-at-once control clusters.
+5. Use concise helper text and reduce persistent copy volume.

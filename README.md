@@ -1,6 +1,21 @@
 # Flowstate
 
-Flowstate is an OpenAI-native VisionOps platform focused on extraction, validation, and human review workflows.
+Flowstate is an OpenAI-native VisionOps platform focused on local-first auto-annotation workflows.
+
+## Local Studio MVP
+
+The current product surface is a local-only Auto-Annotation Studio:
+- project-first workflow (`/projects`)
+- import images/videos into a local project
+- OpenAI auto-label and review queue
+- manual review state promotion (`auto-labeled` -> `reviewed`)
+- immutable local COCO export snapshots per project
+
+Project workspace files are mirrored under:
+- `.flowstate-data/local-projects/<projectId>/project.json`
+- `.flowstate-data/local-projects/<projectId>/images/`
+- `.flowstate-data/local-projects/<projectId>/annotations/`
+- `.flowstate-data/local-projects/<projectId>/exports/`
 
 ## Current Product Slice
 
@@ -105,8 +120,12 @@ Runtime artifacts:
 
 Web app:
 - http://localhost:3000
-- Upload UI: http://localhost:3000/upload
-- Review UI: http://localhost:3000/review
+- Projects UI: http://localhost:3000/projects
+- Project Import: http://localhost:3000/projects/:projectId/upload
+- Project Dataset: http://localhost:3000/projects/:projectId/dataset
+- Project Annotate: http://localhost:3000/projects/:projectId/annotate
+- Project Review Queue: http://localhost:3000/projects/:projectId/review
+- Project Exports: http://localhost:3000/projects/:projectId/exports
 - Workflow UI: http://localhost:3000/workflows
 - Flow Builder v2 UI: http://localhost:3000/flow-builder
 - Edge Adapter UI: http://localhost:3000/edge

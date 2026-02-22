@@ -8,14 +8,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b border-border/80 bg-background/90 px-4 py-3 backdrop-blur md:px-6">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between">
+        <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between">
           <Link href="/projects" className="text-base font-semibold tracking-tight">
             Flowstate
           </Link>
           <ThemeToggle />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6">{children}</main>
+      <main className="w-full px-4 py-6 md:px-6">{children}</main>
     </div>
   );
 }

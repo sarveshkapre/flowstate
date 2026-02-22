@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PencilLine, Upload } from "lucide-react";
+import { Boxes, FileOutput, FolderUp, ListChecks, PencilLine, Settings } from "lucide-react";
 
 import { cn } from "@shadcn-lib/utils";
 
 const ITEMS = [
-  { key: "upload", label: "Upload", icon: Upload },
+  { key: "upload", label: "Import", icon: FolderUp },
+  { key: "dataset", label: "Dataset", icon: Boxes },
   { key: "annotate", label: "Annotate", icon: PencilLine },
+  { key: "review", label: "Review Queue", icon: ListChecks },
+  { key: "exports", label: "Exports", icon: FileOutput },
+  { key: "settings", label: "Settings", icon: Settings },
 ];
 
 export function ProjectSidebar({
@@ -21,7 +25,7 @@ export function ProjectSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="w-full rounded-2xl border border-border/90 bg-card p-3 shadow-sm md:sticky md:top-20 md:h-fit md:w-60">
+    <aside className="w-full rounded-2xl border border-border/90 bg-card p-3 shadow-sm md:sticky md:top-20 md:h-fit md:w-64">
       <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
         <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Project

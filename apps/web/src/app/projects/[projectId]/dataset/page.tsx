@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { DatasetWorkspaceClient } from "./dataset-workspace-client";
 
 export default async function ProjectDatasetPage({
   params,
@@ -6,5 +6,5 @@ export default async function ProjectDatasetPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  redirect(`/projects/${projectId}/upload`);
+  return <DatasetWorkspaceClient projectId={projectId} />;
 }

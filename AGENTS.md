@@ -40,6 +40,7 @@ Build Flowstate into an OpenAI-native VisionOps platform with production softwar
 - Prioritize workflow automation, extraction, and review loops first.
 - Do not attempt full CV model training/export parity in v1.
 - Keep interfaces fast on laptops and mobile browsers.
+- Default product scope is local-only single-user operation (no auth walls, no hosted cloud dependencies in MVP).
 
 ## Security
 

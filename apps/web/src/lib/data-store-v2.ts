@@ -171,6 +171,7 @@ const DB_FILE = path.join(DATA_DIR, "db.v2.json");
 const DATASETS_DIR = path.join(DATA_DIR, "datasets-v2");
 const VIDEO_FRAMES_DIR = path.join(DATASETS_DIR, "video-frames");
 const CONNECTOR_INPUTS_DIR = path.join(DATA_DIR, "connector-inputs-v2");
+const LOCAL_PROJECTS_DIR = path.join(DATA_DIR, "local-projects");
 const DEFAULT_VIDEO_SAMPLE_FRAMES = Number(process.env.FLOWSTATE_VIDEO_SAMPLE_FRAMES || 10);
 const EDGE_HEARTBEAT_STALE_MS = Number(process.env.FLOWSTATE_EDGE_HEARTBEAT_STALE_MS || 60_000);
 const EDGE_COMMAND_LEASE_MS = Number(process.env.FLOWSTATE_EDGE_COMMAND_LEASE_MS || 30_000);
@@ -247,6 +248,7 @@ async function ensureInfrastructure() {
   await fs.mkdir(DATASETS_DIR, { recursive: true });
   await fs.mkdir(VIDEO_FRAMES_DIR, { recursive: true });
   await fs.mkdir(CONNECTOR_INPUTS_DIR, { recursive: true });
+  await fs.mkdir(LOCAL_PROJECTS_DIR, { recursive: true });
 
   try {
     await fs.access(DB_FILE);
@@ -311,6 +313,151 @@ function videoFrameFilePath(batchId: string, artifactId: string, frameIndex: num
 
 function datasetAssetFileUrl(assetId: string) {
   return `/api/v2/assets/${assetId}/file`;
+}
+
+type LocalProjectManifest = {
+  id: string;
+  name: string;
+  slug: string;
+  classes: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+function localProjectDir(projectId: string) {
+  return path.join(LOCAL_PROJECTS_DIR, projectId);
+}
+
+function localProjectImagesDir(projectId: string) {
+  return path.join(localProjectDir(projectId), "images");
+}
+
+function localProjectAnnotationsDir(projectId: string) {
+  return path.join(localProjectDir(projectId), "annotations");
+}
+
+function localProjectExportsDir(projectId: string) {
+  return path.join(localProjectDir(projectId), "exports");
+}
+
+function localProjectManifestPath(projectId: string) {
+  return path.join(localProjectDir(projectId), "project.json");
+}
+
+function localAnnotationPath(projectId: string, assetId: string) {
+  return path.join(localProjectAnnotationsDir(projectId), `${assetId}.json`);
+}
+
+function inferExtension(fileName: string, mimeType: string) {
+  const fromName = path.extname(fileName).toLowerCase();
+  if (fromName) {
+    return fromName;
+  }
+  if (mimeType === "image/jpeg") {
+    return ".jpg";
+  }
+  if (mimeType === "image/png") {
+    return ".png";
+  }
+  if (mimeType === "image/webp") {
+    return ".webp";
+  }
+  if (mimeType === "application/pdf") {
+    return ".pdf";
+  }
+  return ".bin";
+}
+
+async function readLocalProjectManifest(projectId: string): Promise<LocalProjectManifest | null> {
+  try {
+    const text = await fs.readFile(localProjectManifestPath(projectId), "utf8");
+    const parsed = JSON.parse(text) as Partial<LocalProjectManifest>;
+    if (
+      typeof parsed.id !== "string" ||
+      typeof parsed.name !== "string" ||
+      typeof parsed.slug !== "string" ||
+      !Array.isArray(parsed.classes) ||
+      typeof parsed.created_at !== "string" ||
+      typeof parsed.updated_at !== "string"
+    ) {
+      return null;
+    }
+    return {
+      id: parsed.id,
+      name: parsed.name,
+      slug: parsed.slug,
+      classes: parsed.classes.filter((item) => typeof item === "string"),
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeLocalProjectManifest(project: LocalProjectManifest) {
+  await fs.mkdir(localProjectDir(project.id), { recursive: true });
+  await fs.writeFile(localProjectManifestPath(project.id), JSON.stringify(project, null, 2), "utf8");
+}
+
+async function ensureLocalProjectWorkspace(project: ProjectRecord) {
+  await fs.mkdir(localProjectImagesDir(project.id), { recursive: true });
+  await fs.mkdir(localProjectAnnotationsDir(project.id), { recursive: true });
+  await fs.mkdir(localProjectExportsDir(project.id), { recursive: true });
+
+  const existing = await readLocalProjectManifest(project.id);
+  const now = new Date().toISOString();
+  const nextManifest: LocalProjectManifest = {
+    id: project.id,
+    name: project.name,
+    slug: project.slug,
+    classes: existing?.classes ?? [],
+    created_at: existing?.created_at ?? project.created_at,
+    updated_at: now,
+  };
+  await writeLocalProjectManifest(nextManifest);
+}
+
+async function updateLocalProjectClasses(project: ProjectRecord, labels: string[]) {
+  const normalizedLabels = labels
+    .map((label) => label.trim())
+    .filter(Boolean)
+    .map((label) => label.toLowerCase());
+
+  if (normalizedLabels.length === 0) {
+    return;
+  }
+
+  const existing = await readLocalProjectManifest(project.id);
+  const merged = new Set([...(existing?.classes ?? []), ...normalizedLabels]);
+
+  await writeLocalProjectManifest({
+    id: project.id,
+    name: project.name,
+    slug: project.slug,
+    classes: [...merged].sort((left, right) => left.localeCompare(right)),
+    created_at: existing?.created_at ?? project.created_at,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function copyAssetToLocalProjectWorkspace(asset: DatasetAssetRecord) {
+  const source = await resolveDatasetAssetBinarySource(asset);
+  if (!source) {
+    return;
+  }
+
+  await fs.mkdir(localProjectImagesDir(asset.project_id), { recursive: true });
+  const target = path.join(
+    localProjectImagesDir(asset.project_id),
+    `${asset.id}${inferExtension(source.fileName, source.mimeType)}`,
+  );
+  await fs.copyFile(source.filePath, target);
+}
+
+async function writeLocalAnnotationSnapshot(annotation: AssetAnnotationRecord) {
+  await fs.mkdir(localProjectAnnotationsDir(annotation.project_id), { recursive: true });
+  await fs.writeFile(localAnnotationPath(annotation.project_id, annotation.asset_id), JSON.stringify(annotation, null, 2), "utf8");
 }
 
 export type DatasetAssetBinarySource = {
@@ -557,6 +704,7 @@ export async function createProject(input: {
       },
     });
 
+    await ensureLocalProjectWorkspace(project);
     return project;
   });
 }
@@ -617,6 +765,8 @@ export async function deleteProject(input: { projectId: string; actor?: string }
     for (const deliveryId of connectorDeliveryIds) {
       await removeConnectorInputFile(deliveryId);
     }
+
+    await fs.rm(localProjectDir(input.projectId), { recursive: true, force: true });
 
     state.project_memberships = state.project_memberships.filter(
       (membership) => membership.project_id !== input.projectId,
@@ -1558,6 +1708,11 @@ export async function createDatasetAssets(input: {
     if (!batch) {
       throw new Error("Dataset batch not found");
     }
+    const project = state.projects.find((item) => item.id === batch.project_id);
+    if (!project) {
+      throw new Error("Project not found");
+    }
+    await ensureLocalProjectWorkspace(project);
 
     const timestamp = new Date().toISOString();
     const createdAssets = input.assets.map((assetInput) =>
@@ -1832,6 +1987,14 @@ export async function ingestDatasetBatch(input: {
       state.dataset_assets.unshift(asset);
     }
 
+    for (const asset of materializedAssets) {
+      try {
+        await copyAssetToLocalProjectWorkspace(asset);
+      } catch {
+        // Keep ingest successful even if local mirror copy fails for an asset.
+      }
+    }
+
     batch.item_count = materializedAssets.length;
     batch.labeled_count = 0;
     batch.reviewed_count = 0;
@@ -1962,6 +2125,10 @@ export async function createAssetAnnotation(input: {
     if (!asset) {
       throw new Error("Dataset asset not found");
     }
+    const project = state.projects.find((item) => item.id === asset.project_id);
+    if (!project) {
+      throw new Error("Project not found");
+    }
 
     const timestamp = new Date().toISOString();
     for (const existing of state.asset_annotations) {
@@ -2036,6 +2203,18 @@ export async function createAssetAnnotation(input: {
         shape_count: annotation.shapes.length,
       },
     });
+
+    await ensureLocalProjectWorkspace(project);
+    try {
+      await copyAssetToLocalProjectWorkspace(asset);
+    } catch {
+      // Ignore local mirror copy errors during annotation save.
+    }
+    await writeLocalAnnotationSnapshot(annotation);
+    await updateLocalProjectClasses(
+      project,
+      annotation.shapes.map((shape) => shape.label),
+    );
 
     return annotation;
   });

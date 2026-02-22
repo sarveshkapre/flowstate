@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
@@ -78,6 +79,8 @@ function assetDisplayLabel(asset: Asset) {
 }
 
 export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
+  const searchParams = useSearchParams();
+  const requestedAssetId = searchParams.get("assetId") ?? "";
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -104,9 +107,12 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
 
       const nextAssets = payload.assets ?? [];
       setAssets(nextAssets);
-      const firstSupportedAsset = nextAssets.find((asset) => isImageLikeAsset(asset.asset_type));
-      if (firstSupportedAsset && !nextAssets.some((asset) => asset.id === selectedAssetId)) {
-        setSelectedAssetId(firstSupportedAsset.id);
+      const preferredAsset =
+        (requestedAssetId
+          ? nextAssets.find((asset) => asset.id === requestedAssetId && isImageLikeAsset(asset.asset_type))
+          : null) ?? nextAssets.find((asset) => isImageLikeAsset(asset.asset_type));
+      if (preferredAsset && !nextAssets.some((asset) => asset.id === selectedAssetId)) {
+        setSelectedAssetId(preferredAsset.id);
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load assets.");
@@ -129,6 +135,16 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
     () => supportedAssets.filter((asset) => !asset.latest_annotation).length,
     [supportedAssets],
   );
+
+  useEffect(() => {
+    if (!requestedAssetId) {
+      return;
+    }
+    if (!supportedAssets.some((asset) => asset.id === requestedAssetId)) {
+      return;
+    }
+    setSelectedAssetId(requestedAssetId);
+  }, [requestedAssetId, supportedAssets]);
 
   async function runAutoLabelCurrent() {
     if (!selectedAsset) {

@@ -35,6 +35,8 @@ type UploadArtifactResponse = {
 type BatchAsset = {
   id: string;
   asset_type: "image" | "video_frame" | "pdf_page";
+  width: number | null;
+  height: number | null;
   frame_index: number | null;
   page_number: number | null;
   latest_annotation?:
@@ -107,15 +109,28 @@ function selectFirstRenderableAsset(assets: BatchAsset[]) {
   return assets.find((asset) => isRenderableAsset(asset)) ?? null;
 }
 
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const previewImageRef = useRef<HTMLImageElement>(null);
 
   const [project, setProject] = useState<Project | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [batchName, setBatchName] = useState(defaultBatchName);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
+  const [scanPrompt, setScanPrompt] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewAsset, setPreviewAsset] = useState<BatchAsset | null>(null);
 
@@ -220,12 +235,13 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     return assetsPayload.assets ?? [];
   }
 
-  async function runAutoLabelForAsset(assetId: string) {
+  async function runAutoLabelForAsset(assetId: string, prompt?: string) {
     const response = await fetch(`/api/v2/assets/${assetId}/auto-label`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         reasoningEffort,
+        prompt: prompt?.trim() ? prompt.trim() : undefined,
       }),
     });
     const payload = (await response.json().catch(() => ({}))) as {
@@ -282,6 +298,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     setPreviewAsset(null);
 
     try {
+      const prompt = scanPrompt.trim();
       const sourceArtifactIds: string[] = [];
 
       for (const file of selectedFiles) {
@@ -349,6 +366,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             body: JSON.stringify({
               filter: "unlabeled",
               reasoningEffort,
+              prompt: prompt || undefined,
             }),
           },
         );
@@ -373,7 +391,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
 
         if (!preview && firstRenderable) {
           try {
-            await runAutoLabelForAsset(firstRenderable.id);
+            await runAutoLabelForAsset(firstRenderable.id, prompt);
             assets = await loadBatchAssets(createBatchPayload.batch.id);
             preview = selectAnnotatedAsset(assets) ?? selectFirstRenderableAsset(assets);
             if (!autoLabelMessage) {
@@ -418,6 +436,160 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     return { imageCount, videoCount };
   }, [selectedFiles]);
 
+  const previewShapes = previewAsset?.latest_annotation?.shapes ?? [];
+  const canExport = Boolean(previewAsset && previewShapes.length > 0);
+
+  function resolvePreviewImageSize() {
+    if (!previewAsset) {
+      return null;
+    }
+    const image = previewImageRef.current;
+    const width = image?.naturalWidth || previewAsset.width || 0;
+    const height = image?.naturalHeight || previewAsset.height || 0;
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    return { width, height };
+  }
+
+  async function downloadAnnotatedImage() {
+    if (!previewAsset) {
+      return;
+    }
+    const image = previewImageRef.current;
+    if (!image || !image.complete) {
+      setError("Preview image is not ready yet.");
+      return;
+    }
+    const size = resolvePreviewImageSize();
+    if (!size) {
+      setError("Unable to resolve image dimensions for export.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setError("Unable to render annotated image.");
+      return;
+    }
+
+    context.drawImage(image, 0, 0, size.width, size.height);
+    context.lineWidth = Math.max(2, Math.round(size.width * 0.002));
+    context.strokeStyle = "#10b981";
+    context.textBaseline = "top";
+    context.font = `600 ${Math.max(12, Math.round(size.width * 0.015))}px ui-sans-serif, system-ui`;
+
+    for (const shape of previewShapes) {
+      const x = Math.max(0, Math.min(size.width - 1, shape.geometry.x * size.width));
+      const y = Math.max(0, Math.min(size.height - 1, shape.geometry.y * size.height));
+      const width = Math.max(1, Math.min(size.width - x, shape.geometry.width * size.width));
+      const height = Math.max(1, Math.min(size.height - y, shape.geometry.height * size.height));
+
+      context.strokeRect(x, y, width, height);
+      const label = shape.label.trim() || "object";
+      const paddingX = 6;
+      const paddingY = 4;
+      const textMetrics = context.measureText(label);
+      const labelWidth = textMetrics.width + paddingX * 2;
+      const labelHeight = Math.max(16, Math.round(size.height * 0.03));
+      const labelY = Math.max(0, y - labelHeight - 2);
+
+      context.fillStyle = "#10b981";
+      context.fillRect(x, labelY, labelWidth, labelHeight);
+      context.fillStyle = "#ffffff";
+      context.fillText(label, x + paddingX, labelY + paddingY);
+    }
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((value) => resolve(value), "image/png");
+    });
+    if (!blob) {
+      setError("Unable to generate annotated PNG.");
+      return;
+    }
+    downloadBlob(`${previewAsset.id}_annotated.png`, blob);
+  }
+
+  function buildCocoExport() {
+    if (!previewAsset) {
+      return null;
+    }
+    const size = resolvePreviewImageSize();
+    if (!size) {
+      return null;
+    }
+
+    const categoryIdByLabel = new Map<string, number>();
+    const categories: Array<{ id: number; name: string; supercategory: string }> = [];
+    const annotations: Array<{
+      id: number;
+      image_id: number;
+      category_id: number;
+      bbox: [number, number, number, number];
+      area: number;
+      iscrowd: number;
+    }> = [];
+
+    let annotationId = 1;
+    for (const shape of previewShapes) {
+      const label = shape.label.trim() || "object";
+      let categoryId = categoryIdByLabel.get(label);
+      if (!categoryId) {
+        categoryId = categoryIdByLabel.size + 1;
+        categoryIdByLabel.set(label, categoryId);
+        categories.push({ id: categoryId, name: label, supercategory: "object" });
+      }
+
+      const x = Math.max(0, Math.min(size.width - 1, shape.geometry.x * size.width));
+      const y = Math.max(0, Math.min(size.height - 1, shape.geometry.y * size.height));
+      const width = Math.max(1, Math.min(size.width - x, shape.geometry.width * size.width));
+      const height = Math.max(1, Math.min(size.height - y, shape.geometry.height * size.height));
+
+      annotations.push({
+        id: annotationId,
+        image_id: 1,
+        category_id: categoryId,
+        bbox: [x, y, width, height],
+        area: width * height,
+        iscrowd: 0,
+      });
+      annotationId += 1;
+    }
+
+    return {
+      info: {
+        description: "Flowstate auto-label export",
+        version: "1.0",
+        date_created: new Date().toISOString(),
+      },
+      licenses: [],
+      images: [
+        {
+          id: 1,
+          file_name: `${previewAsset.id}.png`,
+          width: size.width,
+          height: size.height,
+        },
+      ],
+      annotations,
+      categories,
+    };
+  }
+
+  function downloadCocoJson() {
+    const coco = buildCocoExport();
+    if (!coco) {
+      setError("Unable to generate COCO JSON for this asset.");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(coco, null, 2)], {
+      type: "application/json",
+    });
+    downloadBlob(`${previewAsset?.id ?? "annotations"}_coco.json`, blob);
+  }
+
   return (
     <section className="space-y-5">
       <div>
@@ -445,6 +617,15 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                 </NativeSelect>
               </label>
             </div>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium">Scan Instructions (optional)</span>
+              <Input
+                value={scanPrompt}
+                onChange={(event) => setScanPrompt(event.target.value)}
+                placeholder="e.g. Find all dogs in the image and label only dogs."
+              />
+            </label>
 
             <p className="text-sm text-muted-foreground">
               Upload and Process automatically runs OpenAI auto-labeling and opens the result.
@@ -535,20 +716,40 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                     {previewAsset.latest_annotation?.shapes.length ?? 0} labels detected
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    router.push(`/projects/${projectId}/annotate?assetId=${encodeURIComponent(previewAsset.id)}`)
-                  }
-                >
-                  Open in Annotate
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      router.push(`/projects/${projectId}/annotate?assetId=${encodeURIComponent(previewAsset.id)}`)
+                    }
+                  >
+                    Open in Annotate
+                  </Button>
+                  <Button variant="outline" onClick={() => void downloadAnnotatedImage()} disabled={!canExport}>
+                    Download annotated image
+                  </Button>
+                  <Button variant="outline" onClick={downloadCocoJson} disabled={!canExport}>
+                    Download COCO JSON
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3 text-sm">
+                <p>
+                  I annotated this upload and produced:
+                </p>
+                <p>1. An image with bounding boxes and labels.</p>
+                <p>2. COCO-format annotations for detected instances.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  For dense montages and low-resolution tiles, labels are best-effort.
+                </p>
               </div>
 
               <div className="rounded-xl border border-border bg-muted/20 p-2">
                 <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
+                    ref={previewImageRef}
                     src={`/api/v2/assets/${previewAsset.id}/file`}
                     alt="Auto-labeled preview"
                     className="block h-auto max-h-[640px] w-auto max-w-full"

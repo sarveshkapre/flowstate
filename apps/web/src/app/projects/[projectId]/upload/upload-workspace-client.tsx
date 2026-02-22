@@ -38,7 +38,7 @@ type BatchAsset = {
   latest_annotation?: { id: string } | null;
 };
 
-type ReasoningEffort = "medium" | "high";
+type ReasoningEffort = "low" | "medium" | "high";
 
 function defaultBatchName() {
   return `Uploaded on ${new Date().toLocaleString()}`;
@@ -374,6 +374,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                     value={reasoningEffort}
                     onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
                   >
+                    <option value="low">Low</option>
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
                   </NativeSelect>

@@ -8,6 +8,7 @@ import {
   getDatasetAsset,
   resolveDatasetAssetBinarySource,
 } from "@/lib/data-store-v2";
+import { inferImageDimensionsFromBuffer } from "@/lib/image-dimensions";
 import { resolveOpenAIModel } from "@/lib/openai-model";
 import { getOpenAIClient } from "@/lib/openai";
 
@@ -22,23 +23,47 @@ export const autoLabelModelShapeSchema = z.object({
   }),
 });
 
-const modelOutputSchema = z.object({
+const modelResponseSchema = z.object({
+  objects: z.array(
+    z.object({
+      label: z.string().min(1),
+      confidence: z.number().min(0).max(1).nullable(),
+      bbox_xywh: z.tuple([
+        z.number().nonnegative(),
+        z.number().nonnegative(),
+        z.number().nonnegative(),
+        z.number().nonnegative(),
+      ]),
+    }),
+  ),
+});
+const autoLabelModelOutputSchema = z.object({
   shapes: z.array(autoLabelModelShapeSchema).min(0),
 });
 
 export type AutoLabelShape = z.infer<typeof autoLabelModelShapeSchema>;
-export type AutoLabelModelOutput = z.infer<typeof modelOutputSchema>;
+export type AutoLabelModelOutput = z.infer<typeof autoLabelModelOutputSchema>;
 
 export type AutoLabelOptions = {
   prompt?: string;
   labelHints?: string[];
   reasoningEffort?: "low" | "medium" | "high";
+  maxObjects?: number;
   actor?: string;
 };
 
 const DEFAULT_AUTO_LABEL_PROMPT =
   "You are data labeling expert for computer vision tasks - autolabel, bounding boxes, and labels for the image. " +
   "Make sure it is accurate.";
+
+const DEFAULT_MAX_OBJECTS = 250;
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, value));
+}
 
 export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOptions) {
   const asset = await getDatasetAsset(assetId);
@@ -66,6 +91,18 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
     options?.labelHints && options.labelHints.length > 0
       ? `Preferred labels: ${options.labelHints.join(", ")}.`
       : "";
+  const maxObjects =
+    typeof options?.maxObjects === "number" && Number.isFinite(options.maxObjects)
+      ? clamp(Math.floor(options.maxObjects), 1, 1000)
+      : DEFAULT_MAX_OBJECTS;
+  const dimensionsFromBytes = inferImageDimensionsFromBuffer(sourceBytes);
+  const imageWidth =
+    asset.width && asset.width > 0 ? asset.width : dimensionsFromBytes?.width ?? null;
+  const imageHeight =
+    asset.height && asset.height > 0 ? asset.height : dimensionsFromBytes?.height ?? null;
+  if (!imageWidth || !imageHeight) {
+    throw new Error("Unable to determine image dimensions for auto-label.");
+  }
 
   const openai = getOpenAIClient();
   const response = await openai.responses.create({
@@ -88,7 +125,11 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
         content: [
           {
             type: "input_text",
-            text: `${instruction}\n${hints}\nReturn normalized bbox values in range [0,1].`,
+            text:
+              `${instruction}\n${hints}\n` +
+              `Return absolute pixel bounding boxes in [x,y,w,h] format.\n` +
+              `Image size is ${imageWidth}x${imageHeight}.\n` +
+              `Return the most salient objects first and limit to ${maxObjects} objects.`,
           },
           {
             type: "input_image",
@@ -106,7 +147,7 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
           type: "object",
           additionalProperties: false,
           properties: {
-            shapes: {
+            objects: {
               type: "array",
               items: {
                 type: "object",
@@ -114,23 +155,18 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
                 properties: {
                   label: { type: "string" },
                   confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
-                  bbox: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      x: { type: "number", minimum: 0, maximum: 1 },
-                      y: { type: "number", minimum: 0, maximum: 1 },
-                      width: { type: "number", minimum: 0, maximum: 1 },
-                      height: { type: "number", minimum: 0, maximum: 1 },
-                    },
-                    required: ["x", "y", "width", "height"],
+                  bbox_xywh: {
+                    type: "array",
+                    items: { type: "number", minimum: 0 },
+                    minItems: 4,
+                    maxItems: 4,
                   },
                 },
-                required: ["label", "bbox", "confidence"],
+                required: ["label", "bbox_xywh", "confidence"],
               },
             },
           },
-          required: ["shapes"],
+          required: ["objects"],
         },
         strict: true,
       },
@@ -138,12 +174,34 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
   });
 
   const outputText = response.output_text || "{}";
-  const parsedOutput = modelOutputSchema.parse(JSON.parse(outputText));
+  const parsedOutput = modelResponseSchema.parse(JSON.parse(outputText));
+  const shapes = parsedOutput.objects
+    .map((item) => {
+      const [rawX, rawY, rawW, rawH] = item.bbox_xywh;
+      const x = clamp(rawX, 0, imageWidth - 1);
+      const y = clamp(rawY, 0, imageHeight - 1);
+      const width = clamp(rawW, 0, imageWidth - x);
+      const height = clamp(rawH, 0, imageHeight - y);
+      if (width < 1 || height < 1) {
+        return null;
+      }
+      return {
+        label: item.label.trim(),
+        confidence: item.confidence ?? null,
+        bbox: {
+          x: x / imageWidth,
+          y: y / imageHeight,
+          width: width / imageWidth,
+          height: height / imageHeight,
+        },
+      };
+    })
+    .filter((item): item is AutoLabelShape => item !== null);
 
   const annotation = await createAssetAnnotation({
     assetId,
     source: "ai_prelabel",
-    shapes: parsedOutput.shapes.map((shape) => ({
+    shapes: shapes.map((shape) => ({
       id: randomUUID(),
       label: shape.label.trim(),
       confidence: shape.confidence ?? null,
@@ -161,6 +219,6 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
 
   return {
     annotation,
-    model_output: parsedOutput,
+    model_output: autoLabelModelOutputSchema.parse({ shapes }),
   };
 }

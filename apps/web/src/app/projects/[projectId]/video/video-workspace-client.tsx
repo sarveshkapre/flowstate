@@ -21,7 +21,7 @@ type VideoRunStage =
   | "failed";
 type VideoRunMode = "track_only" | "track_speed";
 type VideoQualityMode = "fast" | "balanced" | "quality";
-type ReasoningEffort = "medium" | "high";
+type ReasoningEffort = "low" | "medium" | "high";
 type VideoSpeedMode = "relative" | "calibrated";
 
 type RunSummary = {
@@ -571,6 +571,7 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
                     value={reasoningEffort}
                     onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
                   >
+                    <option value="low">Low</option>
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
                   </NativeSelect>

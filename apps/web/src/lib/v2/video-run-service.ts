@@ -33,7 +33,7 @@ export type VideoRunStage =
   | "failed";
 export type VideoRunMode = "track_only" | "track_speed";
 export type VideoSpeedMode = "relative" | "calibrated";
-export type VideoReasoningEffort = "medium" | "high";
+export type VideoReasoningEffort = "low" | "medium" | "high";
 export type VideoQualityMode = "fast" | "balanced" | "quality";
 
 const videoRunTrackFrameVelocitySchema = z.object({
@@ -184,7 +184,7 @@ const runMetadataSchema = z.object({
     enabled: z.boolean(),
     purpose: z.literal("keyframe_detection"),
     model: z.string().min(1),
-    reasoning_effort: z.enum(["medium", "high"]),
+    reasoning_effort: z.enum(["low", "medium", "high"]),
     requests: z.object({
       num_images_sent: z.number().int().nonnegative(),
       estimated_total_tokens: z.number().int().nonnegative().nullable(),

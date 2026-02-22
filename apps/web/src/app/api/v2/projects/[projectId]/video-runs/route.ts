@@ -13,7 +13,7 @@ const createVideoRunSchema = z.object({
   targets: z.array(z.string().min(1)).min(1).max(20),
   mode: z.enum(["track_only", "track_speed"]).default("track_only"),
   qualityMode: z.enum(["fast", "balanced", "quality"]).default("balanced"),
-  reasoningEffort: z.enum(["medium", "high"]).default("medium"),
+  reasoningEffort: z.enum(["low", "medium", "high"]).default("medium"),
   trimStartS: z.number().nonnegative().optional(),
   trimEndS: z.number().positive().optional(),
   fpsWork: z.number().int().positive().max(30).optional(),

@@ -40,7 +40,7 @@ type Asset = {
 };
 
 type FilterStatus = "all" | "unlabeled" | "auto_labeled" | "reviewed";
-type ReasoningEffort = "medium" | "high";
+type ReasoningEffort = "low" | "medium" | "high";
 
 function assetPreviewUrl(asset: Asset) {
   return `/api/v2/assets/${asset.id}/file`;
@@ -298,6 +298,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
               value={reasoningEffort}
               onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
             >
+              <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
             </NativeSelect>

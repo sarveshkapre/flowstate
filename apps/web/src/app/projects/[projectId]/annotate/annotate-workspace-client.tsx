@@ -52,7 +52,7 @@ type AutoLabelModelOutput = {
   }>;
 };
 
-type ReasoningEffort = "medium" | "high";
+type ReasoningEffort = "low" | "medium" | "high";
 
 function formatConfidence(confidence: number | null) {
   if (confidence == null) {
@@ -267,6 +267,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
               onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
               className="h-8 min-w-[110px]"
             >
+              <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
             </NativeSelect>

@@ -13,6 +13,7 @@ const autoLabelSchema = z.object({
   prompt: z.string().max(3000).optional(),
   labelHints: z.array(z.string().min(1).max(200)).max(100).optional(),
   reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
+  maxObjects: z.number().int().min(1).max(1000).optional(),
 });
 
 export async function POST(request: Request, { params }: Params) {
@@ -47,6 +48,7 @@ export async function POST(request: Request, { params }: Params) {
       prompt: parsed.data.prompt,
       labelHints: parsed.data.labelHints,
       reasoningEffort: parsed.data.reasoningEffort,
+      maxObjects: parsed.data.maxObjects,
       actor: auth.actor.email ?? undefined,
     });
 

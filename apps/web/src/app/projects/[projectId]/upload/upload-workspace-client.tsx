@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FolderOpen, Upload } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
@@ -28,6 +29,12 @@ type UploadArtifactResponse = {
     id: string;
     mime_type: string;
   };
+};
+
+type BatchAsset = {
+  id: string;
+  asset_type: "image" | "video_frame" | "pdf_page";
+  latest_annotation?: { id: string } | null;
 };
 
 function defaultBatchName() {
@@ -61,6 +68,7 @@ function inferSourceType(files: File[]): "image" | "video" | "mixed" {
 }
 
 export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,7 +76,6 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [batchName, setBatchName] = useState(defaultBatchName);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [autoLabelAfterIngest, setAutoLabelAfterIngest] = useState(true);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -253,7 +260,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       }
 
       let autoLabelMessage = "";
-      if (autoLabelAfterIngest && (ingestPayload.result?.created_assets_count ?? 0) > 0) {
+      let labeledAssetId: string | null = null;
+      if ((ingestPayload.result?.created_assets_count ?? 0) > 0) {
         const autoLabelResponse = await fetch(
           `/api/v2/batches/${createBatchPayload.batch.id}/auto-label`,
           {
@@ -266,6 +274,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         );
         const autoLabelPayload = (await autoLabelResponse.json().catch(() => ({}))) as {
           processed?: number;
+          results?: Array<{ assetId: string }>;
           errors?: Array<{ assetId: string; error: string }>;
           error?: string;
         };
@@ -274,9 +283,34 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
           autoLabelMessage = ` Batch auto-label failed: ${autoLabelPayload.error || "unknown error"}`;
         } else if (autoLabelPayload.processed && autoLabelPayload.processed > 0) {
           autoLabelMessage = ` AI labeled ${autoLabelPayload.processed} asset(s).`;
+          labeledAssetId = autoLabelPayload.results?.[0]?.assetId ?? null;
         } else if (autoLabelPayload.errors && autoLabelPayload.errors.length > 0) {
           autoLabelMessage = " AI labeling completed with errors.";
         }
+      }
+
+      if (!labeledAssetId && (ingestPayload.result?.created_assets_count ?? 0) > 0) {
+        const assetsResponse = await fetch(
+          `/api/v2/projects/${projectId}/assets?batchId=${encodeURIComponent(
+            createBatchPayload.batch.id,
+          )}&includeLatestAnnotation=true&limit=200`,
+          {
+            cache: "no-store",
+          },
+        );
+        const assetsPayload = (await assetsResponse.json().catch(() => ({}))) as {
+          assets?: BatchAsset[];
+        };
+        const assets = assetsPayload.assets ?? [];
+        const withAnnotation = assets.find(
+          (asset) =>
+            (asset.asset_type === "image" || asset.asset_type === "video_frame") &&
+            asset.latest_annotation,
+        );
+        const firstRenderable = assets.find(
+          (asset) => asset.asset_type === "image" || asset.asset_type === "video_frame",
+        );
+        labeledAssetId = withAnnotation?.id ?? firstRenderable?.id ?? null;
       }
 
       setSelectedFiles([]);
@@ -294,6 +328,12 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         setMessage(
           (createdCount ? `Batch ready with ${createdCount} assets.` : "Batch created.") + autoLabelMessage,
         );
+      }
+
+      if (labeledAssetId) {
+        router.push(`/projects/${projectId}/annotate?assetId=${encodeURIComponent(labeledAssetId)}`);
+      } else if (createdCount > 0) {
+        router.push(`/projects/${projectId}/annotate`);
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to create batch.");
@@ -325,15 +365,9 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                 </label>
               </div>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border border-border"
-                checked={autoLabelAfterIngest}
-                onChange={(event) => setAutoLabelAfterIngest(event.target.checked)}
-              />
-              Auto-label uploaded assets with OpenAI
-            </label>
+            <p className="text-sm text-muted-foreground">
+              Upload and Process automatically runs OpenAI auto-labeling and opens the result.
+            </p>
 
             <div
               className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center lg:p-12"

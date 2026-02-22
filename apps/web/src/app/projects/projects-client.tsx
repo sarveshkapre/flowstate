@@ -106,6 +106,19 @@ export function ProjectsClient() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!showCreate) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showCreate]);
+
   const filteredProjects = useMemo(() => {
     const text = query.trim().toLowerCase();
     if (!text) {
@@ -241,8 +254,8 @@ export function ProjectsClient() {
       </Card>
 
       {showCreate ? (
-        <div className="fixed inset-0 z-50 bg-black/50 p-4 backdrop-blur-sm">
-          <div className="mx-auto mt-8 max-w-6xl rounded-2xl border border-border bg-background shadow-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
+          <div className="mx-auto my-6 flex max-h-[calc(100vh-3rem)] max-w-6xl flex-col rounded-2xl border border-border bg-background shadow-2xl">
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h2 className="text-4xl font-semibold tracking-tight text-foreground">Let&apos;s create your project.</h2>
               <Button variant="ghost" size="icon" onClick={() => setShowCreate(false)}>
@@ -250,7 +263,7 @@ export function ProjectsClient() {
               </Button>
             </div>
 
-            <div className="grid gap-6 p-6 lg:grid-cols-[1.1fr_1fr]">
+            <div className="grid gap-6 overflow-y-auto p-6 lg:grid-cols-[1.1fr_1fr]">
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1">

@@ -263,7 +263,7 @@ export function ProjectsClient() {
               </Button>
             </div>
 
-            <div className="grid gap-6 overflow-y-auto p-6 lg:grid-cols-[1.1fr_1fr]">
+            <div className="min-h-0 grid gap-6 overflow-y-auto p-6 lg:grid-cols-[1.1fr_1fr]">
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1">

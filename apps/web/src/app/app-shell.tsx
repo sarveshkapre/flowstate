@@ -27,7 +27,7 @@ const MOBILE_PRIMARY_ITEMS = [
   { href: "/", label: "Home" },
   { href: "/upload", label: "Upload" },
   { href: "/review", label: "Review" },
-  { href: "/workflows", label: "Flow" },
+  { href: "/workflows", label: "Flows" },
 ];
 
 const MOBILE_MORE_ITEMS = [

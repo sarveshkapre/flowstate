@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Button } from "@flowstate/ui";
 
 type HeaderLink = {
   href: string;
@@ -20,13 +19,18 @@ export function PageHeader({ eyebrow, title, description, links, minimal = true 
       {!minimal && eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
       <h1 className="max-w-4xl text-balance">{title}</h1>
       {!minimal && description ? <p className="subtitle">{description}</p> : null}
-      <div className="flex flex-wrap items-center gap-2">
-        {links.map((link) => (
-          <Button key={link.href} asChild size="sm" variant="ghost">
-            <Link href={link.href}>{link.label}</Link>
-          </Button>
-        ))}
-      </div>
+      {links.length > 0 ? (
+        <nav aria-label="Breadcrumb" className="hidden items-center gap-2 text-xs font-medium text-muted-foreground md:flex">
+          {links.map((link, index) => (
+            <span key={link.href} className="inline-flex items-center gap-2">
+              {index > 0 ? <span aria-hidden="true">/</span> : null}
+              <Link href={link.href} className="hover:text-foreground">
+                {link.label}
+              </Link>
+            </span>
+          ))}
+        </nav>
+      ) : null}
     </header>
   );
 }

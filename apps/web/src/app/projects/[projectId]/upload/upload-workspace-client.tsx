@@ -133,6 +133,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [scanPrompt, setScanPrompt] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewAsset, setPreviewAsset] = useState<BatchAsset | null>(null);
+  const [showCocoJson, setShowCocoJson] = useState(false);
+  const [cocoPreviewText, setCocoPreviewText] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -296,6 +298,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     setError(null);
     setMessage(null);
     setPreviewAsset(null);
+    setShowCocoJson(false);
+    setCocoPreviewText(null);
 
     try {
       const prompt = scanPrompt.trim();
@@ -590,6 +594,21 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     downloadBlob(`${previewAsset?.id ?? "annotations"}_coco.json`, blob);
   }
 
+  function toggleCocoJsonPreview() {
+    if (showCocoJson) {
+      setShowCocoJson(false);
+      return;
+    }
+    const coco = buildCocoExport();
+    if (!coco) {
+      setError("Unable to render COCO JSON on screen yet.");
+      return;
+    }
+    setError(null);
+    setCocoPreviewText(JSON.stringify(coco, null, 2));
+    setShowCocoJson(true);
+  }
+
   return (
     <section className="space-y-5">
       <div>
@@ -731,6 +750,9 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   <Button variant="outline" onClick={downloadCocoJson} disabled={!canExport}>
                     Download COCO JSON
                   </Button>
+                  <Button variant="outline" onClick={toggleCocoJsonPreview} disabled={!canExport}>
+                    {showCocoJson ? "Hide COCO JSON" : "View COCO JSON"}
+                  </Button>
                 </div>
               </div>
 
@@ -777,6 +799,15 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   </div>
                 </div>
               </div>
+
+              {showCocoJson ? (
+                <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
+                  <p className="text-sm font-medium">COCO JSON</p>
+                  <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-background p-3 text-xs">
+                    {cocoPreviewText ?? "No COCO JSON available yet."}
+                  </pre>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         ) : null}

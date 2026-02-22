@@ -261,8 +261,10 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               filter: "unlabeled",
-              prompt: "Detect objects and provide bounding boxes with class labels.",
-              labelHints: ["object"],
+              prompt:
+                "Detect all visible objects and provide one bounding box per instance with specific class labels. " +
+                "Do not use generic labels like object/image/photo/item/scene.",
+              reasoningEffort: "high",
             }),
           },
         );

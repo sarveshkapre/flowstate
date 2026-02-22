@@ -38,6 +38,19 @@ type AnnotationRecord = {
   updated_at: string;
 };
 
+type AutoLabelModelOutput = {
+  shapes: Array<{
+    label: string;
+    confidence: number | null;
+    bbox: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+  }>;
+};
+
 function formatConfidence(confidence: number | null) {
   if (confidence == null) {
     return "n/a";
@@ -85,6 +98,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [lastModelOutput, setLastModelOutput] = useState<AutoLabelModelOutput | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const supportedAssets = useMemo(() => assets.filter((asset) => isImageLikeAsset(asset.asset_type)), [assets]);
@@ -160,21 +174,24 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
     setBusy(true);
     setError(null);
     setMessage(null);
+    setLastModelOutput(null);
 
     try {
       const response = await fetch(`/api/v2/assets/${selectedAsset.id}/auto-label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ reasoningEffort: "high" }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         annotation?: AnnotationRecord;
+        model_output?: AutoLabelModelOutput;
         error?: string;
       };
       if (!response.ok || !payload.annotation) {
         throw new Error(payload.error || "Auto-label failed.");
       }
 
+      setLastModelOutput(payload.model_output ?? null);
       setMessage(`Auto-label added ${payload.annotation.shapes.length} label(s).`);
       await loadAssets();
     } catch (autoError) {
@@ -192,12 +209,13 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
     setBusy(true);
     setError(null);
     setMessage(null);
+    setLastModelOutput(null);
 
     try {
       const response = await fetch(`/api/v2/batches/${selectedAsset.batch_id}/auto-label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ filter: "unlabeled", maxAssets: 300 }),
+        body: JSON.stringify({ filter: "unlabeled", maxAssets: 300, reasoningEffort: "high" }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         processed?: number;
@@ -359,6 +377,23 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
                   <p className="text-xs text-muted-foreground">confidence {formatConfidence(shape.confidence)}</p>
                 </div>
               ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">OpenAI Raw Output</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {!lastModelOutput ? (
+                <p className="text-sm text-muted-foreground">
+                  Run auto-label to inspect the direct structured response returned by OpenAI.
+                </p>
+              ) : (
+                <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-muted/20 p-3 text-xs">
+                  {JSON.stringify(lastModelOutput, null, 2)}
+                </pre>
+              )}
             </CardContent>
           </Card>
 

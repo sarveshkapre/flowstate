@@ -10,6 +10,7 @@ const LAYOUT_MODEL = "gpt-5.2";
 const requestSchema = z.object({
   artifactId: z.string().uuid(),
   prompt: z.string().min(1).max(4000).optional(),
+  reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
 });
 
 const bboxSchema = z.object({
@@ -30,7 +31,13 @@ const responseSchema = z.object({
 });
 
 const DEFAULT_PROMPT =
-  "You are a computer vision expert. Draw bounding boxes for every object in this image and identify each object label. Return concise JSON with an `objects` array where each item has `label`, `bbox` ({x,y,width,height}), and optional `confidence`. Use normalized coordinates in [0,1].";
+  "You are a computer vision labeling expert for production annotation.\n" +
+  "Return every visible object as a separate instance.\n" +
+  "Do not group nearby objects into one box. If multiple instances of same label exist, list each one.\n" +
+  "Use normalized coordinates in [0,1] only.\n" +
+  "Return JSON exactly as: {\"objects\":[{label,bbox,confidence}]}, where bbox is {x,y,width,height} in 0-1 range.\n" +
+  "Confidence is required, use null if uncertain, and keep it between 0 and 1.\n" +
+  "Aim for thorough coverage of the full scene.";
 
 export async function POST(request: Request) {
   const unauthorized = await requireV1Permission(request, "run_flow");
@@ -57,6 +64,9 @@ export async function POST(request: Request) {
     const openai = getOpenAIClient();
     const response = await openai.responses.create({
       model: LAYOUT_MODEL,
+      reasoning: {
+        effort: parsed.data.reasoningEffort ?? "medium",
+      },
       text: {
         format: {
           type: "json_schema",

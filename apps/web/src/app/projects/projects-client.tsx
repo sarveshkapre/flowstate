@@ -33,6 +33,7 @@ type AutoLabelResponse = {
   objects: LabelObject[];
   rawOutput: string;
   usage: unknown;
+  reasoningEffort?: string;
 };
 
 type CocoCategory = {
@@ -79,7 +80,16 @@ type LabelJob = {
 };
 
 const DEFAULT_PROMPT =
-  "You are a computer vision labeling expert. Draw bounding boxes for every object in this image and identify each object label. Return concise JSON with an `objects` array where each item has `label`, `bbox` (`x`, `y`, `width`, `height`), and optional `confidence`. Use normalized coordinates in [0, 1].";
+  "You are a computer vision labeling expert for production annotation.\n" +
+  "Return every visible object as a separate instance.\n" +
+  "Do not group nearby objects into one box. If multiple instances of the same label exist, list each one.\n" +
+  "Use normalized coordinates in [0, 1] only.\n" +
+  "Return JSON exactly as {\"objects\": [ { \"label\", \"bbox\", \"confidence\" } ] }.\n" +
+  "Include one entry per object and keep confidence between 0 and 1.";
+
+const REASONING_OPTIONS = ["low", "medium", "high"] as const;
+
+type ReasoningEffort = (typeof REASONING_OPTIONS)[number];
 
 function clamp01(value: number) {
   if (!Number.isFinite(value)) {
@@ -214,6 +224,10 @@ async function createAnnotatedImage(file: File, objects: LabelObject[]): Promise
     const w = clamp01(object.bbox.width) * width;
     const h = clamp01(object.bbox.height) * height;
 
+    if (w < 1 || h < 1) {
+      return;
+    }
+
     context.strokeRect(x, y, w, h);
 
     const confidenceSuffix =
@@ -224,6 +238,12 @@ async function createAnnotatedImage(file: File, objects: LabelObject[]): Promise
 
     const textX = x + 4;
     const textY = Math.max(16, y + 16);
+    const metrics = context.measureText(text);
+    const labelWidth = Number.isFinite(metrics.width) ? metrics.width : text.length * 7;
+    const labelPadX = 6;
+    context.fillStyle = "rgba(0,0,0,0.62)";
+    context.fillRect(textX - labelPadX / 2, textY - 16, labelWidth + labelPadX, 18);
+    context.fillStyle = color;
     context.fillText(text, textX, textY);
   });
 
@@ -253,11 +273,11 @@ async function uploadFile(file: File): Promise<string> {
   return payload.artifact.id;
 }
 
-async function runAutoLabel(artifactId: string, prompt: string): Promise<AutoLabelResponse> {
+async function runAutoLabel(artifactId: string, prompt: string, reasoningEffort: ReasoningEffort): Promise<AutoLabelResponse> {
   const response = await fetch("/api/v2/simple-label", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ artifactId, prompt }),
+    body: JSON.stringify({ artifactId, prompt, reasoningEffort }),
   });
 
   const payload = (await response.json().catch(() => ({}))) as AutoLabelResponse & {
@@ -282,6 +302,7 @@ export function ProjectsClient() {
   const [jobs, setJobs] = useState<LabelJob[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
 
   const selectedCount = useMemo(() => jobs.length, [jobs]);
   const doneCount = useMemo(() => jobs.filter((job) => job.status === "done").length, [jobs]);
@@ -329,7 +350,7 @@ export function ProjectsClient() {
             ),
           );
 
-          const labelPayload = await runAutoLabel(artifactId, DEFAULT_PROMPT);
+          const labelPayload = await runAutoLabel(artifactId, DEFAULT_PROMPT, reasoningEffort);
           const annotated = await createAnnotatedImage(job.file, labelPayload.objects);
           const coco = toCocoPayload(job.file.name, annotated.width, annotated.height, labelPayload.objects);
 
@@ -370,37 +391,59 @@ export function ProjectsClient() {
 
   return (
     <section className="mx-auto w-full max-w-6xl space-y-6 p-6">
-      <Card>
+      <Card className="border-0 bg-gradient-to-br from-background to-muted/25 shadow-sm">
         <CardHeader>
           <CardTitle className="text-2xl">Image Auto Label</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Upload one or many images. We use GPT-5.2 to return object detections and labels, then build COCO annotations.
+            Upload one or many images. We use GPT-5.2 with configurable reasoning effort and return detections plus COCO annotations.
           </p>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              void onSelectFiles(event);
+            }}
+          />
+
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(event) => {
-                void onSelectFiles(event);
-              }}
-            />
             <Button
               type="button"
               variant="outline"
               onClick={() => fileInputRef.current?.click()}
+              className="rounded-md"
             >
               <Upload className="mr-2 h-4 w-4" />
               Upload Images
             </Button>
-            <Button type="button" onClick={() => void onRunAutoLabel()} disabled={jobs.length === 0 || busy}>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void onRunAutoLabel()}
+              disabled={jobs.length === 0 || busy}
+            >
               <WandSparkles className="mr-2 h-4 w-4" />
               {busy ? "Labeling..." : "Auto Label"}
             </Button>
+
+            <select
+              value={reasoningEffort}
+              onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
+              className="h-9 rounded-md border border-border/40 bg-background px-3 py-1 text-xs"
+              disabled={busy}
+            >
+              {REASONING_OPTIONS.map((option) => (
+                <option value={option} key={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </div>
 
           {jobs.length > 0 ? (
@@ -415,15 +458,11 @@ export function ProjectsClient() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {jobs.map((job) => (
-          <Card key={job.id}>
+          <Card key={job.id} className="border border-border/50 bg-background/80">
             <CardHeader>
               <CardTitle className="text-base">{job.file.name}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {job.status === "error" ? (
-                <p className="text-sm text-destructive">{job.error || "Labeling failed."}</p>
-              ) : null}
-
               {(job.status === "uploading" || job.status === "labeling") ? (
                 <div className="inline-flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/30 px-3 py-2 text-xs text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -431,11 +470,15 @@ export function ProjectsClient() {
                 </div>
               ) : null}
 
-              {job.status === "idle" || job.status === "error" ? (
+              {job.status === "error" ? (
+                <p className="text-sm text-destructive">{job.error || "Labeling failed."}</p>
+              ) : null}
+
+              {(job.status === "idle" || job.status === "error") ? (
                 <img
                   src={job.previewUrl}
                   alt={`${job.file.name} preview`}
-                  className="h-auto w-full rounded-lg border"
+                  className="h-auto w-full rounded-lg border border-border/50"
                 />
               ) : null}
 
@@ -444,20 +487,27 @@ export function ProjectsClient() {
                   <img
                     src={job.annotatedImageUrl}
                     alt={`${job.file.name} annotated`}
-                    className="h-auto w-full rounded-lg border"
+                    className="h-auto w-full rounded-lg border border-border/50"
                   />
 
                   <p className="text-xs text-muted-foreground">Model: {job.model}</p>
                   <p className="text-xs text-muted-foreground">Detected objects: {job.objects?.length ?? 0}</p>
                   {job.objects && job.objects.length > 0 ? (
-                    <ul className="max-h-36 overflow-auto rounded border bg-muted/40 p-2 text-xs">
+                    <ul className="max-h-36 overflow-auto rounded border border-border/50 bg-muted/30 p-2 text-xs">
                       {job.objects.map((object, index) => (
-                        <li key={`${object.label}-${index}`} className="py-1">
-                          {object.label} {object.confidence === undefined || object.confidence === null ? "" : `(${Math.round(object.confidence * 100)}%)`}
+                        <li key={`${object.label}-${index}`} className="flex items-center justify-between py-1">
+                          <span>{object.label}</span>
+                          <span className="text-muted-foreground">
+                            {object.confidence === undefined || object.confidence === null
+                              ? "n/a"
+                              : `${Math.round(object.confidence * 100)}%`}
+                          </span>
                         </li>
                       ))}
                     </ul>
-                  ) : null}
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No detections found. Try higher reasoning effort.</p>
+                  )}
 
                   <div className="flex flex-wrap gap-2">
                     <Button

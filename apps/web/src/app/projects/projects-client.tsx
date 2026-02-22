@@ -90,6 +90,8 @@ const DEFAULT_PROMPT =
   "You are a computer vision labeling expert for production annotation.\n" +
   "Return every visible object as a separate instance.\n" +
   "Do not group nearby objects into one box. If multiple instances of the same label exist, list each one.\n" +
+  "Use specific object class names (examples: person, car, laptop, mug, bottle, dog).\n" +
+  "Do not use generic labels like photo, image, picture, object, item, or scene.\n" +
   "Use normalized coordinates in [0, 1] only.\n" +
   "Return JSON exactly as {\"objects\": [ { \"label\", \"bbox\", \"confidence\" } ] }.\n" +
   "Include one entry per object and keep confidence between 0 and 1.";
@@ -103,6 +105,11 @@ function clamp01(value: number) {
     return 0;
   }
   return Math.max(0, Math.min(1, value));
+}
+
+function formatLabelForDisplay(value: string) {
+  const normalized = value.trim().replace(/[_-]+/g, " ");
+  return normalized || "unknown object";
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -320,7 +327,7 @@ async function createAnnotatedImage(file: File, objects: LabelObject[]): Promise
       object.confidence === undefined || object.confidence === null
         ? ""
         : ` (${Math.round(object.confidence * 100)}%)`;
-    const text = `${object.label}${confidenceSuffix}`;
+    const text = `#${index + 1} ${formatLabelForDisplay(object.label)}${confidenceSuffix}`;
 
     const textX = x + 4;
     const textY = Math.max(16, y + 16);
@@ -586,7 +593,7 @@ export function ProjectsClient() {
                     <ul className="max-h-36 overflow-auto rounded border border-border/50 bg-muted/30 p-2 text-xs">
                       {job.objects.map((object, index) => (
                         <li key={`${object.label}-${index}`} className="flex items-center justify-between py-1">
-                          <span>{object.label}</span>
+                          <span>{`${index + 1}. ${formatLabelForDisplay(object.label)}`}</span>
                           <span className="text-muted-foreground">
                             {object.confidence === undefined || object.confidence === null
                               ? "n/a"

@@ -31,12 +31,16 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Asset file not found" }, { status: 404 });
   }
 
-  const bytes = await fs.readFile(source.filePath);
-  return new NextResponse(new Uint8Array(bytes), {
-    headers: {
-      "content-type": source.mimeType,
-      "cache-control": "private, max-age=300",
-      "content-disposition": `inline; filename="${source.fileName}"`,
-    },
-  });
+  try {
+    const bytes = await fs.readFile(source.filePath);
+    return new NextResponse(new Uint8Array(bytes), {
+      headers: {
+        "content-type": source.mimeType,
+        "cache-control": "private, max-age=300",
+        "content-disposition": `inline; filename="${source.fileName}"`,
+      },
+    });
+  } catch {
+    return NextResponse.json({ error: "Asset file could not be read." }, { status: 404 });
+  }
 }

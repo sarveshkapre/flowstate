@@ -19,7 +19,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="border-b border-slate-800/90 px-5 py-5">
           <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Workspace</p>
           <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-100">Flowstate</h1>
-          <p className="mt-1 text-xs text-slate-400">OpenAI vision ops</p>
+          <p className="mt-1 text-xs text-slate-400">Vision labeling</p>
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4">

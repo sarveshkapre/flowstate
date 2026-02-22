@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, ImageIcon, Upload } from "lucide-react";
+import { FolderOpen, Upload } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
 import { Card, CardContent } from "@shadcn-ui/card";
-import { Checkbox } from "@shadcn-ui/checkbox";
 import { Input } from "@shadcn-ui/input";
 
 type Project = {
@@ -35,8 +34,12 @@ function defaultBatchName() {
   return `Uploaded on ${new Date().toLocaleString()}`;
 }
 
-function inferSourceType(files: File[]): "image" | "video" | "pdf" | "mixed" {
-  const found = new Set<"image" | "video" | "pdf">();
+function isSupportedUploadFile(file: File) {
+  return file.type.startsWith("image/") || file.type.startsWith("video/");
+}
+
+function inferSourceType(files: File[]): "image" | "video" | "mixed" {
+  const found = new Set<"image" | "video">();
   for (const file of files) {
     if (file.type.startsWith("image/")) {
       found.add("image");
@@ -46,10 +49,6 @@ function inferSourceType(files: File[]): "image" | "video" | "pdf" | "mixed" {
     if (file.type.startsWith("video/")) {
       found.add("video");
       continue;
-    }
-
-    if (file.type === "application/pdf") {
-      found.add("pdf");
     }
   }
 
@@ -68,9 +67,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [batchName, setBatchName] = useState(defaultBatchName);
-  const [tags, setTags] = useState("");
-  const [createBatchInstantly, setCreateBatchInstantly] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [autoLabelAfterIngest, setAutoLabelAfterIngest] = useState(true);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -159,7 +157,15 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       return;
     }
 
-    const incoming = Array.from(fileList);
+    const incoming = Array.from(fileList).filter((file) => isSupportedUploadFile(file));
+    if (incoming.length !== fileList.length) {
+      setError("Some files were skipped. Please upload images and videos only.");
+    }
+
+    if (incoming.length === 0) {
+      return;
+    }
+
     setSelectedFiles((previous) => {
       const key = new Set(previous.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
       const merged = [...previous];
@@ -180,7 +186,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       return;
     }
 
-    if (!createBatchInstantly && selectedFiles.length === 0) {
+    if (selectedFiles.length === 0) {
       setError("Select at least one file.");
       return;
     }
@@ -210,17 +216,11 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       }
 
       const sourceType = selectedFiles.length ? inferSourceType(selectedFiles) : "mixed";
-      const parsedTags = tags
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .slice(0, 40);
       const createBatchResponse = await fetch(`/api/v2/datasets/${datasetId}/batches`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: batchName.trim() || defaultBatchName(),
-          tags: parsedTags,
           sourceType,
           sourceArtifactIds,
         }),
@@ -252,9 +252,37 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         throw new Error(ingestPayload.error || "Batch ingest failed.");
       }
 
+      let autoLabelMessage = "";
+      if (autoLabelAfterIngest && (ingestPayload.result?.created_assets_count ?? 0) > 0) {
+        const autoLabelResponse = await fetch(
+          `/api/v2/batches/${createBatchPayload.batch.id}/auto-label`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              filter: "unlabeled",
+              prompt: "Detect objects and provide bounding boxes with class labels.",
+              labelHints: ["object"],
+            }),
+          },
+        );
+        const autoLabelPayload = (await autoLabelResponse.json().catch(() => ({}))) as {
+          processed?: number;
+          errors?: Array<{ assetId: string; error: string }>;
+          error?: string;
+        };
+
+        if (!autoLabelResponse.ok) {
+          autoLabelMessage = ` Batch auto-label failed: ${autoLabelPayload.error || "unknown error"}`;
+        } else if (autoLabelPayload.processed && autoLabelPayload.processed > 0) {
+          autoLabelMessage = ` AI labeled ${autoLabelPayload.processed} asset(s).`;
+        } else if (autoLabelPayload.errors && autoLabelPayload.errors.length > 0) {
+          autoLabelMessage = " AI labeling completed with errors.";
+        }
+      }
+
       setSelectedFiles([]);
       setBatchName(defaultBatchName());
-      setTags("");
       const createdCount = ingestPayload.result?.created_assets_count ?? 0;
       const failedExtractionCount =
         ingestPayload.result?.failed_extraction_artifact_ids?.length ?? 0;
@@ -262,10 +290,12 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         const firstError = ingestPayload.result?.extraction_errors?.[0]?.message;
         const suffix = firstError ? ` ${firstError}` : "";
         setMessage(
-          `Batch ingested with ${createdCount} assets. Video extraction failed for ${failedExtractionCount} file(s).${suffix}`,
+          `Batch ingested with ${createdCount} assets. Video extraction failed for ${failedExtractionCount} file(s).${suffix}${autoLabelMessage}`,
         );
       } else {
-        setMessage(createdCount ? `Batch ready with ${createdCount} assets.` : "Batch created.");
+        setMessage(
+          (createdCount ? `Batch ready with ${createdCount} assets.` : "Batch created.") + autoLabelMessage,
+        );
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to create batch.");
@@ -277,8 +307,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const fileSummary = useMemo(() => {
     const imageCount = selectedFiles.filter((file) => file.type.startsWith("image/")).length;
     const videoCount = selectedFiles.filter((file) => file.type.startsWith("video/")).length;
-    const pdfCount = selectedFiles.filter((file) => file.type === "application/pdf").length;
-    return { imageCount, videoCount, pdfCount };
+    return { imageCount, videoCount };
   }, [selectedFiles]);
 
   return (
@@ -291,27 +320,21 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       <div className="grid gap-5">
         <Card>
           <CardContent className="space-y-5 p-5">
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-1">
-                <span className="text-sm font-medium">Batch Name</span>
-                <Input value={batchName} onChange={(event) => setBatchName(event.target.value)} />
-              </label>
-              <label className="space-y-1">
-                <span className="text-sm font-medium">Tags</span>
-                <Input
-                  value={tags}
-                  onChange={(event) => setTags(event.target.value)}
-                  placeholder="Search or add tags"
-                />
-              </label>
-            </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-sm font-medium">Batch Name</span>
+                  <Input value={batchName} onChange={(event) => setBatchName(event.target.value)} />
+                </label>
+              </div>
 
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={createBatchInstantly}
-                onCheckedChange={(value) => setCreateBatchInstantly(value === true)}
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border border-border"
+                checked={autoLabelAfterIngest}
+                onChange={(event) => setAutoLabelAfterIngest(event.target.checked)}
               />
-              Create batch instantly
+              Auto-label uploaded assets with OpenAI
             </label>
 
             <div
@@ -325,8 +348,10 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                 <Upload className="h-8 w-8 text-muted-foreground" />
               </div>
-              <p className="text-2xl font-semibold tracking-tight">Drag and drop files</p>
-              <p className="mt-1 text-sm text-muted-foreground">Images, videos, and PDFs.</p>
+                <p className="text-2xl font-semibold tracking-tight">Drag and drop files</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Upload images or short videos. Videos are sampled into frames automatically.
+                </p>
 
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
                 <input
@@ -334,7 +359,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   type="file"
                   multiple
                   className="hidden"
-                  accept="image/*,video/*,application/pdf"
+                  accept="image/*,video/*"
                   onChange={(event) => addFiles(event.target.files)}
                 />
                 <input
@@ -344,20 +369,19 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   className="hidden"
                   onChange={(event) => addFiles(event.target.files)}
                 />
-                <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                  <ImageIcon className="mr-2 h-4 w-4" />
-                  Select Files
+                    <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Add Files
                 </Button>
                 <Button variant="outline" onClick={() => folderInputRef.current?.click()}>
                   <FolderOpen className="mr-2 h-4 w-4" />
-                  Select Folder
+                  Add Folder
                 </Button>
               </div>
 
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
                 <Badge variant="outline">Images: {fileSummary.imageCount}</Badge>
                 <Badge variant="outline">Videos: {fileSummary.videoCount}</Badge>
-                <Badge variant="outline">PDFs: {fileSummary.pdfCount}</Badge>
                 <Badge variant="outline">Total: {selectedFiles.length}</Badge>
               </div>
 
@@ -366,14 +390,13 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                 <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs">
                   <Badge variant="secondary">Images (.jpg, .png, .webp)</Badge>
                   <Badge variant="secondary">Videos (.mp4, .mov)</Badge>
-                  <Badge variant="secondary">PDFs (.pdf)</Badge>
                 </div>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <Button onClick={() => void onCreateBatch()} disabled={busy || loading}>
-                {busy ? "Uploading..." : "Create Batch"}
+                {busy ? "Uploading..." : "Upload and Process"}
               </Button>
               {selectedFiles.length > 0 ? (
                 <Button variant="ghost" onClick={() => setSelectedFiles([])} disabled={busy}>

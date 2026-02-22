@@ -1,17 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import {
-  createAssetAnnotation,
-  getDatasetAsset,
-  resolveDatasetAssetBinarySource,
-} from "@/lib/data-store-v2";
-import { resolveOpenAIModel } from "@/lib/openai-model";
-import { getOpenAIClient } from "@/lib/openai";
 import { requirePermission } from "@/lib/v2/auth";
+import { runAssetAutoLabel } from "@/lib/auto-label-service";
+import { getDatasetAsset } from "@/lib/data-store-v2";
 
 type Params = {
   params: Promise<{ assetId: string }>;
@@ -22,38 +14,10 @@ const autoLabelSchema = z.object({
   labelHints: z.array(z.string().min(1).max(200)).max(100).optional(),
 });
 
-const modelOutputSchema = z.object({
-  shapes: z.array(
-    z.object({
-      label: z.string().min(1),
-      confidence: z.number().min(0).max(1).nullable().optional(),
-      bbox: z.object({
-        x: z.number().min(0).max(1),
-        y: z.number().min(0).max(1),
-        width: z.number().min(0).max(1),
-        height: z.number().min(0).max(1),
-      }),
-    }),
-  ),
-});
-
-function buildImageInput(mimeType: string, bytes: Buffer) {
-  if (!mimeType.startsWith("image/")) {
-    throw new Error("Auto-label currently supports image assets only.");
-  }
-
-  const base64 = bytes.toString("base64");
-  return {
-    type: "input_image" as const,
-    image_url: `data:${mimeType};base64,${base64}`,
-    detail: "high" as const,
-  };
-}
-
 export async function POST(request: Request, { params }: Params) {
   const { assetId } = await params;
-  const asset = await getDatasetAsset(assetId);
 
+  const asset = await getDatasetAsset(assetId);
   if (!asset) {
     return NextResponse.json({ error: "Asset not found" }, { status: 404 });
   }
@@ -77,112 +41,14 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  if (!asset.artifact_id) {
-    return NextResponse.json(
-      { error: "Asset is missing backing artifact. Unable to auto-label." },
-      { status: 400 },
-    );
-  }
-
-  const source = await resolveDatasetAssetBinarySource(asset);
-  if (!source) {
-    return NextResponse.json({ error: "Asset file could not be read." }, { status: 404 });
-  }
-  const sourceBytes = await fs.readFile(source.filePath);
-
   try {
-    const openai = getOpenAIClient();
-    const hints = parsed.data.labelHints?.length
-      ? `Preferred labels: ${parsed.data.labelHints.join(", ")}.`
-      : "Infer concise labels from visible objects.";
-    const instruction =
-      parsed.data.prompt?.trim() || "Detect prominent objects and return bounding boxes.";
-
-    const response = await openai.responses.create({
-      model: resolveOpenAIModel(),
-      input: [
-        {
-          role: "system",
-          content: [
-            {
-              type: "input_text",
-              text: "You are a precise annotation assistant for computer vision labeling.",
-            },
-          ],
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: `${instruction}\n${hints}\nReturn normalized bbox values in range [0,1].`,
-            },
-            buildImageInput(source.mimeType, sourceBytes),
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "asset_auto_labels",
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              shapes: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    label: { type: "string" },
-                    confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
-                    bbox: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        x: { type: "number", minimum: 0, maximum: 1 },
-                        y: { type: "number", minimum: 0, maximum: 1 },
-                        width: { type: "number", minimum: 0, maximum: 1 },
-                        height: { type: "number", minimum: 0, maximum: 1 },
-                      },
-                      required: ["x", "y", "width", "height"],
-                    },
-                  },
-                  required: ["label", "confidence", "bbox"],
-                },
-              },
-            },
-            required: ["shapes"],
-          },
-          strict: true,
-        },
-      },
-    });
-
-    const outputText = response.output_text || "{}";
-    const parsedOutput = modelOutputSchema.parse(JSON.parse(outputText));
-
-    const annotation = await createAssetAnnotation({
-      assetId,
-      source: "ai_prelabel",
-      shapes: parsedOutput.shapes.map((shape) => ({
-        id: randomUUID(),
-        label: shape.label,
-        confidence: shape.confidence ?? null,
-        geometry: {
-          type: "bbox",
-          x: shape.bbox.x,
-          y: shape.bbox.y,
-          width: shape.bbox.width,
-          height: shape.bbox.height,
-        },
-      })),
-      notes: `Auto-labeled by ${resolveOpenAIModel()}`,
+    const result = await runAssetAutoLabel(assetId, {
+      prompt: parsed.data.prompt,
+      labelHints: parsed.data.labelHints,
       actor: auth.actor.email ?? undefined,
     });
 
-    return NextResponse.json({ annotation, model_output: parsedOutput });
+    return NextResponse.json({ annotation: result.annotation, model_output: result.model_output });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Auto-label failed";
     return NextResponse.json({ error: message }, { status: 500 });

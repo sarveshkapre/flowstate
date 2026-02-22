@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Database, PencilLine, Upload } from "lucide-react";
+import { PencilLine, Upload } from "lucide-react";
 
 import { cn } from "@shadcn-lib/utils";
 
 const ITEMS = [
   { key: "upload", label: "Upload", icon: Upload },
   { key: "annotate", label: "Annotate", icon: PencilLine },
-  { key: "dataset", label: "Dataset", icon: Database },
 ];
 
 export function ProjectSidebar({

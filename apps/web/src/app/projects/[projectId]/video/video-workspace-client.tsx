@@ -23,6 +23,7 @@ type VideoRunMode = "track_only" | "track_speed";
 type VideoQualityMode = "fast" | "balanced" | "quality";
 type ReasoningEffort = "low" | "medium" | "high";
 type VideoSpeedMode = "relative" | "calibrated";
+const MAX_VIDEO_CLIP_SECONDS = 2;
 
 type RunSummary = {
   run_id: string;
@@ -147,7 +148,7 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
   const [qualityMode, setQualityMode] = useState<VideoQualityMode>("balanced");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [trimStartS, setTrimStartS] = useState("0");
-  const [trimEndS, setTrimEndS] = useState("10");
+  const [trimEndS, setTrimEndS] = useState(String(MAX_VIDEO_CLIP_SECONDS));
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [fpsWork, setFpsWork] = useState("12");
   const [inferenceStrideFrames, setInferenceStrideFrames] = useState("6");
@@ -175,7 +176,7 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
     if (!Number.isFinite(trimStart) || !Number.isFinite(trimEnd) || !Number.isFinite(fps) || !Number.isFinite(stride)) {
       return 0;
     }
-    const duration = Math.max(0, trimEnd - trimStart);
+    const duration = Math.min(MAX_VIDEO_CLIP_SECONDS, Math.max(0, trimEnd - trimStart));
     const frameCount = Math.max(0, Math.ceil(duration * fps));
     return Math.max(0, Math.ceil(frameCount / Math.max(1, stride)));
   }, [advancedOpen, currentDefaults.fpsWork, currentDefaults.stride, fpsWork, inferenceStrideFrames, trimEndS, trimStartS]);
@@ -413,6 +414,14 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
     setBusy(true);
     setError(null);
     setMessage(null);
+    const trimStart = Number(trimStartS);
+    const trimEnd = Number(trimEndS);
+    const normalizedTrimStart = Number.isFinite(trimStart) && trimStart >= 0 ? trimStart : 0;
+    const requestedTrimEnd =
+      Number.isFinite(trimEnd) && trimEnd > normalizedTrimStart
+        ? trimEnd
+        : normalizedTrimStart + MAX_VIDEO_CLIP_SECONDS;
+    const normalizedTrimEnd = Math.min(requestedTrimEnd, normalizedTrimStart + MAX_VIDEO_CLIP_SECONDS);
 
     try {
       const uploadForm = new FormData();
@@ -435,8 +444,8 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
           mode,
           qualityMode,
           reasoningEffort,
-          trimStartS: Number(trimStartS),
-          trimEndS: Number(trimEndS),
+          trimStartS: normalizedTrimStart,
+          trimEndS: normalizedTrimEnd,
           speedEnabled,
           speedMode,
           metersPerPixel: metersPerPixel.trim() ? Number(metersPerPixel) : undefined,
@@ -541,6 +550,9 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
                   <Input value={trimEndS} onChange={(event) => setTrimEndS(event.target.value)} />
                 </label>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Video runs are currently capped to {MAX_VIDEO_CLIP_SECONDS} seconds to control token usage.
+              </p>
 
               <div className="space-y-2">
                 <p className="text-sm font-medium">Targets</p>

@@ -20,7 +20,7 @@ const DATA_DIR = process.env.FLOWSTATE_DATA_DIR
   : path.join(WORKSPACE_ROOT, ".flowstate-data");
 const LOCAL_PROJECTS_DIR = path.join(DATA_DIR, "local-projects");
 const VIDEO_RUNS_DIR_NAME = "video-runs";
-const DEFAULT_TRIM_SECONDS = 10;
+const DEFAULT_TRIM_SECONDS = 2;
 const DEFAULT_TRAIL_FRAMES = 20;
 
 export type VideoRunStatus = "processing" | "done" | "failed";
@@ -501,6 +501,15 @@ function qualityDefaults(mode: VideoQualityMode) {
 function resolveProcessingConfig(input: CreateVideoRunInput): ProcessingConfig {
   const defaults = qualityDefaults(input.qualityMode);
   const targets = normalizeTargets(input.targets);
+  const trimStartS =
+    typeof input.trimStartS === "number" && Number.isFinite(input.trimStartS)
+      ? Math.max(0, input.trimStartS)
+      : 0;
+  const requestedTrimEndS =
+    typeof input.trimEndS === "number" && Number.isFinite(input.trimEndS)
+      ? Math.max(0, input.trimEndS)
+      : trimStartS + DEFAULT_TRIM_SECONDS;
+  const trimEndS = Math.min(requestedTrimEndS, trimStartS + DEFAULT_TRIM_SECONDS);
 
   const reference = input.calibrationReference;
   let computedMetersPerPixel =
@@ -523,14 +532,8 @@ function resolveProcessingConfig(input: CreateVideoRunInput): ProcessingConfig {
   }
 
   return {
-    trimStartS:
-      typeof input.trimStartS === "number" && Number.isFinite(input.trimStartS)
-        ? Math.max(0, input.trimStartS)
-        : 0,
-    trimEndS:
-      typeof input.trimEndS === "number" && Number.isFinite(input.trimEndS)
-        ? Math.max(0, input.trimEndS)
-        : DEFAULT_TRIM_SECONDS,
+    trimStartS,
+    trimEndS,
     fpsWork:
       typeof input.fpsWork === "number" && Number.isFinite(input.fpsWork)
         ? clamp(Math.round(input.fpsWork), 6, 30)
@@ -1137,7 +1140,12 @@ async function processVideoRun(input: {
   const sourceProbe = await probeVideo(input.sourceVideoPath);
   const trimStart = clamp(input.config.trimStartS, 0, Math.max(0, sourceProbe.durationS));
   const requestedEnd = input.config.trimEndS > trimStart ? input.config.trimEndS : trimStart + DEFAULT_TRIM_SECONDS;
-  const trimEnd = clamp(requestedEnd, trimStart + 0.1, Math.max(trimStart + 0.1, sourceProbe.durationS || trimStart + DEFAULT_TRIM_SECONDS));
+  const cappedEnd = Math.min(requestedEnd, trimStart + DEFAULT_TRIM_SECONDS);
+  const trimEnd = clamp(
+    cappedEnd,
+    trimStart + 0.1,
+    Math.max(trimStart + 0.1, sourceProbe.durationS || trimStart + DEFAULT_TRIM_SECONDS),
+  );
   const trimDuration = Math.max(0.1, trimEnd - trimStart);
 
   const workVideoPath = runWorkVideoPath(input.projectId, input.runId);

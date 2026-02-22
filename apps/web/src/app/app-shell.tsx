@@ -41,14 +41,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/" className="text-lg font-semibold tracking-tight">
             Flowstate
           </Link>
-          <div className="mt-3">
-            <ThemeToggle />
-          </div>
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-3">{renderNavItems()}</nav>
       </aside>
 
       <div className="min-h-screen pb-20 md:pb-0">
+        <header className="sticky top-0 z-20 hidden border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:flex md:justify-end">
+          <ThemeToggle />
+        </header>
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:hidden">
           <div className="mb-2 flex items-center justify-between">
             <Link href="/" className="text-base font-semibold tracking-tight">

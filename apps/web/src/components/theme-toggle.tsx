@@ -1,5 +1,6 @@
 "use client";
 
+import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@shadcn-ui/button";
@@ -43,13 +44,17 @@ export function ThemeToggle() {
   return (
     <Button
       type="button"
-      size="sm"
+      size="icon"
       variant="outline"
-      className="h-8 px-2 text-xs"
+      className="h-8 w-8"
       onClick={onToggle}
       aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
     >
-      {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+      {theme === "dark" ? (
+        <Sun className="size-4" aria-hidden="true" />
+      ) : (
+        <Moon className="size-4" aria-hidden="true" />
+      )}
     </Button>
   );
 }

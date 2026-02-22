@@ -1,7 +1,7 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { Button } from "@shadcn-ui/button";
 
@@ -30,16 +30,31 @@ function applyTheme(theme: ThemeMode) {
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+
     applyTheme(theme);
     window.localStorage.setItem(STORAGE_KEY, theme);
-  }, [theme]);
+  }, [mounted, theme]);
 
   function onToggle() {
     const next: ThemeMode = theme === "dark" ? "light" : "dark";
     setTheme(next);
   }
+
+  const ariaLabel = mounted
+    ? theme === "dark"
+      ? "Switch to light mode"
+      : "Switch to dark mode"
+    : "Toggle theme";
 
   return (
     <Button
@@ -48,9 +63,9 @@ export function ThemeToggle() {
       variant="outline"
       className="h-8 w-8"
       onClick={onToggle}
-      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={ariaLabel}
     >
-      {theme === "dark" ? (
+      {mounted && theme === "dark" ? (
         <Sun className="size-4" aria-hidden="true" />
       ) : (
         <Moon className="size-4" aria-hidden="true" />

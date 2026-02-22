@@ -222,15 +222,6 @@ export function ProjectsClient() {
               <Plus className="mr-2 h-4 w-4" />
               New Project
             </Button>
-            <Button variant="outline" className="h-12 w-full text-lg" asChild>
-              <a
-                href="https://platform.openai.com/docs/guides/images-vision"
-                target="_blank"
-                rel="noreferrer"
-              >
-                View a Tutorial
-              </a>
-            </Button>
           </div>
         </CardContent>
       </Card>

@@ -36,7 +36,7 @@ const DEFAULT_PROMPT =
   "Do not group nearby objects into one box. If multiple instances of same label exist, list each one.\n" +
   "Use normalized coordinates in [0,1] only.\n" +
   "Return JSON exactly as: {\"objects\":[{label,bbox,confidence}]}, where bbox is {x,y,width,height} in 0-1 range.\n" +
-  "Confidence is required, use null if uncertain, and keep it between 0 and 1.\n" +
+  "Confidence is optional; use null if uncertain, and keep it between 0 and 1 when provided.\n" +
   "Aim for thorough coverage of the full scene.";
 
 export async function POST(request: Request) {
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
                       required: ["x", "y", "width", "height"],
                     },
                   },
-                  required: ["label", "bbox", "confidence"],
+                  required: ["label", "bbox"],
                 },
               },
             },

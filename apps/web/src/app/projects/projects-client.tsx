@@ -27,6 +27,12 @@ type LabelObject = {
   bbox: BBox;
 };
 
+type MappedLabelObject = {
+  label: string;
+  confidence?: number | null;
+  bbox: BBox;
+};
+
 type AutoLabelResponse = {
   artifactId: string;
   model: string;
@@ -77,6 +83,7 @@ type LabelJob = {
   rawOutput?: string;
   annotatedImageUrl?: string;
   coco?: CocoPayload;
+  coordinateMode?: "normalized" | "pixel";
 };
 
 const DEFAULT_PROMPT =
@@ -138,6 +145,93 @@ function downloadContent(filename: string, content: string, mimeType: string) {
 }
 
 function toCocoPayload(fileName: string, width: number, height: number, objects: LabelObject[]): CocoPayload {
+  const pixelObjects = mapObjectsToPixels(objects, width, height);
+  const payload = toCocoPayloadWithMode(fileName, width, height, pixelObjects);
+
+  return {
+    images: payload.images,
+    annotations: payload.annotations,
+    categories: payload.categories,
+  };
+}
+
+function mapObjectsToPixels(objects: LabelObject[], imageWidth: number, imageHeight: number): MappedLabelObject[] {
+  const { mapped } = mapAndValidateBoxes(objects, imageWidth, imageHeight);
+
+  return mapped.filter((object): object is MappedLabelObject => {
+    const { x, y, width, height } = object.bbox;
+
+    return x >= 0 && y >= 0 && width > 0 && height > 0 && Number.isFinite(x + y + width + height);
+  });
+}
+
+function mapAndValidateBoxes(objects: LabelObject[], width: number, height: number) {
+  const coordinateMode = inferCoordinateMode(objects, width, height);
+
+  return {
+    coordinateMode,
+    mapped: objects.map((object) => normalizeObjectToPixels(object, width, height, coordinateMode)),
+  };
+}
+
+function inferCoordinateMode(objects: LabelObject[], width: number, height: number): "normalized" | "pixel" {
+  let pixelCount = 0;
+  let normalizedCount = 0;
+
+  for (const object of objects) {
+    const { bbox } = object;
+    const maxValue = Math.max(bbox.x, bbox.y, bbox.width, bbox.height);
+    const minValue = Math.min(bbox.x, bbox.y, bbox.width, bbox.height);
+    const hasNegative = minValue < 0;
+
+    if (!hasNegative && maxValue <= 1) {
+      normalizedCount += 1;
+      continue;
+    }
+
+    if (!hasNegative && (bbox.x <= width && bbox.width <= width && bbox.y <= height && bbox.height <= height)) {
+      pixelCount += 1;
+    }
+  }
+
+  if (pixelCount === 0 && normalizedCount === 0) {
+    return "normalized";
+  }
+
+  return pixelCount > normalizedCount ? "pixel" : "normalized";
+}
+
+function normalizeObjectToPixels(
+  object: LabelObject,
+  imageWidth: number,
+  imageHeight: number,
+  coordinateMode: "normalized" | "pixel",
+): MappedLabelObject {
+  const sourceWidth = coordinateMode === "normalized" ? 1 : imageWidth;
+  const sourceHeight = coordinateMode === "normalized" ? 1 : imageHeight;
+  const x = clamp01(object.bbox.x / sourceWidth) * imageWidth;
+  const y = clamp01(object.bbox.y / sourceHeight) * imageHeight;
+  const width = clamp01(object.bbox.width / sourceWidth) * imageWidth;
+  const height = clamp01(object.bbox.height / sourceHeight) * imageHeight;
+
+  return {
+    label: object.label,
+    confidence: object.confidence,
+    bbox: {
+      x,
+      y,
+      width,
+      height,
+    },
+  };
+}
+
+function toCocoPayloadWithMode(
+  fileName: string,
+  width: number,
+  height: number,
+  objects: MappedLabelObject[],
+): CocoPayload & { coordinateMode: "normalized" | "pixel" } {
   const categorySet = new Map<string, number>();
   const categories = objects.reduce((accumulator: CocoCategory[], current) => {
     const key = current.label.trim();
@@ -156,24 +250,18 @@ function toCocoPayload(fileName: string, width: number, height: number, objects:
   const annotations = objects.map((object, index) => {
     const label = object.label.trim();
     const categoryId = categorySet.get(label) ?? 1;
-    const bbox = [
-      clamp01(object.bbox.x) * width,
-      clamp01(object.bbox.y) * height,
-      clamp01(object.bbox.width) * width,
-      clamp01(object.bbox.height) * height,
-    ] as [number, number, number, number];
 
     return {
       id: index + 1,
       image_id: 1,
       category_id: categoryId,
       bbox: [
-        Number(bbox[0].toFixed(2)),
-        Number(bbox[1].toFixed(2)),
-        Number(bbox[2].toFixed(2)),
-        Number(bbox[3].toFixed(2)),
+        Number(object.bbox.x.toFixed(2)),
+        Number(object.bbox.y.toFixed(2)),
+        Number(object.bbox.width.toFixed(2)),
+        Number(object.bbox.height.toFixed(2)),
       ] as const,
-      area: Number((bbox[2] * bbox[3]).toFixed(2)),
+      area: Number((object.bbox.width * object.bbox.height).toFixed(2)),
       iscrowd: 0,
     };
   });
@@ -189,6 +277,7 @@ function toCocoPayload(fileName: string, width: number, height: number, objects:
     images: [imageEntry],
     annotations,
     categories,
+    coordinateMode: "pixel",
   };
 }
 
@@ -214,15 +303,12 @@ async function createAnnotatedImage(file: File, objects: LabelObject[]): Promise
   context.font = "14px Inter, Arial, sans-serif";
   context.lineWidth = Math.max(2, Math.round(Math.min(width, height) / 600));
 
-  objects.forEach((object, index) => {
+  const mappedObjects = mapObjectsToPixels(objects, width, height);
+  mappedObjects.forEach((object, index) => {
+    const { x, y, width: w, height: h } = object.bbox;
     const color = `hsl(${(index * 53) % 360}, 70%, 50%)`;
     context.strokeStyle = color;
     context.fillStyle = color;
-
-    const x = clamp01(object.bbox.x) * width;
-    const y = clamp01(object.bbox.y) * height;
-    const w = clamp01(object.bbox.width) * width;
-    const h = clamp01(object.bbox.height) * height;
 
     if (w < 1 || h < 1) {
       return;
@@ -253,6 +339,7 @@ async function createAnnotatedImage(file: File, objects: LabelObject[]): Promise
     height,
   };
 }
+
 
 async function uploadFile(file: File): Promise<string> {
   const formData = new FormData();

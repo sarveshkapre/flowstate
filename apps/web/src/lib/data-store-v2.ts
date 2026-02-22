@@ -26,6 +26,14 @@ import {
   type DatasetRecord,
   datasetVersionRecordSchema,
   type DatasetVersionRecord,
+  uploadScanJobRecordSchema,
+  type UploadScanJobRecord,
+  uploadScanJobStatusSchema,
+  type UploadScanJobStatus,
+  uploadScanJobStageSchema,
+  type UploadScanJobStage,
+  uploadScanJobQualityModeSchema,
+  type UploadScanJobQualityMode,
   connectorDeliveryAttemptRecordSchema,
   type ConnectorDeliveryAttemptRecord,
   connectorDeliveryRecordSchema,
@@ -110,6 +118,7 @@ type DbStateV2 = {
   runs: RunRecordV2[];
   run_traces: RunTraceRecord[];
   datasets: DatasetRecord[];
+  upload_scan_jobs: UploadScanJobRecord[];
   dataset_versions: DatasetVersionRecord[];
   dataset_batches: DatasetBatchRecord[];
   dataset_assets: DatasetAssetRecord[];
@@ -142,6 +151,7 @@ const DEFAULT_STATE: DbStateV2 = {
   runs: [],
   run_traces: [],
   datasets: [],
+  upload_scan_jobs: [],
   dataset_versions: [],
   dataset_batches: [],
   dataset_assets: [],
@@ -528,6 +538,9 @@ async function readState(): Promise<DbStateV2> {
     runs: (parsed.runs ?? []).map((item) => runRecordV2Schema.parse(item)),
     run_traces: (parsed.run_traces ?? []).map((item) => runTraceRecordSchema.parse(item)),
     datasets: (parsed.datasets ?? []).map((item) => datasetRecordSchema.parse(item)),
+    upload_scan_jobs: (parsed.upload_scan_jobs ?? []).map((item) =>
+      uploadScanJobRecordSchema.parse(item),
+    ),
     dataset_versions: (parsed.dataset_versions ?? []).map((item) =>
       datasetVersionRecordSchema.parse(item),
     ),
@@ -779,6 +792,9 @@ export async function deleteProject(input: { projectId: string; actor?: string }
     state.runs = state.runs.filter((run) => run.project_id !== input.projectId);
     state.run_traces = state.run_traces.filter((trace) => !runIds.has(trace.run_id));
     state.datasets = state.datasets.filter((dataset) => !datasetIds.has(dataset.id));
+    state.upload_scan_jobs = state.upload_scan_jobs.filter(
+      (job) => job.project_id !== input.projectId,
+    );
     state.dataset_versions = state.dataset_versions.filter(
       (version) => !datasetIds.has(version.dataset_id),
     );
@@ -1517,6 +1533,138 @@ export async function getDataset(datasetId: string) {
   return state.datasets.find((dataset) => dataset.id === datasetId) ?? null;
 }
 
+export async function createUploadScanJob(input: {
+  projectId: string;
+  datasetId: string;
+  batchName: string;
+  sourceType: DatasetBatchSourceType;
+  sourceArtifactIds: string[];
+  reasoningEffort: "low" | "medium" | "high";
+  scanPrompt?: string | null;
+  qualityMode: UploadScanJobQualityMode;
+  maxObjects?: number | null;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const timestamp = new Date().toISOString();
+    const job = uploadScanJobRecordSchema.parse({
+      id: randomUUID(),
+      project_id: input.projectId,
+      dataset_id: input.datasetId,
+      batch_name: input.batchName.trim(),
+      source_type: datasetBatchSourceTypeSchema.parse(input.sourceType),
+      source_artifact_ids: input.sourceArtifactIds
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 500),
+      reasoning_effort: input.reasoningEffort,
+      scan_prompt: input.scanPrompt?.trim() || null,
+      quality_mode: uploadScanJobQualityModeSchema.parse(input.qualityMode),
+      max_objects:
+        typeof input.maxObjects === "number" && Number.isFinite(input.maxObjects) && input.maxObjects > 0
+          ? Math.floor(input.maxObjects)
+          : null,
+      status: "queued",
+      stage: "queued",
+      progress: 0,
+      message: "Queued",
+      error_message: null,
+      batch_id: null,
+      preview_asset_id: null,
+      created_assets_count: 0,
+      labeled_assets_count: 0,
+      failed_assets_count: 0,
+      logs: [`[${timestamp}] queued`],
+      created_by: input.actor ?? null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    state.upload_scan_jobs.unshift(job);
+    return job;
+  });
+}
+
+export async function getUploadScanJob(jobId: string) {
+  const state = await readState();
+  return state.upload_scan_jobs.find((job) => job.id === jobId) ?? null;
+}
+
+export async function listUploadScanJobsByProject(input: { projectId: string; limit?: number }) {
+  const state = await readState();
+  const safeLimit =
+    typeof input.limit === "number" && Number.isFinite(input.limit) && input.limit > 0
+      ? Math.floor(input.limit)
+      : 100;
+  const maxLimit = Math.min(safeLimit, 500);
+
+  return state.upload_scan_jobs
+    .filter((job) => job.project_id === input.projectId)
+    .slice(0, maxLimit);
+}
+
+export async function patchUploadScanJob(input: {
+  jobId: string;
+  status?: UploadScanJobStatus;
+  stage?: UploadScanJobStage;
+  progress?: number | null;
+  message?: string | null;
+  errorMessage?: string | null;
+  batchId?: string | null;
+  previewAssetId?: string | null;
+  createdAssetsCount?: number;
+  labeledAssetsCount?: number;
+  failedAssetsCount?: number;
+  appendLog?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const job = state.upload_scan_jobs.find((item) => item.id === input.jobId);
+    if (!job) {
+      return null;
+    }
+
+    if (input.status) {
+      job.status = uploadScanJobStatusSchema.parse(input.status);
+    }
+    if (input.stage) {
+      job.stage = uploadScanJobStageSchema.parse(input.stage);
+    }
+    if (typeof input.progress === "number" && Number.isFinite(input.progress)) {
+      job.progress = Math.max(0, Math.min(1, input.progress));
+    } else if (input.progress === null) {
+      job.progress = null;
+    }
+    if (input.message !== undefined) {
+      job.message = input.message;
+    }
+    if (input.errorMessage !== undefined) {
+      job.error_message = input.errorMessage;
+    }
+    if (input.batchId !== undefined) {
+      job.batch_id = input.batchId;
+    }
+    if (input.previewAssetId !== undefined) {
+      job.preview_asset_id = input.previewAssetId;
+    }
+    if (typeof input.createdAssetsCount === "number" && Number.isFinite(input.createdAssetsCount)) {
+      job.created_assets_count = Math.max(0, Math.floor(input.createdAssetsCount));
+    }
+    if (typeof input.labeledAssetsCount === "number" && Number.isFinite(input.labeledAssetsCount)) {
+      job.labeled_assets_count = Math.max(0, Math.floor(input.labeledAssetsCount));
+    }
+    if (typeof input.failedAssetsCount === "number" && Number.isFinite(input.failedAssetsCount)) {
+      job.failed_assets_count = Math.max(0, Math.floor(input.failedAssetsCount));
+    }
+    if (input.appendLog && input.appendLog.trim()) {
+      const timestamp = new Date().toISOString();
+      job.logs = [...job.logs, `[${timestamp}] ${input.appendLog.trim()}`].slice(-200);
+    }
+
+    job.updated_at = new Date().toISOString();
+    return uploadScanJobRecordSchema.parse(job);
+  });
+}
+
 async function removeLocalDatasetAssets(projectId: string, assetIds: Set<string>) {
   if (assetIds.size === 0) {
     return;
@@ -1576,6 +1724,9 @@ export async function deleteDataset(input: { datasetId: string; actor?: string }
     await removeLocalDatasetAssets(dataset.project_id, datasetAssetIds);
 
     state.datasets = state.datasets.filter((item) => item.id !== input.datasetId);
+    state.upload_scan_jobs = state.upload_scan_jobs.filter(
+      (job) => job.dataset_id !== input.datasetId,
+    );
     state.dataset_versions = state.dataset_versions.filter(
       (version) => version.dataset_id !== input.datasetId,
     );

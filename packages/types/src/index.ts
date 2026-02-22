@@ -510,6 +510,51 @@ export const datasetBatchRecordSchema = z.object({
 });
 export type DatasetBatchRecord = z.infer<typeof datasetBatchRecordSchema>;
 
+export const uploadScanJobStatusSchema = z.enum(["queued", "processing", "completed", "failed"]);
+export type UploadScanJobStatus = z.infer<typeof uploadScanJobStatusSchema>;
+
+export const uploadScanJobStageSchema = z.enum([
+  "queued",
+  "creating_batch",
+  "ingesting_batch",
+  "auto_labeling",
+  "finalizing",
+  "completed",
+  "failed",
+]);
+export type UploadScanJobStage = z.infer<typeof uploadScanJobStageSchema>;
+
+export const uploadScanJobQualityModeSchema = z.enum(["fast", "dense"]);
+export type UploadScanJobQualityMode = z.infer<typeof uploadScanJobQualityModeSchema>;
+
+export const uploadScanJobRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  dataset_id: z.string(),
+  batch_name: z.string(),
+  source_type: datasetBatchSourceTypeSchema,
+  source_artifact_ids: z.array(z.string()),
+  reasoning_effort: z.enum(["low", "medium", "high"]),
+  scan_prompt: z.string().nullable(),
+  quality_mode: uploadScanJobQualityModeSchema,
+  max_objects: z.number().int().positive().nullable(),
+  status: uploadScanJobStatusSchema,
+  stage: uploadScanJobStageSchema,
+  progress: z.number().min(0).max(1).nullable(),
+  message: z.string().nullable(),
+  error_message: z.string().nullable(),
+  batch_id: z.string().nullable(),
+  preview_asset_id: z.string().nullable(),
+  created_assets_count: z.number().int().nonnegative(),
+  labeled_assets_count: z.number().int().nonnegative(),
+  failed_assets_count: z.number().int().nonnegative(),
+  logs: z.array(z.string()),
+  created_by: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type UploadScanJobRecord = z.infer<typeof uploadScanJobRecordSchema>;
+
 export const datasetAssetTypeSchema = z.enum(["image", "video_frame", "pdf_page"]);
 export type DatasetAssetType = z.infer<typeof datasetAssetTypeSchema>;
 

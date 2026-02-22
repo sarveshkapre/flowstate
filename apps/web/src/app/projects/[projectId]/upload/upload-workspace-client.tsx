@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderOpen, Upload } from "lucide-react";
+import { CircleCheck, CircleX, FolderOpen, Loader2, Upload } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
@@ -19,10 +19,6 @@ type Dataset = {
   id: string;
   project_id: string;
   name: string;
-};
-
-type Batch = {
-  id: string;
 };
 
 type UploadArtifactResponse = {
@@ -59,6 +55,41 @@ type BatchAsset = {
 };
 
 type ReasoningEffort = "low" | "medium" | "high";
+type UploadScanJobStatus = "queued" | "processing" | "completed" | "failed";
+type UploadScanJobStage =
+  | "queued"
+  | "creating_batch"
+  | "ingesting_batch"
+  | "auto_labeling"
+  | "finalizing"
+  | "completed"
+  | "failed";
+type UploadScanJob = {
+  id: string;
+  project_id: string;
+  dataset_id: string;
+  batch_name: string;
+  source_type: "image" | "video" | "mixed";
+  source_artifact_ids: string[];
+  reasoning_effort: ReasoningEffort;
+  scan_prompt: string | null;
+  quality_mode: "fast" | "dense";
+  max_objects: number | null;
+  status: UploadScanJobStatus;
+  stage: UploadScanJobStage;
+  progress: number | null;
+  message: string | null;
+  error_message: string | null;
+  batch_id: string | null;
+  preview_asset_id: string | null;
+  created_assets_count: number;
+  labeled_assets_count: number;
+  failed_assets_count: number;
+  logs: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 function defaultBatchName() {
   return `Uploaded on ${new Date().toLocaleString()}`;
@@ -90,25 +121,6 @@ function inferSourceType(files: File[]): "image" | "video" | "mixed" {
   return first ?? "mixed";
 }
 
-function isRenderableAsset(asset: BatchAsset) {
-  return asset.asset_type === "image" || asset.asset_type === "video_frame";
-}
-
-function selectAnnotatedAsset(assets: BatchAsset[]) {
-  return (
-    assets.find(
-      (asset) =>
-        isRenderableAsset(asset) &&
-        Array.isArray(asset.latest_annotation?.shapes) &&
-        asset.latest_annotation.shapes.length > 0,
-    ) ?? null
-  );
-}
-
-function selectFirstRenderableAsset(assets: BatchAsset[]) {
-  return assets.find((asset) => isRenderableAsset(asset)) ?? null;
-}
-
 function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -118,6 +130,29 @@ function downloadBlob(filename: string, blob: Blob) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function isJobRunning(status: UploadScanJobStatus) {
+  return status === "queued" || status === "processing";
+}
+
+function stageLabel(stage: UploadScanJobStage) {
+  switch (stage) {
+    case "creating_batch":
+      return "Creating batch";
+    case "ingesting_batch":
+      return "Ingesting files";
+    case "auto_labeling":
+      return "Auto-labeling";
+    case "finalizing":
+      return "Finalizing";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    default:
+      return "Queued";
+  }
 }
 
 export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
@@ -133,6 +168,9 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [scanPrompt, setScanPrompt] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewAsset, setPreviewAsset] = useState<BatchAsset | null>(null);
+  const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<UploadScanJob[]>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [showCocoJson, setShowCocoJson] = useState(false);
   const [cocoPreviewText, setCocoPreviewText] = useState<string | null>(null);
 
@@ -218,41 +256,83 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  async function loadBatchAssets(batchId: string) {
-    const assetsResponse = await fetch(
-      `/api/v2/projects/${projectId}/assets?batchId=${encodeURIComponent(
-        batchId,
-      )}&includeLatestAnnotation=true&limit=200`,
-      {
-        cache: "no-store",
-      },
-    );
-    const assetsPayload = (await assetsResponse.json().catch(() => ({}))) as {
-      assets?: BatchAsset[];
+  useEffect(() => {
+    if (!datasetId) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        await loadUploadJobs({ hydratePreview: true, silent: true });
+      } catch (jobError) {
+        if (!cancelled) {
+          setError(jobError instanceof Error ? jobError.message : "Failed to load upload jobs.");
+        }
+      }
+    };
+
+    void refresh();
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId, projectId, activeJobId, previewAssetId]);
+
+  async function fetchPreviewAsset(assetId: string) {
+    const response = await fetch(`/api/v2/assets/${assetId}`, { cache: "no-store" });
+    const payload = (await response.json().catch(() => ({}))) as {
+      asset?: BatchAsset;
       error?: string;
     };
-    if (!assetsResponse.ok) {
-      throw new Error(assetsPayload.error || "Failed to load uploaded assets.");
+    if (!response.ok || !payload.asset) {
+      throw new Error(payload.error || "Failed to load preview asset.");
     }
-    return assetsPayload.assets ?? [];
+    return payload.asset;
   }
 
-  async function runAutoLabelForAsset(assetId: string, prompt?: string) {
-    const response = await fetch(`/api/v2/assets/${assetId}/auto-label`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        reasoningEffort,
-        qualityMode: "dense",
-        prompt: prompt?.trim() ? prompt.trim() : undefined,
-      }),
+  async function loadUploadJobs(options?: { hydratePreview?: boolean; silent?: boolean }) {
+    const hydratePreview = options?.hydratePreview ?? true;
+    const silent = options?.silent ?? false;
+
+    const response = await fetch(`/api/v2/projects/${projectId}/upload-jobs?limit=25`, {
+      cache: "no-store",
     });
     const payload = (await response.json().catch(() => ({}))) as {
-      annotation?: { id: string };
+      jobs?: UploadScanJob[];
       error?: string;
     };
-    if (!response.ok || !payload.annotation) {
-      throw new Error(payload.error || "Auto-label failed.");
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to load upload jobs.");
+    }
+
+    const nextJobs = payload.jobs ?? [];
+    setJobs(nextJobs);
+
+    const current = nextJobs.find((job) => job.id === activeJobId) ?? nextJobs[0] ?? null;
+    if (current && current.id !== activeJobId) {
+      setActiveJobId(current.id);
+    }
+
+    if (!silent && current?.message) {
+      setMessage(current.message);
+    }
+
+    if (hydratePreview && current?.preview_asset_id && current.preview_asset_id !== previewAssetId) {
+      try {
+        const asset = await fetchPreviewAsset(current.preview_asset_id);
+        setPreviewAsset(asset);
+        setPreviewAssetId(current.preview_asset_id);
+      } catch (assetError) {
+        if (!silent) {
+          setError(assetError instanceof Error ? assetError.message : "Failed to load preview.");
+        }
+      }
     }
   }
 
@@ -298,9 +378,6 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     setBusy(true);
     setError(null);
     setMessage(null);
-    setPreviewAsset(null);
-    setShowCocoJson(false);
-    setCocoPreviewText(null);
 
     try {
       const prompt = scanPrompt.trim();
@@ -324,111 +401,45 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       }
 
       const sourceType = selectedFiles.length ? inferSourceType(selectedFiles) : "mixed";
-      const createBatchResponse = await fetch(`/api/v2/datasets/${datasetId}/batches`, {
+      const createJobResponse = await fetch(`/api/v2/projects/${projectId}/upload-jobs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: batchName.trim() || defaultBatchName(),
+          datasetId,
+          batchName: batchName.trim() || defaultBatchName(),
           sourceType,
           sourceArtifactIds,
+          reasoningEffort,
+          scanPrompt: prompt || undefined,
+          qualityMode: "dense",
         }),
       });
-      const createBatchPayload = (await createBatchResponse.json().catch(() => ({}))) as {
-        batch?: Batch;
+      const createJobPayload = (await createJobResponse.json().catch(() => ({}))) as {
+        job?: UploadScanJob;
         error?: string;
       };
 
-      if (!createBatchResponse.ok || !createBatchPayload.batch) {
-        throw new Error(createBatchPayload.error || "Failed to create batch.");
+      if (!createJobResponse.ok || !createJobPayload.job) {
+        throw new Error(createJobPayload.error || "Failed to start upload scan job.");
       }
 
-      const ingestResponse = await fetch(`/api/v2/batches/${createBatchPayload.batch.id}/ingest`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+      setJobs((previous) => {
+        const filtered = previous.filter((job) => job.id !== createJobPayload.job?.id);
+        return createJobPayload.job ? [createJobPayload.job, ...filtered] : filtered;
       });
-      const ingestPayload = (await ingestResponse.json().catch(() => ({}))) as {
-        result?: {
-          created_assets_count?: number;
-          failed_extraction_artifact_ids?: string[];
-          extraction_errors?: Array<{ artifact_id?: string; message?: string }>;
-        };
-        error?: string;
-      };
-
-      if (!ingestResponse.ok && ingestResponse.status !== 409) {
-        throw new Error(ingestPayload.error || "Batch ingest failed.");
-      }
-
-      let autoLabelMessage = "";
-      let preview: BatchAsset | null = null;
-      if ((ingestPayload.result?.created_assets_count ?? 0) > 0) {
-        const autoLabelResponse = await fetch(
-          `/api/v2/batches/${createBatchPayload.batch.id}/auto-label`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              filter: "unlabeled",
-              reasoningEffort,
-              qualityMode: "dense",
-              prompt: prompt || undefined,
-            }),
-          },
-        );
-        const autoLabelPayload = (await autoLabelResponse.json().catch(() => ({}))) as {
-          processed?: number;
-          results?: Array<{ assetId: string }>;
-          errors?: Array<{ assetId: string; error: string }>;
-          error?: string;
-        };
-
-        if (!autoLabelResponse.ok) {
-          autoLabelMessage = ` Batch auto-label failed: ${autoLabelPayload.error || "unknown error"}.`;
-        } else if (autoLabelPayload.processed && autoLabelPayload.processed > 0) {
-          autoLabelMessage = ` AI labeled ${autoLabelPayload.processed} asset(s).`;
-        } else if (autoLabelPayload.errors && autoLabelPayload.errors.length > 0) {
-          autoLabelMessage = " AI labeling completed with errors.";
-        }
-
-        let assets = await loadBatchAssets(createBatchPayload.batch.id);
-        preview = selectAnnotatedAsset(assets);
-        const firstRenderable = selectFirstRenderableAsset(assets);
-
-        if (!preview && firstRenderable) {
-          try {
-            await runAutoLabelForAsset(firstRenderable.id, prompt);
-            assets = await loadBatchAssets(createBatchPayload.batch.id);
-            preview = selectAnnotatedAsset(assets) ?? selectFirstRenderableAsset(assets);
-            if (!autoLabelMessage) {
-              autoLabelMessage = " AI labeled 1 asset.";
-            }
-          } catch (assetAutoLabelError) {
-            const reason =
-              assetAutoLabelError instanceof Error ? assetAutoLabelError.message : "unknown error";
-            autoLabelMessage = `${autoLabelMessage} Asset auto-label failed: ${reason}`;
-            preview = firstRenderable;
-          }
-        }
-      }
-
-      setPreviewAsset(preview);
+      setActiveJobId(createJobPayload.job.id);
+      setShowCocoJson(false);
+      setCocoPreviewText(null);
       setSelectedFiles([]);
       setBatchName(defaultBatchName());
-      const createdCount = ingestPayload.result?.created_assets_count ?? 0;
-      const failedExtractionCount =
-        ingestPayload.result?.failed_extraction_artifact_ids?.length ?? 0;
-      if (failedExtractionCount > 0) {
-        const firstError = ingestPayload.result?.extraction_errors?.[0]?.message;
-        const suffix = firstError ? ` ${firstError}` : "";
-        setMessage(
-          `Batch ingested with ${createdCount} assets. Video extraction failed for ${failedExtractionCount} file(s).${suffix}${autoLabelMessage}`,
-        );
-      } else {
-        setMessage(
-          (createdCount ? `Batch ready with ${createdCount} assets.` : "Batch created.") + autoLabelMessage,
-        );
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
       }
+      if (folderInputRef.current) {
+        folderInputRef.current.value = "";
+      }
+      setMessage("Upload accepted. Auto-label job is running in the background.");
+      await loadUploadJobs({ hydratePreview: true, silent: true });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to create batch.");
     } finally {
@@ -441,6 +452,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     const videoCount = selectedFiles.filter((file) => file.type.startsWith("video/")).length;
     return { imageCount, videoCount };
   }, [selectedFiles]);
+  const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null;
+  const hasRunningJobs = jobs.some((job) => isJobRunning(job.status));
 
   const previewShapes = previewAsset?.latest_annotation?.shapes ?? [];
   const canExport = Boolean(previewAsset && previewShapes.length > 0);
@@ -726,6 +739,132 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
           </CardContent>
         </Card>
+
+        {jobs.length > 0 ? (
+          <Card>
+            <CardContent className="space-y-4 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">Recent jobs</p>
+                  <p className="text-xs text-muted-foreground">
+                    {hasRunningJobs ? "Processing in background." : "No active processing right now."}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadUploadJobs({ hydratePreview: true })}
+                  disabled={busy}
+                >
+                  Refresh
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                {jobs.map((job) => {
+                  const selected = activeJob?.id === job.id;
+                  const progressPercent =
+                    typeof job.progress === "number"
+                      ? Math.max(0, Math.min(100, Math.round(job.progress * 100)))
+                      : null;
+                  return (
+                    <button
+                      key={job.id}
+                      type="button"
+                      onClick={async () => {
+                        setActiveJobId(job.id);
+                        if (job.preview_asset_id) {
+                          try {
+                            const asset = await fetchPreviewAsset(job.preview_asset_id);
+                            setPreviewAsset(asset);
+                            setPreviewAssetId(job.preview_asset_id);
+                          } catch (assetError) {
+                            setError(
+                              assetError instanceof Error
+                                ? assetError.message
+                                : "Failed to load preview asset.",
+                            );
+                          }
+                        }
+                      }}
+                      className={`w-full rounded-xl border p-3 text-left transition ${
+                        selected
+                          ? "border-primary/60 bg-primary/5"
+                          : "border-border/80 bg-muted/20 hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium">{job.batch_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {stageLabel(job.stage)} • {job.labeled_assets_count} labeled •{" "}
+                            {job.failed_assets_count} failed
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            job.status === "completed"
+                              ? "secondary"
+                              : job.status === "failed"
+                                ? "destructive"
+                                : "outline"
+                          }
+                        >
+                          {job.status}
+                        </Badge>
+                      </div>
+
+                      {progressPercent !== null ? (
+                        <div className="mt-2">
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                job.status === "failed"
+                                  ? "bg-destructive"
+                                  : job.status === "completed"
+                                    ? "bg-emerald-500"
+                                    : "bg-primary"
+                              }`}
+                              style={{ width: `${progressPercent}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            {progressPercent}% • {job.message || "Running"}
+                          </p>
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {activeJob ? (
+                <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeJob.status === "completed" ? (
+                      <CircleCheck className="h-4 w-4 text-emerald-500" />
+                    ) : null}
+                    {activeJob.status === "failed" ? (
+                      <CircleX className="h-4 w-4 text-destructive" />
+                    ) : null}
+                    {isJobRunning(activeJob.status) ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    ) : null}
+                    <p className="text-sm font-medium">{activeJob.message || stageLabel(activeJob.stage)}</p>
+                  </div>
+                  {activeJob.error_message ? (
+                    <p className="text-sm text-destructive">{activeJob.error_message}</p>
+                  ) : null}
+                  <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-background p-3 text-xs">
+                    {(activeJob.logs.length > 0
+                      ? activeJob.logs.slice(-12).join("\n")
+                      : "No logs yet.")}
+                  </pre>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
 
         {previewAsset ? (
           <Card>

@@ -208,10 +208,10 @@ export function ProjectsClient() {
 
   return (
     <section className="space-y-6">
-      <Card className="max-w-[560px] overflow-hidden border-border bg-card">
+      <Card className="w-full overflow-hidden border-border bg-card">
         <CardContent className="space-y-4 p-6">
           <p className="text-base font-semibold text-primary">Projects</p>
-          <h1 className="text-5xl font-semibold leading-[1.02] tracking-tight text-foreground">
+          <h1 className="text-4xl font-semibold leading-[1.02] tracking-tight text-foreground sm:text-5xl">
             Build vision models to recognize anything
           </h1>
           <p className="text-xl text-muted-foreground">

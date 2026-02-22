@@ -4,7 +4,11 @@ import { promises as fs } from "node:fs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createAssetAnnotation, getDatasetAsset, resolveDatasetAssetBinarySource } from "@/lib/data-store-v2";
+import {
+  createAssetAnnotation,
+  getDatasetAsset,
+  resolveDatasetAssetBinarySource,
+} from "@/lib/data-store-v2";
 import { resolveOpenAIModel } from "@/lib/openai-model";
 import { getOpenAIClient } from "@/lib/openai";
 import { requirePermission } from "@/lib/v2/auth";
@@ -67,11 +71,17 @@ export async function POST(request: Request, { params }: Params) {
   const payload = await request.json().catch(() => ({}));
   const parsed = autoLabelSchema.safeParse(payload);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid request body", details: parsed.error.flatten() },
+      { status: 400 },
+    );
   }
 
   if (!asset.artifact_id) {
-    return NextResponse.json({ error: "Asset is missing backing artifact. Unable to auto-label." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Asset is missing backing artifact. Unable to auto-label." },
+      { status: 400 },
+    );
   }
 
   const source = await resolveDatasetAssetBinarySource(asset);
@@ -85,7 +95,8 @@ export async function POST(request: Request, { params }: Params) {
     const hints = parsed.data.labelHints?.length
       ? `Preferred labels: ${parsed.data.labelHints.join(", ")}.`
       : "Infer concise labels from visible objects.";
-    const instruction = parsed.data.prompt?.trim() || "Detect prominent objects and return bounding boxes.";
+    const instruction =
+      parsed.data.prompt?.trim() || "Detect prominent objects and return bounding boxes.";
 
     const response = await openai.responses.create({
       model: resolveOpenAIModel(),
@@ -138,7 +149,7 @@ export async function POST(request: Request, { params }: Params) {
                       required: ["x", "y", "width", "height"],
                     },
                   },
-                  required: ["label", "bbox"],
+                  required: ["label", "confidence", "bbox"],
                 },
               },
             },

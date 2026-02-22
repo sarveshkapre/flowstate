@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { type ChangeEvent, useMemo, useState } from "react";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { Download, Loader2, Upload, WandSparkles } from "lucide-react";
 
 import { Button } from "@shadcn-ui/button";
@@ -278,6 +278,7 @@ function downloadDataUrl(filename: string, dataUrl: string) {
 }
 
 export function ProjectsClient() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<LabelJob[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -378,21 +379,24 @@ export function ProjectsClient() {
             Upload one or many images. We use GPT-5.2 to return object detections and labels, then build COCO annotations.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-block">
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(event) => {
-                  void onSelectFiles(event);
-                }}
-              />
-              <Button type="button" variant="outline">
-                <Upload className="mr-2 h-4 w-4" />
-                Upload Images
-              </Button>
-            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                void onSelectFiles(event);
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Upload Images
+            </Button>
             <Button type="button" onClick={() => void onRunAutoLabel()} disabled={jobs.length === 0 || busy}>
               <WandSparkles className="mr-2 h-4 w-4" />
               {busy ? "Labeling..." : "Auto Label"}

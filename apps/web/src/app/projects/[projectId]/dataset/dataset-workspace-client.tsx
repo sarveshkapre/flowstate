@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Sparkles, Trash2, XCircle } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
@@ -26,6 +26,7 @@ type AnnotationShape = {
 type Asset = {
   id: string;
   project_id: string;
+  dataset_id: string;
   artifact_id: string | null;
   asset_type: "image" | "video_frame" | "pdf_page";
   storage_path: string;
@@ -37,6 +38,13 @@ type Asset = {
     source: "manual" | "ai_prelabel" | "imported";
     shapes: AnnotationShape[];
   } | null;
+};
+
+type DatasetRecord = {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
 };
 
 type FilterStatus = "all" | "unlabeled" | "auto_labeled" | "reviewed";
@@ -88,9 +96,12 @@ function confidenceLabel(value: number | null) {
 }
 
 export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
+  const [datasets, setDatasets] = useState<DatasetRecord[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
+  const [deletingDatasetId, setDeletingDatasetId] = useState<string | null>(null);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState("all");
@@ -99,24 +110,37 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadAssets() {
+  async function loadData() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/v2/projects/${projectId}/assets?includeLatestAnnotation=true&limit=2500`, {
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => ({}))) as {
+      const [assetsResponse, datasetsResponse] = await Promise.all([
+        fetch(`/api/v2/projects/${projectId}/assets?includeLatestAnnotation=true&limit=2500`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/v2/datasets?projectId=${encodeURIComponent(projectId)}`, {
+          cache: "no-store",
+        }),
+      ]);
+      const assetsPayload = (await assetsResponse.json().catch(() => ({}))) as {
         assets?: Asset[];
         error?: string;
       };
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to load dataset.");
+      const datasetsPayload = (await datasetsResponse.json().catch(() => ({}))) as {
+        datasets?: DatasetRecord[];
+        error?: string;
+      };
+      if (!assetsResponse.ok) {
+        throw new Error(assetsPayload.error || "Failed to load dataset.");
+      }
+      if (!datasetsResponse.ok) {
+        throw new Error(datasetsPayload.error || "Failed to load dataset list.");
       }
 
-      const filtered = (payload.assets ?? []).filter(
+      const filtered = (assetsPayload.assets ?? []).filter(
         (asset) => asset.asset_type === "image" || asset.asset_type === "video_frame",
       );
+      setDatasets(datasetsPayload.datasets ?? []);
       setAssets(filtered);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load dataset.");
@@ -126,7 +150,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   useEffect(() => {
-    void loadAssets();
+    void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -144,6 +168,10 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
     const searchQuery = search.trim().toLowerCase();
 
     return assets.filter((asset) => {
+      if (selectedDatasetId !== "all" && asset.dataset_id !== selectedDatasetId) {
+        return false;
+      }
+
       const status = deriveStatus(asset);
       if (statusFilter !== "all" && status !== statusFilter) {
         return false;
@@ -168,7 +196,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
       const classMatch = names.some((name) => name.toLowerCase().includes(searchQuery));
       return idMatch || classMatch;
     });
-  }, [assets, classFilter, maxConfidence, search, statusFilter]);
+  }, [assets, classFilter, maxConfidence, search, selectedDatasetId, statusFilter]);
 
   const totals = useMemo(() => {
     const classSet = new Set<string>();
@@ -204,7 +232,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
         throw new Error(payload.error || "Auto-label failed.");
       }
 
-      await loadAssets();
+      await loadData();
       setMessage("Auto-label complete.");
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : "Auto-label failed.");
@@ -241,12 +269,51 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
         throw new Error(payload.error || "Unable to mark as reviewed.");
       }
 
-      await loadAssets();
+      await loadData();
       setMessage("Marked reviewed.");
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : "Unable to mark reviewed.");
     } finally {
       setBusyAssetId(null);
+    }
+  }
+
+  async function deleteSelectedDataset() {
+    if (selectedDatasetId === "all") {
+      setError("Select a dataset to delete.");
+      return;
+    }
+
+    const selectedDataset = datasets.find((dataset) => dataset.id === selectedDatasetId);
+    if (!selectedDataset) {
+      setError("Dataset not found.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete dataset "${selectedDataset.name}" and all its assets?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingDatasetId(selectedDataset.id);
+    setMessage(null);
+    setError(null);
+    try {
+      const response = await fetch(`/api/v2/datasets/${selectedDataset.id}`, { method: "DELETE" });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok && response.status !== 204) {
+        throw new Error(payload.error || "Unable to delete dataset.");
+      }
+
+      setSelectedDatasetId("all");
+      await loadData();
+      setMessage(`Deleted dataset "${selectedDataset.name}".`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete dataset.");
+    } finally {
+      setDeletingDatasetId(null);
     }
   }
 
@@ -260,12 +327,23 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
       </div>
 
       <Card>
-        <CardContent className="grid gap-3 p-4 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
+        <CardContent className="grid gap-3 p-4 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto_auto]">
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search asset id or class..."
           />
+          <NativeSelect
+            value={selectedDatasetId}
+            onChange={(event) => setSelectedDatasetId(event.target.value)}
+          >
+            <option value="all">All datasets</option>
+            {datasets.map((dataset) => (
+              <option key={dataset.id} value={dataset.id}>
+                {dataset.name}
+              </option>
+            ))}
+          </NativeSelect>
           <NativeSelect value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as FilterStatus)}>
             <option value="all">All statuses</option>
             <option value="unlabeled">Unlabeled</option>
@@ -303,6 +381,19 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
               <option value="high">High</option>
             </NativeSelect>
           </label>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={selectedDatasetId === "all" || deletingDatasetId !== null}
+            onClick={() => void deleteSelectedDataset()}
+          >
+            {deletingDatasetId ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="mr-2 h-4 w-4" />
+            )}
+            {deletingDatasetId ? "Deleting..." : "Delete dataset"}
+          </Button>
           <Button
             type="button"
             variant="outline"

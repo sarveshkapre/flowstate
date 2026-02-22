@@ -23,9 +23,9 @@ export function ProjectSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="w-full rounded-2xl border border-border bg-card p-3 shadow-sm md:sticky md:top-20 md:h-fit md:w-60">
+    <aside className="w-full rounded-2xl border border-border/90 bg-card p-3 shadow-sm md:sticky md:top-20 md:h-fit md:w-60">
       <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
-        <p className="truncate text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Project</p>
+        <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Project</p>
         <p className="truncate text-base font-semibold text-foreground">{projectName}</p>
         <p className="truncate text-xs text-muted-foreground">ID {projectId.slice(0, 8)}</p>
       </div>
@@ -43,7 +43,7 @@ export function ProjectSidebar({
               className={cn(
                 "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 active
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >

@@ -191,19 +191,20 @@ export function ProjectsClient() {
         </Card>
 
         <div className="grid gap-4 md:grid-cols-2">
-          {["Instance Segmentation", "Keypoint Detection", "Object Detection", "Multimodal"].map((title, index) => (
-            <Card key={title} className="overflow-hidden border-border">
-              <div
-                className={cn(
-                  "h-40",
-                  index % 2 === 0
-                    ? "bg-gradient-to-br from-indigo-500/20 via-cyan-400/20 to-blue-500/10"
-                    : "bg-gradient-to-br from-emerald-500/20 via-lime-400/20 to-sky-500/10",
-                )}
-              />
+          {[
+            { title: "Instance Segmentation", tone: "from-cyan-500/20 via-blue-500/15 to-indigo-500/15" },
+            { title: "Keypoint Detection", tone: "from-fuchsia-500/20 via-violet-500/15 to-indigo-500/15" },
+            { title: "Object Detection", tone: "from-emerald-500/20 via-lime-400/15 to-cyan-500/15" },
+            { title: "Multimodal", tone: "from-amber-500/20 via-orange-400/15 to-rose-500/15" },
+          ].map((item) => (
+            <Card key={item.title} className="overflow-hidden border-border">
+              <div className={cn("relative h-40 bg-gradient-to-br", item.tone)}>
+                <p className="absolute left-3 top-2 rounded-md bg-background/85 px-2 py-1 text-xs font-semibold">
+                  {item.title}
+                </p>
+              </div>
               <CardContent className="p-4">
-                <p className="text-lg font-semibold">{title}</p>
-                <p className="text-sm text-muted-foreground">Production-ready templates and annotation workflows.</p>
+                <p className="text-sm text-muted-foreground">Templates and UI patterns for production workflows.</p>
               </CardContent>
             </Card>
           ))}

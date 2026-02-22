@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, FolderOpen, ImageIcon, Smartphone, Upload } from "lucide-react";
+import { ArrowRight, Code2, FolderOpen, ImageIcon, QrCode, Smartphone, Upload } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
@@ -318,7 +318,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             </label>
 
             <div
-              className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center"
+              className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center lg:p-12"
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 event.preventDefault();
@@ -357,6 +357,15 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                 <Badge variant="outline">PDFs: {fileSummary.pdfCount}</Badge>
                 <Badge variant="outline">Total: {selectedFiles.length}</Badge>
               </div>
+
+              <div className="mx-auto mt-6 w-full max-w-xl rounded-lg border border-border/80 bg-background/90 p-3">
+                <p className="text-xs font-medium text-muted-foreground">Supported Formats</p>
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs">
+                  <Badge variant="secondary">Images (.jpg, .png, .webp)</Badge>
+                  <Badge variant="secondary">Videos (.mp4, .mov)</Badge>
+                  <Badge variant="secondary">PDFs (.pdf)</Badge>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -381,8 +390,13 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               <CardTitle className="text-base">Upload from your phone</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex h-24 w-24 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
-                <Smartphone className="h-7 w-7" />
+              <div className="flex items-center gap-3">
+                <div className="flex h-14 w-14 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+                  <Smartphone className="h-6 w-6" />
+                </div>
+                <div className="grid h-20 w-20 place-items-center rounded-md border border-border bg-background">
+                  <QrCode className="h-10 w-10 text-muted-foreground" />
+                </div>
               </div>
               <p className="text-sm text-muted-foreground">Scan a QR code to send photos directly to this project.</p>
             </CardContent>
@@ -396,6 +410,24 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               <Input placeholder="Search for images" />
               <Button variant="outline" className="w-full justify-between">
                 Explore templates
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Bulk Upload Images</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Upload at scale using Flowstate API or worker automation hooks.
+              </p>
+              <Button variant="outline" className="w-full justify-between">
+                <span className="inline-flex items-center gap-2">
+                  <Code2 className="h-4 w-4" />
+                  Learn More
+                </span>
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </CardContent>

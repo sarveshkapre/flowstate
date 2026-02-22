@@ -5,21 +5,21 @@
 :root {
   color-scheme: light;
 
-  --bg: #fafafa;
+  --bg: #f5f6fb;
   --bg-elevated: #ffffff;
   --surface: #ffffff;
-  --surface-2: #f5f5f5;
-  --surface-3: #f0f0f0;
+  --surface-2: #f7f8fc;
+  --surface-3: #eef1f7;
 
-  --text: #171717;
-  --text-soft: #525252;
-  --text-faint: #737373;
+  --text: #0f172a;
+  --text-soft: #475569;
+  --text-faint: #64748b;
 
-  --stroke: #e5e5e5;
-  --stroke-strong: #d4d4d4;
+  --stroke: #dce2ef;
+  --stroke-strong: #cbd5e1;
 
-  --accent-hover: #2563eb;
-  --accent-soft: #eff6ff;
+  --accent-hover: #4f46e5;
+  --accent-soft: #eef2ff;
   --accent-contrast: #ffffff;
 
   --danger: #dc2626;
@@ -41,40 +41,40 @@
   --card-foreground: var(--text);
   --popover: var(--surface);
   --popover-foreground: var(--text);
-  --primary: #18181b;
-  --primary-foreground: #fafafa;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --muted: #f4f4f5;
-  --muted-foreground: #737373;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2ff;
+  --secondary-foreground: #312e81;
+  --muted: #eef2f8;
+  --muted-foreground: #64748b;
+  --accent: #eef2ff;
+  --accent-foreground: #312e81;
   --destructive: var(--danger);
   --destructive-foreground: #ffffff;
   --border: var(--stroke);
   --input: var(--stroke);
-  --ring: #a1a1aa;
+  --ring: #818cf8;
   --radius: 0.625rem;
 }
 
 .dark {
   color-scheme: dark;
 
-  --bg: #09090b;
-  --bg-elevated: #18181b;
-  --surface: #18181b;
-  --surface-2: #18181b;
-  --surface-3: #27272a;
+  --bg: #090b12;
+  --bg-elevated: #101423;
+  --surface: #101423;
+  --surface-2: #131a2c;
+  --surface-3: #1a2236;
 
-  --text: #fafafa;
-  --text-soft: #a1a1aa;
-  --text-faint: #71717a;
+  --text: #e2e8f0;
+  --text-soft: #94a3b8;
+  --text-faint: #7c8ba1;
 
-  --stroke: #27272a;
-  --stroke-strong: #3f3f46;
+  --stroke: #243148;
+  --stroke-strong: #31415f;
 
   --accent-hover: #93c5fd;
-  --accent-soft: #172554;
+  --accent-soft: #1f2551;
   --accent-contrast: #0a0a0a;
 
   --danger: #ef4444;
@@ -87,19 +87,19 @@
   --card-foreground: var(--text);
   --popover: var(--surface);
   --popover-foreground: var(--text);
-  --primary: #fafafa;
-  --primary-foreground: #18181b;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
+  --primary: #818cf8;
+  --primary-foreground: #111827;
+  --secondary: #1b2540;
+  --secondary-foreground: #dbeafe;
+  --muted: #161f35;
+  --muted-foreground: #93a4bc;
+  --accent: #1b2540;
+  --accent-foreground: #dbeafe;
   --destructive: var(--danger);
   --destructive-foreground: #ffffff;
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #52525b;
+  --border: #243148;
+  --input: #2d3d58;
+  --ring: #6366f1;
 }
 
 @theme inline {
@@ -315,9 +315,9 @@ h3 {
   color: var(--text-faint);
 }
 
-input,
-select,
-textarea {
+.legacy-form input,
+.legacy-form select,
+.legacy-form textarea {
   border: 1px solid var(--stroke);
   border-radius: var(--radius-sm);
   padding: 0.62rem 0.72rem;
@@ -328,16 +328,16 @@ textarea {
   transition: border-color 130ms ease, box-shadow 130ms ease, background-color 130ms ease;
 }
 
-input:focus,
-select:focus,
-textarea:focus {
+.legacy-form input:focus,
+.legacy-form select:focus,
+.legacy-form textarea:focus {
   border-color: var(--accent);
   box-shadow: var(--ring);
   outline: none;
 }
 
-input::placeholder,
-textarea::placeholder {
+.legacy-form input::placeholder,
+.legacy-form textarea::placeholder {
   color: #8a96a8;
 }
 

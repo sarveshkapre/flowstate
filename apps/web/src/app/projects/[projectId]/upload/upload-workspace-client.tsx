@@ -35,7 +35,25 @@ type UploadArtifactResponse = {
 type BatchAsset = {
   id: string;
   asset_type: "image" | "video_frame" | "pdf_page";
-  latest_annotation?: { id: string } | null;
+  frame_index: number | null;
+  page_number: number | null;
+  latest_annotation?:
+    | {
+        id: string;
+        shapes: Array<{
+          id: string;
+          label: string;
+          confidence: number | null;
+          geometry: {
+            type: "bbox";
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+          };
+        }>;
+      }
+    | null;
 };
 
 type ReasoningEffort = "low" | "medium" | "high";
@@ -70,6 +88,25 @@ function inferSourceType(files: File[]): "image" | "video" | "mixed" {
   return first ?? "mixed";
 }
 
+function isRenderableAsset(asset: BatchAsset) {
+  return asset.asset_type === "image" || asset.asset_type === "video_frame";
+}
+
+function selectAnnotatedAsset(assets: BatchAsset[]) {
+  return (
+    assets.find(
+      (asset) =>
+        isRenderableAsset(asset) &&
+        Array.isArray(asset.latest_annotation?.shapes) &&
+        asset.latest_annotation.shapes.length > 0,
+    ) ?? null
+  );
+}
+
+function selectFirstRenderableAsset(assets: BatchAsset[]) {
+  return assets.find((asset) => isRenderableAsset(asset)) ?? null;
+}
+
 export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +117,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [batchName, setBatchName] = useState(defaultBatchName);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewAsset, setPreviewAsset] = useState<BatchAsset | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -163,6 +201,42 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  async function loadBatchAssets(batchId: string) {
+    const assetsResponse = await fetch(
+      `/api/v2/projects/${projectId}/assets?batchId=${encodeURIComponent(
+        batchId,
+      )}&includeLatestAnnotation=true&limit=200`,
+      {
+        cache: "no-store",
+      },
+    );
+    const assetsPayload = (await assetsResponse.json().catch(() => ({}))) as {
+      assets?: BatchAsset[];
+      error?: string;
+    };
+    if (!assetsResponse.ok) {
+      throw new Error(assetsPayload.error || "Failed to load uploaded assets.");
+    }
+    return assetsPayload.assets ?? [];
+  }
+
+  async function runAutoLabelForAsset(assetId: string) {
+    const response = await fetch(`/api/v2/assets/${assetId}/auto-label`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        reasoningEffort,
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      annotation?: { id: string };
+      error?: string;
+    };
+    if (!response.ok || !payload.annotation) {
+      throw new Error(payload.error || "Auto-label failed.");
+    }
+  }
+
   function addFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) {
       return;
@@ -205,6 +279,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     setBusy(true);
     setError(null);
     setMessage(null);
+    setPreviewAsset(null);
 
     try {
       const sourceArtifactIds: string[] = [];
@@ -264,7 +339,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       }
 
       let autoLabelMessage = "";
-      let labeledAssetId: string | null = null;
+      let preview: BatchAsset | null = null;
       if ((ingestPayload.result?.created_assets_count ?? 0) > 0) {
         const autoLabelResponse = await fetch(
           `/api/v2/batches/${createBatchPayload.batch.id}/auto-label`,
@@ -285,39 +360,35 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         };
 
         if (!autoLabelResponse.ok) {
-          autoLabelMessage = ` Batch auto-label failed: ${autoLabelPayload.error || "unknown error"}`;
+          autoLabelMessage = ` Batch auto-label failed: ${autoLabelPayload.error || "unknown error"}.`;
         } else if (autoLabelPayload.processed && autoLabelPayload.processed > 0) {
           autoLabelMessage = ` AI labeled ${autoLabelPayload.processed} asset(s).`;
-          labeledAssetId = autoLabelPayload.results?.[0]?.assetId ?? null;
         } else if (autoLabelPayload.errors && autoLabelPayload.errors.length > 0) {
           autoLabelMessage = " AI labeling completed with errors.";
         }
+
+        let assets = await loadBatchAssets(createBatchPayload.batch.id);
+        preview = selectAnnotatedAsset(assets);
+        const firstRenderable = selectFirstRenderableAsset(assets);
+
+        if (!preview && firstRenderable) {
+          try {
+            await runAutoLabelForAsset(firstRenderable.id);
+            assets = await loadBatchAssets(createBatchPayload.batch.id);
+            preview = selectAnnotatedAsset(assets) ?? selectFirstRenderableAsset(assets);
+            if (!autoLabelMessage) {
+              autoLabelMessage = " AI labeled 1 asset.";
+            }
+          } catch (assetAutoLabelError) {
+            const reason =
+              assetAutoLabelError instanceof Error ? assetAutoLabelError.message : "unknown error";
+            autoLabelMessage = `${autoLabelMessage} Asset auto-label failed: ${reason}`;
+            preview = firstRenderable;
+          }
+        }
       }
 
-      if (!labeledAssetId && (ingestPayload.result?.created_assets_count ?? 0) > 0) {
-        const assetsResponse = await fetch(
-          `/api/v2/projects/${projectId}/assets?batchId=${encodeURIComponent(
-            createBatchPayload.batch.id,
-          )}&includeLatestAnnotation=true&limit=200`,
-          {
-            cache: "no-store",
-          },
-        );
-        const assetsPayload = (await assetsResponse.json().catch(() => ({}))) as {
-          assets?: BatchAsset[];
-        };
-        const assets = assetsPayload.assets ?? [];
-        const withAnnotation = assets.find(
-          (asset) =>
-            (asset.asset_type === "image" || asset.asset_type === "video_frame") &&
-            asset.latest_annotation,
-        );
-        const firstRenderable = assets.find(
-          (asset) => asset.asset_type === "image" || asset.asset_type === "video_frame",
-        );
-        labeledAssetId = withAnnotation?.id ?? firstRenderable?.id ?? null;
-      }
-
+      setPreviewAsset(preview);
       setSelectedFiles([]);
       setBatchName(defaultBatchName());
       const createdCount = ingestPayload.result?.created_assets_count ?? 0;
@@ -333,12 +404,6 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         setMessage(
           (createdCount ? `Batch ready with ${createdCount} assets.` : "Batch created.") + autoLabelMessage,
         );
-      }
-
-      if (labeledAssetId) {
-        router.push(`/projects/${projectId}/annotate?assetId=${encodeURIComponent(labeledAssetId)}`);
-      } else if (createdCount > 0) {
-        router.push(`/projects/${projectId}/annotate`);
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to create batch.");
@@ -363,23 +428,23 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       <div className="grid gap-5">
         <Card>
           <CardContent className="space-y-5 p-5">
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="space-y-1">
-                  <span className="text-sm font-medium">Batch Name</span>
-                  <Input value={batchName} onChange={(event) => setBatchName(event.target.value)} />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium">Reasoning</span>
-                  <NativeSelect
-                    value={reasoningEffort}
-                    onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </NativeSelect>
-                </label>
-              </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-sm font-medium">Batch Name</span>
+                <Input value={batchName} onChange={(event) => setBatchName(event.target.value)} />
+              </label>
+              <label className="space-y-1">
+                <span className="text-sm font-medium">Reasoning</span>
+                <NativeSelect
+                  value={reasoningEffort}
+                  onChange={(event) => setReasoningEffort(event.target.value as ReasoningEffort)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </NativeSelect>
+              </label>
+            </div>
 
             <p className="text-sm text-muted-foreground">
               Upload and Process automatically runs OpenAI auto-labeling and opens the result.
@@ -396,10 +461,10 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                 <Upload className="h-8 w-8 text-muted-foreground" />
               </div>
-                <p className="text-2xl font-semibold tracking-tight">Drag and drop files</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Upload images or short videos. Videos are sampled into frames automatically.
-                </p>
+              <p className="text-2xl font-semibold tracking-tight">Drag and drop files</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Upload images or short videos. Videos are sampled into frames automatically.
+              </p>
 
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
                 <input
@@ -417,7 +482,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   className="hidden"
                   onChange={(event) => addFiles(event.target.files)}
                 />
-                    <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                   <Upload className="mr-2 h-4 w-4" />
                   Add Files
                 </Button>
@@ -459,6 +524,61 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
           </CardContent>
         </Card>
+
+        {previewAsset ? (
+          <Card>
+            <CardContent className="space-y-4 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">Auto-label result</p>
+                  <p className="text-xs text-muted-foreground">
+                    {previewAsset.latest_annotation?.shapes.length ?? 0} labels detected
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    router.push(`/projects/${projectId}/annotate?assetId=${encodeURIComponent(previewAsset.id)}`)
+                  }
+                >
+                  Open in Annotate
+                </Button>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/20 p-2">
+                <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/v2/assets/${previewAsset.id}/file`}
+                    alt="Auto-labeled preview"
+                    className="block h-auto max-h-[640px] w-auto max-w-full"
+                    draggable={false}
+                  />
+                  <div className="pointer-events-none absolute inset-0">
+                    {previewAsset.latest_annotation?.shapes.map((shape) =>
+                      shape.geometry.type === "bbox" ? (
+                        <div
+                          key={shape.id}
+                          className="absolute border-2 border-emerald-500/90"
+                          style={{
+                            left: `${shape.geometry.x * 100}%`,
+                            top: `${shape.geometry.y * 100}%`,
+                            width: `${shape.geometry.width * 100}%`,
+                            height: `${shape.geometry.height * 100}%`,
+                          }}
+                        >
+                          <span className="absolute left-0 top-0 -translate-y-full rounded bg-emerald-600 px-1 py-0.5 text-[10px] text-white">
+                            {shape.label}
+                          </span>
+                        </div>
+                      ) : null,
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
     </section>
   );

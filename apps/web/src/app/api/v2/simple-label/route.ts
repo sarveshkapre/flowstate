@@ -2,13 +2,31 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { readArtifactBytes } from "@/lib/data-store";
-import { resolveOpenAIModel } from "@/lib/openai-model";
 import { getOpenAIClient } from "@/lib/openai";
 import { requireV1Permission } from "@/lib/v1/auth";
+
+const LAYOUT_MODEL = "gpt-5.2";
 
 const requestSchema = z.object({
   artifactId: z.string().uuid(),
   prompt: z.string().min(1).max(4000).optional(),
+});
+
+const bboxSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1),
+  height: z.number().min(0).max(1),
+});
+
+const objectSchema = z.object({
+  label: z.string().min(1),
+  bbox: bboxSchema,
+  confidence: z.number().min(0).max(1).optional(),
+});
+
+const responseSchema = z.object({
+  objects: z.array(objectSchema),
 });
 
 const DEFAULT_PROMPT =
@@ -37,9 +55,51 @@ export async function POST(request: Request) {
 
   try {
     const openai = getOpenAIClient();
-    const model = resolveOpenAIModel();
     const response = await openai.responses.create({
-      model,
+      model: LAYOUT_MODEL,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "image_objects",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              objects: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    label: {
+                      type: "string",
+                    },
+                    confidence: {
+                      type: ["number", "null"],
+                      minimum: 0,
+                      maximum: 1,
+                    },
+                    bbox: {
+                      type: "object",
+                      additionalProperties: false,
+                      properties: {
+                        x: { type: "number", minimum: 0, maximum: 1 },
+                        y: { type: "number", minimum: 0, maximum: 1 },
+                        width: { type: "number", minimum: 0, maximum: 1 },
+                        height: { type: "number", minimum: 0, maximum: 1 },
+                      },
+                      required: ["x", "y", "width", "height"],
+                    },
+                  },
+                  required: ["label", "bbox"],
+                },
+              },
+            },
+            required: ["objects"],
+          },
+          strict: true,
+        },
+      },
       input: [
         {
           role: "system",
@@ -63,19 +123,30 @@ export async function POST(request: Request) {
     });
 
     const responseText = response.output_text?.trim() || "";
-    let parsedJson: unknown = null;
+    if (!responseText) {
+      return NextResponse.json({ error: "Model returned an empty response." }, { status: 502 });
+    }
+
+    let parsedOutput: z.output<typeof responseSchema>;
     try {
-      parsedJson = responseText ? JSON.parse(responseText) : null;
+      const parsed = JSON.parse(responseText) as unknown;
+      parsedOutput = responseSchema.parse(parsed);
     } catch {
-      parsedJson = null;
+      return NextResponse.json(
+        {
+          error: "Model response did not match expected schema.",
+          details: "Expected `{ objects: Array<{ label, bbox: {x,y,width,height}, confidence? }>`.",
+          responseText,
+        },
+        { status: 502 },
+      );
     }
 
     return NextResponse.json({
       artifactId: artifactRecord.artifact.id,
-      model,
-      responseText,
-      parsedJson,
-      output: response.output ?? [],
+      model: LAYOUT_MODEL,
+      objects: parsedOutput.objects,
+      rawOutput: responseText,
       usage: response.usage ?? null,
     });
   } catch (error) {
@@ -85,4 +156,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

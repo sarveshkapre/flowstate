@@ -1,7 +1,8 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Upload, WandSparkles } from "lucide-react";
+import { type ChangeEvent, useMemo, useState } from "react";
+import { Download, Loader2, Upload, WandSparkles } from "lucide-react";
 
 import { Button } from "@shadcn-ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
@@ -13,144 +14,492 @@ type UploadResponse = {
   error?: string;
 };
 
+type BBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type LabelObject = {
+  label: string;
+  confidence?: number | null;
+  bbox: BBox;
+};
+
 type AutoLabelResponse = {
   artifactId: string;
   model: string;
-  responseText: string;
-  parsedJson: unknown;
-  output: unknown;
+  objects: LabelObject[];
+  rawOutput: string;
   usage: unknown;
-  error?: string;
+};
+
+type CocoCategory = {
+  id: number;
+  name: string;
+  supercategory: "object";
+};
+
+type CocoAnnotation = {
+  id: number;
+  image_id: number;
+  category_id: number;
+  bbox: readonly [number, number, number, number];
+  area: number;
+  iscrowd: number;
+};
+
+type CocoImage = {
+  id: number;
+  file_name: string;
+  width: number;
+  height: number;
+};
+
+type CocoPayload = {
+  images: CocoImage[];
+  annotations: CocoAnnotation[];
+  categories: CocoCategory[];
+};
+
+type LabelJobStatus = "idle" | "uploading" | "labeling" | "done" | "error";
+
+type LabelJob = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  status: LabelJobStatus;
+  error: string | null;
+  model?: string;
+  objects?: LabelObject[];
+  rawOutput?: string;
+  annotatedImageUrl?: string;
+  coco?: CocoPayload;
 };
 
 const DEFAULT_PROMPT =
-  "You are a computer vision expert. Draw bounding boxes for every object in this image and identify each object label. Return concise JSON with an `objects` array where each item has `label`, `bbox` ({x,y,width,height}), and optional `confidence`. Use normalized coordinates in [0,1].";
+  "You are a computer vision labeling expert. Draw bounding boxes for every object in this image and identify each object label. Return concise JSON with an `objects` array where each item has `label`, `bbox` (`x`, `y`, `width`, `height`), and optional `confidence`. Use normalized coordinates in [0, 1].";
+
+function clamp01(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Unable to read image for preview."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const imageElement = new Image();
+    const blobUrl = URL.createObjectURL(file);
+
+    imageElement.onload = () => {
+      URL.revokeObjectURL(blobUrl);
+      resolve(imageElement);
+    };
+
+    imageElement.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error("Unable to load uploaded image."));
+    };
+
+    imageElement.src = blobUrl;
+  });
+}
+
+function downloadContent(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+function toCocoPayload(fileName: string, width: number, height: number, objects: LabelObject[]): CocoPayload {
+  const categorySet = new Map<string, number>();
+  const categories = objects.reduce((accumulator: CocoCategory[], current) => {
+    const key = current.label.trim();
+    if (!key) {
+      return accumulator;
+    }
+
+    if (!categorySet.has(key)) {
+      const id = categorySet.size + 1;
+      categorySet.set(key, id);
+      accumulator.push({ id, name: key, supercategory: "object" });
+    }
+    return accumulator;
+  }, []);
+
+  const annotations = objects.map((object, index) => {
+    const label = object.label.trim();
+    const categoryId = categorySet.get(label) ?? 1;
+    const bbox = [
+      clamp01(object.bbox.x) * width,
+      clamp01(object.bbox.y) * height,
+      clamp01(object.bbox.width) * width,
+      clamp01(object.bbox.height) * height,
+    ] as [number, number, number, number];
+
+    return {
+      id: index + 1,
+      image_id: 1,
+      category_id: categoryId,
+      bbox: [
+        Number(bbox[0].toFixed(2)),
+        Number(bbox[1].toFixed(2)),
+        Number(bbox[2].toFixed(2)),
+        Number(bbox[3].toFixed(2)),
+      ] as const,
+      area: Number((bbox[2] * bbox[3]).toFixed(2)),
+      iscrowd: 0,
+    };
+  });
+
+  const imageEntry: CocoImage = {
+    id: 1,
+    file_name: fileName,
+    width,
+    height,
+  };
+
+  return {
+    images: [imageEntry],
+    annotations,
+    categories,
+  };
+}
+
+async function createAnnotatedImage(file: File, objects: LabelObject[]): Promise<{
+  annotatedImageUrl: string;
+  width: number;
+  height: number;
+}> {
+  const image = await loadImageFromFile(file);
+  const width = image.naturalWidth;
+  const height = image.naturalHeight;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Canvas context unavailable.");
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+  context.font = "14px Inter, Arial, sans-serif";
+  context.lineWidth = Math.max(2, Math.round(Math.min(width, height) / 600));
+
+  objects.forEach((object, index) => {
+    const color = `hsl(${(index * 53) % 360}, 70%, 50%)`;
+    context.strokeStyle = color;
+    context.fillStyle = color;
+
+    const x = clamp01(object.bbox.x) * width;
+    const y = clamp01(object.bbox.y) * height;
+    const w = clamp01(object.bbox.width) * width;
+    const h = clamp01(object.bbox.height) * height;
+
+    context.strokeRect(x, y, w, h);
+
+    const confidenceSuffix =
+      object.confidence === undefined || object.confidence === null
+        ? ""
+        : ` (${Math.round(object.confidence * 100)}%)`;
+    const text = `${object.label}${confidenceSuffix}`;
+
+    const textX = x + 4;
+    const textY = Math.max(16, y + 16);
+    context.fillText(text, textX, textY);
+  });
+
+  return {
+    annotatedImageUrl: canvas.toDataURL("image/png"),
+    width,
+    height,
+  };
+}
+
+async function uploadFile(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch("/api/v1/uploads", {
+    method: "POST",
+    body: formData,
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as UploadResponse & {
+    error?: string;
+  };
+  if (!response.ok || !payload.artifact?.id) {
+    throw new Error(payload.error || "Upload failed.");
+  }
+
+  return payload.artifact.id;
+}
+
+async function runAutoLabel(artifactId: string, prompt: string): Promise<AutoLabelResponse> {
+  const response = await fetch("/api/v2/simple-label", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ artifactId, prompt }),
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as AutoLabelResponse & {
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(payload.error || "Auto-label failed.");
+  }
+
+  return payload;
+}
+
+function downloadDataUrl(filename: string, dataUrl: string) {
+  const anchor = document.createElement("a");
+  anchor.href = dataUrl;
+  anchor.download = filename;
+  anchor.click();
+}
 
 export function ProjectsClient() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<LabelJob[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AutoLabelResponse | null>(null);
 
-  useEffect(() => {
-    if (!file) {
-      setPreviewUrl(null);
+  const selectedCount = useMemo(() => jobs.length, [jobs]);
+  const doneCount = useMemo(() => jobs.filter((job) => job.status === "done").length, [jobs]);
+
+  async function onSelectFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
+    const withPreviews = await Promise.all(
+      files.map(async (file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: await readFileAsDataUrl(file),
+        status: "idle" as LabelJobStatus,
+        error: null,
+      })),
+    );
+
+    setJobs(withPreviews);
+    setError(null);
+    event.currentTarget.value = "";
+  }
+
+  async function onRunAutoLabel() {
+    if (jobs.length === 0) {
       return;
     }
 
-    const nextUrl = URL.createObjectURL(file);
-    setPreviewUrl(nextUrl);
-    return () => URL.revokeObjectURL(nextUrl);
-  }, [file]);
-
-  const canRun = useMemo(() => !!file && !busy, [file, busy]);
-
-  async function uploadSelectedImage() {
-    if (!file) {
-      throw new Error("Choose an image first.");
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const uploadResponse = await fetch("/api/v1/uploads", {
-      method: "POST",
-      body: formData,
-    });
-
-    const uploadPayload = (await uploadResponse.json().catch(() => ({}))) as UploadResponse;
-    if (!uploadResponse.ok || !uploadPayload.artifact?.id) {
-      throw new Error(uploadPayload.error || "Upload failed.");
-    }
-
-    return uploadPayload.artifact.id;
-  }
-
-  async function onAutoLabel() {
     setBusy(true);
     setError(null);
-    setResult(null);
 
-    try {
-      const artifactId = await uploadSelectedImage();
-      const autoLabelResponse = await fetch("/api/v2/simple-label", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          artifactId,
-          prompt: DEFAULT_PROMPT,
-        }),
-      });
+    setJobs((previousJobs) =>
+      previousJobs.map((job) => ({
+        ...job,
+        status: "uploading",
+        error: null,
+      })),
+    );
 
-      const autoLabelPayload = (await autoLabelResponse.json().catch(() => ({}))) as AutoLabelResponse;
-      if (!autoLabelResponse.ok) {
-        throw new Error(autoLabelPayload.error || "Auto-label failed.");
-      }
+    await Promise.all(
+      jobs.map(async (job) => {
+        try {
+          const artifactId = await uploadFile(job.file);
+          setJobs((previousJobs) =>
+            previousJobs.map((current) =>
+              current.id === job.id ? { ...current, status: "labeling" } : current,
+            ),
+          );
 
-      setResult(autoLabelPayload);
-    } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "Something went wrong.");
-    } finally {
-      setBusy(false);
-    }
+          const labelPayload = await runAutoLabel(artifactId, DEFAULT_PROMPT);
+          const annotated = await createAnnotatedImage(job.file, labelPayload.objects);
+          const coco = toCocoPayload(job.file.name, annotated.width, annotated.height, labelPayload.objects);
+
+          setJobs((previousJobs) =>
+            previousJobs.map((current) =>
+              current.id === job.id
+                ? {
+                    ...current,
+                    status: "done",
+                    model: labelPayload.model,
+                    objects: labelPayload.objects,
+                    rawOutput: labelPayload.rawOutput,
+                    annotatedImageUrl: annotated.annotatedImageUrl,
+                    coco,
+                  }
+                : current,
+            ),
+          );
+        } catch (jobError) {
+          const message = jobError instanceof Error ? jobError.message : "Unable to label this file.";
+          setJobs((previousJobs) =>
+            previousJobs.map((current) =>
+              current.id === job.id
+                ? {
+                    ...current,
+                    status: "error",
+                    error: message,
+                  }
+                : current,
+            ),
+          );
+        }
+      }),
+    );
+
+    setBusy(false);
   }
 
   return (
-    <section className="mx-auto w-full max-w-4xl space-y-6">
+    <section className="mx-auto w-full max-w-6xl space-y-6 p-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">Image Auto Label</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept="image/*"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="mr-2 h-4 w-4" />
-              Upload Image
-            </Button>
-            <Button type="button" onClick={() => void onAutoLabel()} disabled={!canRun}>
+          <p className="text-sm text-muted-foreground">
+            Upload one or many images. We use GPT-5.2 to return object detections and labels, then build COCO annotations.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-block">
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  void onSelectFiles(event);
+                }}
+              />
+              <Button type="button" variant="outline">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Images
+              </Button>
+            </label>
+            <Button type="button" onClick={() => void onRunAutoLabel()} disabled={jobs.length === 0 || busy}>
               <WandSparkles className="mr-2 h-4 w-4" />
               {busy ? "Labeling..." : "Auto Label"}
             </Button>
           </div>
 
-          {file ? <p className="text-sm text-muted-foreground">Selected: {file.name}</p> : null}
-
-          {previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={previewUrl} alt="Uploaded preview" className="max-h-[420px] w-auto rounded-lg border" />
+          {jobs.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Selected {selectedCount} image(s), completed {doneCount}/{selectedCount}
+            </p>
           ) : null}
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl">ChatGPT Response</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {result ? (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Model: {result.model}</p>
-              <pre className="max-h-[420px] overflow-auto rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed">
-                {result.responseText || JSON.stringify(result.parsedJson ?? result.output, null, 2)}
-              </pre>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Upload an image, then click Auto Label.</p>
-          )}
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {jobs.map((job) => (
+          <Card key={job.id}>
+            <CardHeader>
+              <CardTitle className="text-base">{job.file.name}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {job.status === "error" ? (
+                <p className="text-sm text-destructive">{job.error || "Labeling failed."}</p>
+              ) : null}
+
+              {(job.status === "uploading" || job.status === "labeling") ? (
+                <div className="inline-flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/30 px-3 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {job.status === "uploading" ? "Uploading image..." : "Running GPT-5.2 auto-label..."}
+                </div>
+              ) : null}
+
+              {job.status === "idle" || job.status === "error" ? (
+                <img
+                  src={job.previewUrl}
+                  alt={`${job.file.name} preview`}
+                  className="h-auto w-full rounded-lg border"
+                />
+              ) : null}
+
+              {job.status === "done" ? (
+                <>
+                  <img
+                    src={job.annotatedImageUrl}
+                    alt={`${job.file.name} annotated`}
+                    className="h-auto w-full rounded-lg border"
+                  />
+
+                  <p className="text-xs text-muted-foreground">Model: {job.model}</p>
+                  <p className="text-xs text-muted-foreground">Detected objects: {job.objects?.length ?? 0}</p>
+                  {job.objects && job.objects.length > 0 ? (
+                    <ul className="max-h-36 overflow-auto rounded border bg-muted/40 p-2 text-xs">
+                      {job.objects.map((object, index) => (
+                        <li key={`${object.label}-${index}`} className="py-1">
+                          {object.label} {object.confidence === undefined || object.confidence === null ? "" : `(${Math.round(object.confidence * 100)}%)`}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!job.annotatedImageUrl) {
+                          return;
+                        }
+                        downloadDataUrl(`${job.file.name}-annotated.png`, job.annotatedImageUrl);
+                      }}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Download Annotated Image
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!job.coco) {
+                          return;
+                        }
+                        downloadContent(
+                          `${job.file.name}-annotations.coco.json`,
+                          JSON.stringify(job.coco, null, 2),
+                          "application/json",
+                        );
+                      }}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Download COCO JSON
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+
+              {job.status === "done" && (!job.coco || !job.annotatedImageUrl) ? (
+                <p className="text-xs text-destructive">Missing one or more download artifacts.</p>
+              ) : null}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </section>
   );
 }
-

@@ -5,6 +5,18 @@ import path from "node:path";
 import {
   apiKeyRecordSchema,
   type ApiKeyRecord,
+  datasetAssetRecordSchema,
+  type DatasetAssetRecord,
+  datasetAssetStatusSchema,
+  type DatasetAssetStatus,
+  datasetAssetTypeSchema,
+  type DatasetAssetType,
+  datasetBatchRecordSchema,
+  type DatasetBatchRecord,
+  datasetBatchSourceTypeSchema,
+  type DatasetBatchSourceType,
+  datasetBatchStatusSchema,
+  type DatasetBatchStatus,
   datasetRecordSchema,
   type DatasetRecord,
   datasetVersionRecordSchema,
@@ -89,6 +101,8 @@ type DbStateV2 = {
   run_traces: RunTraceRecord[];
   datasets: DatasetRecord[];
   dataset_versions: DatasetVersionRecord[];
+  dataset_batches: DatasetBatchRecord[];
+  dataset_assets: DatasetAssetRecord[];
   review_decisions: ReviewDecisionRecord[];
   evidence_regions: EvidenceRegionRecord[];
   eval_packs: EvalPackRecord[];
@@ -118,6 +132,8 @@ const DEFAULT_STATE: DbStateV2 = {
   run_traces: [],
   datasets: [],
   dataset_versions: [],
+  dataset_batches: [],
+  dataset_assets: [],
   review_decisions: [],
   evidence_regions: [],
   eval_packs: [],
@@ -273,6 +289,8 @@ async function readState(): Promise<DbStateV2> {
     run_traces: (parsed.run_traces ?? []).map((item) => runTraceRecordSchema.parse(item)),
     datasets: (parsed.datasets ?? []).map((item) => datasetRecordSchema.parse(item)),
     dataset_versions: (parsed.dataset_versions ?? []).map((item) => datasetVersionRecordSchema.parse(item)),
+    dataset_batches: (parsed.dataset_batches ?? []).map((item) => datasetBatchRecordSchema.parse(item)),
+    dataset_assets: (parsed.dataset_assets ?? []).map((item) => datasetAssetRecordSchema.parse(item)),
     review_decisions: (parsed.review_decisions ?? []).map((item) => reviewDecisionRecordSchema.parse(item)),
     evidence_regions: (parsed.evidence_regions ?? []).map((item) => evidenceRegionRecordSchema.parse(item)),
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
@@ -1086,6 +1104,197 @@ export async function createDatasetVersion(input: {
 export async function listDatasetVersions(datasetId: string) {
   const state = await readState();
   return state.dataset_versions.filter((version) => version.dataset_id === datasetId);
+}
+
+export async function createDatasetBatch(input: {
+  datasetId: string;
+  name: string;
+  sourceType: DatasetBatchSourceType;
+  sourceArtifactIds?: string[];
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const dataset = state.datasets.find((item) => item.id === input.datasetId);
+
+    if (!dataset) {
+      throw new Error("Dataset not found");
+    }
+
+    const timestamp = new Date().toISOString();
+    const batch = datasetBatchRecordSchema.parse({
+      id: randomUUID(),
+      project_id: dataset.project_id,
+      dataset_id: dataset.id,
+      name: input.name.trim(),
+      source_type: datasetBatchSourceTypeSchema.parse(input.sourceType),
+      status: "uploaded",
+      source_artifact_ids: (input.sourceArtifactIds ?? []).map((artifactId) => artifactId.trim()).filter(Boolean),
+      item_count: 0,
+      labeled_count: 0,
+      reviewed_count: 0,
+      approved_count: 0,
+      rejected_count: 0,
+      created_by: input.actor ?? null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    state.dataset_batches.unshift(batch);
+    appendAuditEvent(state, {
+      eventType: "dataset_batch_created_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        project_id: batch.project_id,
+        dataset_id: batch.dataset_id,
+        dataset_batch_id: batch.id,
+        source_type: batch.source_type,
+      },
+    });
+
+    return batch;
+  });
+}
+
+export async function listDatasetBatches(datasetId: string) {
+  const state = await readState();
+  return state.dataset_batches.filter((batch) => batch.dataset_id === datasetId);
+}
+
+export async function getDatasetBatch(batchId: string) {
+  const state = await readState();
+  return state.dataset_batches.find((batch) => batch.id === batchId) ?? null;
+}
+
+export async function setDatasetBatchStatus(input: {
+  batchId: string;
+  status: DatasetBatchStatus;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const batch = state.dataset_batches.find((item) => item.id === input.batchId);
+
+    if (!batch) {
+      return null;
+    }
+
+    batch.status = datasetBatchStatusSchema.parse(input.status);
+    batch.updated_at = new Date().toISOString();
+
+    appendAuditEvent(state, {
+      eventType: "dataset_batch_status_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        dataset_id: batch.dataset_id,
+        dataset_batch_id: batch.id,
+        status: batch.status,
+      },
+    });
+
+    return batch;
+  });
+}
+
+export async function createDatasetAssets(input: {
+  batchId: string;
+  assets: Array<{
+    artifactId?: string;
+    assetType: DatasetAssetType;
+    storagePath: string;
+    status?: DatasetAssetStatus;
+    width?: number;
+    height?: number;
+    frameIndex?: number;
+    timestampMs?: number;
+    pageNumber?: number;
+    sha256?: string;
+  }>;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const batch = state.dataset_batches.find((item) => item.id === input.batchId);
+
+    if (!batch) {
+      throw new Error("Dataset batch not found");
+    }
+
+    const timestamp = new Date().toISOString();
+    const createdAssets = input.assets.map((assetInput) =>
+      datasetAssetRecordSchema.parse({
+        id: randomUUID(),
+        project_id: batch.project_id,
+        dataset_id: batch.dataset_id,
+        batch_id: batch.id,
+        artifact_id: assetInput.artifactId?.trim() || null,
+        asset_type: datasetAssetTypeSchema.parse(assetInput.assetType),
+        status: datasetAssetStatusSchema.parse(assetInput.status ?? "ready"),
+        storage_path: assetInput.storagePath.trim(),
+        width: typeof assetInput.width === "number" && Number.isFinite(assetInput.width) ? Math.floor(assetInput.width) : null,
+        height: typeof assetInput.height === "number" && Number.isFinite(assetInput.height) ? Math.floor(assetInput.height) : null,
+        frame_index:
+          typeof assetInput.frameIndex === "number" && Number.isFinite(assetInput.frameIndex)
+            ? Math.max(0, Math.floor(assetInput.frameIndex))
+            : null,
+        timestamp_ms:
+          typeof assetInput.timestampMs === "number" && Number.isFinite(assetInput.timestampMs)
+            ? Math.max(0, Math.floor(assetInput.timestampMs))
+            : null,
+        page_number:
+          typeof assetInput.pageNumber === "number" && Number.isFinite(assetInput.pageNumber)
+            ? Math.max(1, Math.floor(assetInput.pageNumber))
+            : null,
+        sha256: assetInput.sha256?.trim() || null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+    );
+
+    for (const asset of createdAssets) {
+      state.dataset_assets.unshift(asset);
+    }
+
+    batch.item_count += createdAssets.length;
+    batch.updated_at = timestamp;
+
+    appendAuditEvent(state, {
+      eventType: "dataset_asset_created_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        dataset_id: batch.dataset_id,
+        dataset_batch_id: batch.id,
+        asset_count: createdAssets.length,
+      },
+    });
+
+    return createdAssets;
+  });
+}
+
+export async function listDatasetAssetsByBatch(input: {
+  batchId: string;
+  status?: DatasetAssetStatus;
+  limit?: number;
+}) {
+  const state = await readState();
+  const statusFilter = input.status ? datasetAssetStatusSchema.parse(input.status) : null;
+  const safeLimit =
+    typeof input.limit === "number" && Number.isFinite(input.limit) && input.limit > 0
+      ? Math.floor(input.limit)
+      : 200;
+  const maxLimit = Math.min(safeLimit, 1000);
+
+  const assets = state.dataset_assets.filter((asset) => {
+    if (asset.batch_id !== input.batchId) {
+      return false;
+    }
+
+    if (statusFilter && asset.status !== statusFilter) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return assets.slice(0, maxLimit);
 }
 
 export async function getDatasetVersion(datasetVersionId: string) {

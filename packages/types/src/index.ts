@@ -204,6 +204,9 @@ export const auditEventTypeSchema = z.enum([
   "run_completed_v2",
   "dataset_created_v2",
   "dataset_version_created_v2",
+  "dataset_batch_created_v2",
+  "dataset_batch_status_updated_v2",
+  "dataset_asset_created_v2",
   "review_decision_v2",
   "evidence_attached_v2",
   "eval_pack_created_v2",
@@ -447,6 +450,66 @@ export const datasetVersionRecordSchema = z.object({
   created_at: z.string(),
 });
 export type DatasetVersionRecord = z.infer<typeof datasetVersionRecordSchema>;
+
+export const datasetBatchSourceTypeSchema = z.enum(["image", "video", "pdf", "mixed"]);
+export type DatasetBatchSourceType = z.infer<typeof datasetBatchSourceTypeSchema>;
+
+export const datasetBatchStatusSchema = z.enum([
+  "uploaded",
+  "preprocessing",
+  "ready_for_label",
+  "in_labeling",
+  "in_review",
+  "approved",
+  "rework",
+  "exported",
+]);
+export type DatasetBatchStatus = z.infer<typeof datasetBatchStatusSchema>;
+
+export const datasetBatchRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  dataset_id: z.string(),
+  name: z.string(),
+  source_type: datasetBatchSourceTypeSchema,
+  status: datasetBatchStatusSchema,
+  source_artifact_ids: z.array(z.string()),
+  item_count: z.number().int().nonnegative(),
+  labeled_count: z.number().int().nonnegative(),
+  reviewed_count: z.number().int().nonnegative(),
+  approved_count: z.number().int().nonnegative(),
+  rejected_count: z.number().int().nonnegative(),
+  created_by: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type DatasetBatchRecord = z.infer<typeof datasetBatchRecordSchema>;
+
+export const datasetAssetTypeSchema = z.enum(["image", "video_frame", "pdf_page"]);
+export type DatasetAssetType = z.infer<typeof datasetAssetTypeSchema>;
+
+export const datasetAssetStatusSchema = z.enum(["pending", "ready", "failed", "archived"]);
+export type DatasetAssetStatus = z.infer<typeof datasetAssetStatusSchema>;
+
+export const datasetAssetRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  dataset_id: z.string(),
+  batch_id: z.string(),
+  artifact_id: z.string().nullable(),
+  asset_type: datasetAssetTypeSchema,
+  status: datasetAssetStatusSchema,
+  storage_path: z.string(),
+  width: z.number().int().positive().nullable(),
+  height: z.number().int().positive().nullable(),
+  frame_index: z.number().int().nonnegative().nullable(),
+  timestamp_ms: z.number().int().nonnegative().nullable(),
+  page_number: z.number().int().positive().nullable(),
+  sha256: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type DatasetAssetRecord = z.infer<typeof datasetAssetRecordSchema>;
 
 export const reviewDecisionValueSchema = z.enum(["correct", "incorrect", "missing", "uncertain"]);
 export type ReviewDecisionValue = z.infer<typeof reviewDecisionValueSchema>;

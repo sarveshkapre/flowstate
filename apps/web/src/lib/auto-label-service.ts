@@ -13,7 +13,7 @@ import { getOpenAIClient } from "@/lib/openai";
 
 export const autoLabelModelShapeSchema = z.object({
   label: z.string().min(1),
-  confidence: z.number().min(0).max(1).nullable().optional(),
+  confidence: z.number().min(0).max(1).nullable(),
   bbox: z.object({
     x: z.number().min(0).max(1),
     y: z.number().min(0).max(1),
@@ -117,7 +117,7 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
                     required: ["x", "y", "width", "height"],
                   },
                 },
-                required: ["label", "bbox"],
+                required: ["label", "bbox", "confidence"],
               },
             },
           },

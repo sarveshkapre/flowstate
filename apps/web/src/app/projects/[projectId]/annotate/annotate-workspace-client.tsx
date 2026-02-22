@@ -84,7 +84,15 @@ function toBbox(drawState: DrawState) {
 }
 
 function assetPreviewUrl(asset: Asset | null) {
-  if (!asset || !asset.artifact_id) {
+  if (!asset) {
+    return null;
+  }
+
+  if (asset.storage_path.trim()) {
+    return asset.storage_path;
+  }
+
+  if (!asset.artifact_id) {
     return null;
   }
 
@@ -274,6 +282,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
 
   const previewUrl = assetPreviewUrl(selectedAsset);
   const inProgressBbox = drawState ? toBbox(drawState) : null;
+  const canDrawOnSelectedAsset = selectedAsset?.asset_type === "image" || selectedAsset?.asset_type === "video_frame";
 
   function getPointerNormalizedPosition(event: React.PointerEvent<HTMLDivElement>) {
     const frame = previewFrameRef.current;
@@ -293,7 +302,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   function onDrawStart(event: React.PointerEvent<HTMLDivElement>) {
-    if (!selectedAsset || selectedAsset.asset_type !== "image" || event.button !== 0) {
+    if (!selectedAsset || !canDrawOnSelectedAsset || event.button !== 0) {
       return;
     }
 
@@ -308,7 +317,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   function onDrawMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (!drawState || !selectedAsset || selectedAsset.asset_type !== "image") {
+    if (!drawState || !selectedAsset || !canDrawOnSelectedAsset) {
       return;
     }
 
@@ -327,7 +336,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   function onDrawEnd(event: React.PointerEvent<HTMLDivElement>) {
-    if (!drawState || !selectedAsset || selectedAsset.asset_type !== "image") {
+    if (!drawState || !selectedAsset || !canDrawOnSelectedAsset) {
       return;
     }
 
@@ -416,7 +425,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
               <div className="rounded-xl border border-border bg-muted/20 p-2">
                 {selectedAsset ? (
                   previewUrl ? (
-                    selectedAsset.asset_type === "image" ? (
+                    selectedAsset.asset_type === "image" || selectedAsset.asset_type === "video_frame" ? (
                       <div className="mx-auto w-fit">
                         <div
                           ref={previewFrameRef}

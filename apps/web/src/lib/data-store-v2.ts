@@ -85,7 +85,8 @@ import {
   type AuditEventType,
 } from "@flowstate/types";
 
-import { getArtifact, getOrganization } from "@/lib/data-store";
+import { getArtifact, getOrganization, resolveArtifactFilePath } from "@/lib/data-store";
+import { extractVideoFrames } from "@/lib/v2/video-frame-extractor";
 import {
   connectorRedriveResetFields,
   computeRetryBackoffMs,
@@ -168,6 +169,7 @@ const DATA_DIR = process.env.FLOWSTATE_DATA_DIR
   : path.join(WORKSPACE_ROOT, ".flowstate-data");
 const DB_FILE = path.join(DATA_DIR, "db.v2.json");
 const DATASETS_DIR = path.join(DATA_DIR, "datasets-v2");
+const VIDEO_FRAMES_DIR = path.join(DATASETS_DIR, "video-frames");
 const CONNECTOR_INPUTS_DIR = path.join(DATA_DIR, "connector-inputs-v2");
 const DEFAULT_VIDEO_SAMPLE_FRAMES = Number(process.env.FLOWSTATE_VIDEO_SAMPLE_FRAMES || 10);
 const EDGE_HEARTBEAT_STALE_MS = Number(process.env.FLOWSTATE_EDGE_HEARTBEAT_STALE_MS || 60_000);
@@ -236,6 +238,7 @@ function withDerivedAgentStatus(agent: EdgeAgentRecord, nowMs = Date.now()): Edg
 async function ensureInfrastructure() {
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.mkdir(DATASETS_DIR, { recursive: true });
+  await fs.mkdir(VIDEO_FRAMES_DIR, { recursive: true });
   await fs.mkdir(CONNECTOR_INPUTS_DIR, { recursive: true });
 
   try {
@@ -277,6 +280,65 @@ async function readConnectorInput(deliveryId: string): Promise<ConnectorDelivery
   } catch {
     return null;
   }
+}
+
+function videoFramesBatchDir(batchId: string) {
+  return path.join(VIDEO_FRAMES_DIR, batchId);
+}
+
+function videoFramesArtifactDir(batchId: string, artifactId: string) {
+  return path.join(videoFramesBatchDir(batchId), artifactId);
+}
+
+function videoFrameFilePath(batchId: string, artifactId: string, frameIndex: number) {
+  const safeFrameIndex = Math.max(1, Math.floor(frameIndex));
+  const fileName = `frame-${String(safeFrameIndex).padStart(6, "0")}.jpg`;
+  return path.join(videoFramesArtifactDir(batchId, artifactId), fileName);
+}
+
+function datasetAssetFileUrl(assetId: string) {
+  return `/api/v2/assets/${assetId}/file`;
+}
+
+export type DatasetAssetBinarySource = {
+  filePath: string;
+  mimeType: string;
+  fileName: string;
+};
+
+export async function resolveDatasetAssetBinarySource(asset: DatasetAssetRecord): Promise<DatasetAssetBinarySource | null> {
+  if (asset.asset_type === "video_frame") {
+    if (!asset.artifact_id || !asset.frame_index) {
+      return null;
+    }
+
+    const filePath = videoFrameFilePath(asset.batch_id, asset.artifact_id, asset.frame_index);
+    try {
+      await fs.access(filePath);
+      return {
+        filePath,
+        mimeType: "image/jpeg",
+        fileName: path.basename(filePath),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  if (!asset.artifact_id) {
+    return null;
+  }
+
+  const source = await resolveArtifactFilePath(asset.artifact_id);
+  if (!source) {
+    return null;
+  }
+
+  return {
+    filePath: source.filePath,
+    mimeType: source.artifact.mime_type,
+    fileName: source.artifact.original_name,
+  };
 }
 
 async function readState(): Promise<DbStateV2> {
@@ -1373,6 +1435,7 @@ export async function resetDatasetBatchAssets(input: {
     }
 
     state.dataset_assets = state.dataset_assets.filter((asset) => asset.batch_id !== input.batchId);
+    await fs.rm(videoFramesBatchDir(input.batchId), { recursive: true, force: true });
     batch.item_count = 0;
     batch.labeled_count = 0;
     batch.reviewed_count = 0;
@@ -1435,6 +1498,7 @@ export async function ingestDatasetBatch(input: {
       batch.reviewed_count = 0;
       batch.approved_count = 0;
       batch.rejected_count = 0;
+      await fs.rm(videoFramesBatchDir(batch.id), { recursive: true, force: true });
     }
 
     const processingTimestamp = new Date().toISOString();
@@ -1511,27 +1575,49 @@ export async function ingestDatasetBatch(input: {
       }
 
       if (artifact.mime_type.startsWith("video/")) {
-        for (let index = 1; index <= normalizedMaxFrames; index += 1) {
-          materializedAssets.push(
-            datasetAssetRecordSchema.parse({
-              id: randomUUID(),
-              project_id: batch.project_id,
-              dataset_id: batch.dataset_id,
-              batch_id: batch.id,
-              artifact_id: artifact.id,
-              asset_type: "video_frame",
-              status: "ready",
-              storage_path: `${directPath}#frame=${index}`,
-              width: null,
-              height: null,
-              frame_index: index,
-              timestamp_ms: (index - 1) * 1000,
-              page_number: null,
-              sha256: null,
-              created_at: processingTimestamp,
-              updated_at: processingTimestamp,
-            }),
-          );
+        const source = await resolveArtifactFilePath(artifact.id);
+        if (!source) {
+          missingArtifactIds.push(artifact.id);
+          continue;
+        }
+
+        try {
+          const extraction = await extractVideoFrames({
+            videoPath: source.filePath,
+            outputDir: videoFramesArtifactDir(batch.id, artifact.id),
+            maxFrames: normalizedMaxFrames,
+          });
+
+          if (extraction.frames.length === 0) {
+            unsupportedArtifactIds.push(artifact.id);
+            continue;
+          }
+
+          for (const frame of extraction.frames) {
+            const assetId = randomUUID();
+            materializedAssets.push(
+              datasetAssetRecordSchema.parse({
+                id: assetId,
+                project_id: batch.project_id,
+                dataset_id: batch.dataset_id,
+                batch_id: batch.id,
+                artifact_id: artifact.id,
+                asset_type: "video_frame",
+                status: "ready",
+                storage_path: datasetAssetFileUrl(assetId),
+                width: frame.width,
+                height: frame.height,
+                frame_index: frame.frameIndex,
+                timestamp_ms: frame.timestampMs,
+                page_number: null,
+                sha256: frame.sha256,
+                created_at: processingTimestamp,
+                updated_at: processingTimestamp,
+              }),
+            );
+          }
+        } catch {
+          unsupportedArtifactIds.push(artifact.id);
         }
         continue;
       }

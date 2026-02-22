@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { promises as fs } from "node:fs";
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { readArtifactBytes } from "@/lib/data-store";
-import { createAssetAnnotation, getDatasetAsset } from "@/lib/data-store-v2";
+import { createAssetAnnotation, getDatasetAsset, resolveDatasetAssetBinarySource } from "@/lib/data-store-v2";
 import { getOpenAIClient } from "@/lib/openai";
 import { requirePermission } from "@/lib/v2/auth";
 
@@ -73,10 +73,11 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Asset is missing backing artifact. Unable to auto-label." }, { status: 400 });
   }
 
-  const artifactFile = await readArtifactBytes(asset.artifact_id);
-  if (!artifactFile) {
+  const source = await resolveDatasetAssetBinarySource(asset);
+  if (!source) {
     return NextResponse.json({ error: "Asset file could not be read." }, { status: 404 });
   }
+  const sourceBytes = await fs.readFile(source.filePath);
 
   try {
     const openai = getOpenAIClient();
@@ -104,7 +105,7 @@ export async function POST(request: Request, { params }: Params) {
               type: "input_text",
               text: `${instruction}\n${hints}\nReturn normalized bbox values in range [0,1].`,
             },
-            buildImageInput(artifactFile.artifact.mime_type, artifactFile.bytes),
+            buildImageInput(source.mimeType, sourceBytes),
           ],
         },
       ],

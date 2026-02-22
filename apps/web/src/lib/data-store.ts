@@ -331,6 +331,24 @@ export async function readArtifactBytes(artifactId: string): Promise<{ artifact:
   }
 }
 
+export async function resolveArtifactFilePath(
+  artifactId: string,
+): Promise<{ artifact: ArtifactRecord; filePath: string } | null> {
+  const artifact = await getArtifact(artifactId);
+
+  if (!artifact) {
+    return null;
+  }
+
+  const filePath = path.join(UPLOADS_DIR, artifact.stored_name);
+  try {
+    await fs.access(filePath);
+    return { artifact, filePath };
+  } catch {
+    return null;
+  }
+}
+
 export async function createExtractionJob(input: {
   artifactId: string;
   documentType: DocumentType;

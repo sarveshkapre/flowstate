@@ -243,6 +243,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         reasoningEffort,
+        qualityMode: "dense",
         prompt: prompt?.trim() ? prompt.trim() : undefined,
       }),
     });
@@ -370,6 +371,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
             body: JSON.stringify({
               filter: "unlabeled",
               reasoningEffort,
+              qualityMode: "dense",
               prompt: prompt || undefined,
             }),
           },

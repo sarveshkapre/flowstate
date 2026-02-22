@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 
-import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
 import { Card, CardContent } from "@shadcn-ui/card";
 
@@ -17,14 +16,12 @@ type Project = {
 
 export function WorkflowsClient() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadProjects() {
-      setLoading(true);
       setError(null);
       try {
         const response = await fetch("/api/v2/projects?organizationId=org_default", { cache: "no-store" });
@@ -39,10 +36,6 @@ export function WorkflowsClient() {
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load projects.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
         }
       }
     }
@@ -110,32 +103,7 @@ export function WorkflowsClient() {
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="space-y-3 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-base font-semibold">Project Workspaces</p>
-            <Badge variant="outline">{projects.length}</Badge>
-          </div>
-          {loading ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
-          {!loading && projects.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Create a project first to build workflows.</p>
-          ) : null}
-          {projects.map((project) => (
-            <Link
-              key={project.id}
-              href={`/projects/${project.id}/workflows`}
-              className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 transition-colors hover:bg-muted/50"
-            >
-              <div>
-                <p className="text-sm font-medium">{project.name}</p>
-                <p className="text-xs text-muted-foreground">{project.project_type.replaceAll("_", " ")}</p>
-              </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground" />
-            </Link>
-          ))}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        </CardContent>
-      </Card>
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </section>
   );
 }

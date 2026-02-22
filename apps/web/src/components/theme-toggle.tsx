@@ -1,0 +1,58 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { Button } from "@flowstate/ui";
+
+type ThemeMode = "light" | "dark";
+
+const STORAGE_KEY = "flowstate-theme";
+
+function readStoredTheme(): ThemeMode {
+  if (typeof window === "undefined") {
+    return "light";
+  }
+
+  const stored = window.localStorage.getItem(STORAGE_KEY);
+  if (stored === "light" || stored === "dark") {
+    return stored;
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme: ThemeMode) {
+  const root = document.documentElement;
+  root.classList.toggle("dark", theme === "dark");
+  root.dataset.theme = theme;
+}
+
+export function ThemeToggle() {
+  const [theme, setTheme] = useState<ThemeMode>("light");
+
+  useEffect(() => {
+    const next = readStoredTheme();
+    setTheme(next);
+    applyTheme(next);
+  }, []);
+
+  function onToggle() {
+    const next: ThemeMode = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    window.localStorage.setItem(STORAGE_KEY, next);
+    applyTheme(next);
+  }
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      className="h-8 px-2 text-xs"
+      onClick={onToggle}
+      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+    </Button>
+  );
+}

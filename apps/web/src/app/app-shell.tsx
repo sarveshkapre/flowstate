@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@flowstate/ui";
 
+import { ThemeToggle } from "@/components/theme-toggle";
+
 const CORE_NAV = [
   { href: "/", label: "Home" },
   { href: "/workflows", label: "Flows" },
@@ -43,15 +45,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Flowstate
           </Link>
           <p className="text-xs text-muted-foreground">VisionOps</p>
+          <div className="mt-3">
+            <ThemeToggle />
+          </div>
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-3">{renderNavItems()}</nav>
       </aside>
 
       <div className="min-h-screen pb-20 md:pb-0">
         <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:hidden">
-          <Link href="/" className="text-base font-semibold tracking-tight">
-            Flowstate
-          </Link>
+          <div className="mb-2 flex items-center justify-between">
+            <Link href="/" className="text-base font-semibold tracking-tight">
+              Flowstate
+            </Link>
+            <ThemeToggle />
+          </div>
         </header>
         {children}
       </div>

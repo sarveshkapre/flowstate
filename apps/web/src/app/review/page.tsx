@@ -7,10 +7,7 @@ export default function ReviewPage() {
     <main className="page">
       <PageHeader
         title="Review"
-        links={[
-          { href: "/", label: "Dashboard" },
-          { href: "/upload", label: "Upload" },
-        ]}
+        links={[]}
       />
 
       <ReviewClient />

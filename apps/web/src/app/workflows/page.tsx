@@ -7,10 +7,7 @@ export default function WorkflowsPage() {
     <main className="page">
       <PageHeader
         title="Workflows"
-        links={[
-          { href: "/", label: "Dashboard" },
-          { href: "/flow-builder", label: "Builder" },
-        ]}
+        links={[]}
       />
 
       <WorkflowsClient />

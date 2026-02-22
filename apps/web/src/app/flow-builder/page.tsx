@@ -7,10 +7,7 @@ export default function FlowBuilderPage() {
     <main className="page">
       <PageHeader
         title="Builder"
-        links={[
-          { href: "/", label: "Dashboard" },
-          { href: "/workflows", label: "Workflows" },
-        ]}
+        links={[]}
       />
 
       <FlowBuilderClient />

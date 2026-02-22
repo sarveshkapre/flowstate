@@ -5,6 +5,11 @@ import path from "node:path";
 import {
   apiKeyRecordSchema,
   type ApiKeyRecord,
+  assetAnnotationRecordSchema,
+  type AssetAnnotationRecord,
+  assetAnnotationShapeSchema,
+  assetAnnotationSourceSchema,
+  type AssetAnnotationSource,
   datasetAssetRecordSchema,
   type DatasetAssetRecord,
   datasetAssetStatusSchema,
@@ -52,6 +57,10 @@ import {
   projectRecordSchema,
   type ProjectRecord,
   type ProjectMemberRole,
+  projectTypeSchema,
+  type ProjectType,
+  projectVisibilitySchema,
+  type ProjectVisibility,
   reviewAlertPolicyRecordSchema,
   type ReviewAlertPolicyRecord,
   connectorBackpressurePolicyRecordSchema,
@@ -103,6 +112,7 @@ type DbStateV2 = {
   dataset_versions: DatasetVersionRecord[];
   dataset_batches: DatasetBatchRecord[];
   dataset_assets: DatasetAssetRecord[];
+  asset_annotations: AssetAnnotationRecord[];
   review_decisions: ReviewDecisionRecord[];
   evidence_regions: EvidenceRegionRecord[];
   eval_packs: EvalPackRecord[];
@@ -134,6 +144,7 @@ const DEFAULT_STATE: DbStateV2 = {
   dataset_versions: [],
   dataset_batches: [],
   dataset_assets: [],
+  asset_annotations: [],
   review_decisions: [],
   evidence_regions: [],
   eval_packs: [],
@@ -292,6 +303,7 @@ async function readState(): Promise<DbStateV2> {
     dataset_versions: (parsed.dataset_versions ?? []).map((item) => datasetVersionRecordSchema.parse(item)),
     dataset_batches: (parsed.dataset_batches ?? []).map((item) => datasetBatchRecordSchema.parse(item)),
     dataset_assets: (parsed.dataset_assets ?? []).map((item) => datasetAssetRecordSchema.parse(item)),
+    asset_annotations: (parsed.asset_annotations ?? []).map((item) => assetAnnotationRecordSchema.parse(item)),
     review_decisions: (parsed.review_decisions ?? []).map((item) => reviewDecisionRecordSchema.parse(item)),
     evidence_regions: (parsed.evidence_regions ?? []).map((item) => evidenceRegionRecordSchema.parse(item)),
     eval_packs: (parsed.eval_packs ?? []).map((item) => evalPackRecordSchema.parse(item)),
@@ -382,6 +394,9 @@ export async function createProject(input: {
   name: string;
   slug?: string;
   description?: string;
+  annotationGroup?: string;
+  visibility?: ProjectVisibility;
+  projectType?: ProjectType;
   actor?: string;
 }): Promise<ProjectRecord> {
   const organization = await getOrganization(input.organizationId);
@@ -409,6 +424,9 @@ export async function createProject(input: {
       slug,
       name: input.name.trim(),
       description: input.description?.trim() || null,
+      annotation_group: input.annotationGroup?.trim() || "objects",
+      visibility: projectVisibilitySchema.parse(input.visibility ?? "private"),
+      project_type: projectTypeSchema.parse(input.projectType ?? "object_detection"),
       is_active: true,
       created_at: timestamp,
       updated_at: timestamp,
@@ -418,7 +436,13 @@ export async function createProject(input: {
     appendAuditEvent(state, {
       eventType: "project_created",
       actor: input.actor ?? "system",
-      metadata: { project_id: project.id, organization_id: project.organization_id },
+      metadata: {
+        project_id: project.id,
+        organization_id: project.organization_id,
+        annotation_group: project.annotation_group,
+        visibility: project.visibility,
+        project_type: project.project_type,
+      },
     });
 
     return project;
@@ -740,6 +764,50 @@ export async function listFlowsV2(projectId: string) {
 export async function getFlowV2(flowId: string) {
   const state = await readState();
   return state.flows.find((flow) => flow.id === flowId) ?? null;
+}
+
+export async function deleteFlowV2(input: {
+  flowId: string;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const flow = state.flows.find((item) => item.id === input.flowId);
+
+    if (!flow) {
+      return null;
+    }
+
+    const flowVersionIds = new Set(
+      state.flow_versions
+        .filter((version) => version.flow_id === input.flowId)
+        .map((version) => version.id),
+    );
+    const runIds = new Set(
+      state.runs
+        .filter((run) => run.flow_id === input.flowId)
+        .map((run) => run.id),
+    );
+
+    state.flows = state.flows.filter((item) => item.id !== input.flowId);
+    state.flow_versions = state.flow_versions.filter((version) => version.flow_id !== input.flowId);
+    state.flow_deployments = state.flow_deployments.filter((deployment) => deployment.flow_id !== input.flowId);
+    state.runs = state.runs.filter((run) => run.flow_id !== input.flowId);
+    state.run_traces = state.run_traces.filter((trace) => !runIds.has(trace.run_id));
+    state.review_decisions = state.review_decisions.filter((decision) => !runIds.has(decision.run_id));
+
+    appendAuditEvent(state, {
+      eventType: "flow_deleted_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        flow_id: input.flowId,
+        project_id: flow.project_id,
+        removed_versions: flowVersionIds.size,
+        removed_runs: runIds.size,
+      },
+    });
+
+    return flow;
+  });
 }
 
 export async function createFlowVersion(input: {
@@ -1542,6 +1610,145 @@ export async function listDatasetAssetsByBatch(input: {
   return assets.slice(0, maxLimit);
 }
 
+export async function listDatasetAssetsByProject(input: {
+  projectId: string;
+  datasetId?: string;
+  batchId?: string;
+  status?: DatasetAssetStatus;
+  limit?: number;
+}) {
+  const state = await readState();
+  const statusFilter = input.status ? datasetAssetStatusSchema.parse(input.status) : null;
+  const safeLimit =
+    typeof input.limit === "number" && Number.isFinite(input.limit) && input.limit > 0
+      ? Math.floor(input.limit)
+      : 300;
+  const maxLimit = Math.min(safeLimit, 2000);
+
+  const assets = state.dataset_assets.filter((asset) => {
+    if (asset.project_id !== input.projectId) {
+      return false;
+    }
+
+    if (input.datasetId && asset.dataset_id !== input.datasetId) {
+      return false;
+    }
+
+    if (input.batchId && asset.batch_id !== input.batchId) {
+      return false;
+    }
+
+    if (statusFilter && asset.status !== statusFilter) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return assets.slice(0, maxLimit);
+}
+
+export async function getDatasetAsset(assetId: string) {
+  const state = await readState();
+  return state.dataset_assets.find((asset) => asset.id === assetId) ?? null;
+}
+
+export async function createAssetAnnotation(input: {
+  assetId: string;
+  source: AssetAnnotationSource;
+  shapes: Array<{
+    id?: string;
+    label: string;
+    confidence?: number | null;
+    geometry: unknown;
+  }>;
+  notes?: string;
+  actor?: string;
+}) {
+  return withWriteLock(async (state) => {
+    const asset = state.dataset_assets.find((item) => item.id === input.assetId);
+    if (!asset) {
+      throw new Error("Dataset asset not found");
+    }
+
+    const timestamp = new Date().toISOString();
+    for (const existing of state.asset_annotations) {
+      if (existing.asset_id === input.assetId && existing.is_latest) {
+        existing.is_latest = false;
+        existing.updated_at = timestamp;
+      }
+    }
+
+    const shapes = input.shapes.map((shape) =>
+      assetAnnotationShapeSchema.parse({
+        id: shape.id?.trim() || randomUUID(),
+        label: shape.label.trim(),
+        confidence:
+          typeof shape.confidence === "number" && Number.isFinite(shape.confidence)
+            ? Math.max(0, Math.min(1, shape.confidence))
+            : null,
+        geometry: shape.geometry,
+      }),
+    );
+
+    const annotation = assetAnnotationRecordSchema.parse({
+      id: randomUUID(),
+      project_id: asset.project_id,
+      dataset_id: asset.dataset_id,
+      batch_id: asset.batch_id,
+      asset_id: asset.id,
+      source: assetAnnotationSourceSchema.parse(input.source),
+      is_latest: true,
+      shapes,
+      notes: input.notes?.trim() || null,
+      created_by: input.actor ?? null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    state.asset_annotations.unshift(annotation);
+    appendAuditEvent(state, {
+      eventType: annotation.source === "ai_prelabel" ? "asset_auto_labeled_v2" : "asset_annotation_created_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        project_id: annotation.project_id,
+        dataset_id: annotation.dataset_id,
+        batch_id: annotation.batch_id,
+        asset_id: annotation.asset_id,
+        source: annotation.source,
+        shape_count: annotation.shapes.length,
+      },
+    });
+
+    return annotation;
+  });
+}
+
+export async function listAssetAnnotations(assetId: string) {
+  const state = await readState();
+  return state.asset_annotations.filter((annotation) => annotation.asset_id === assetId);
+}
+
+export async function getLatestAssetAnnotation(assetId: string) {
+  const state = await readState();
+  return state.asset_annotations.find((annotation) => annotation.asset_id === assetId && annotation.is_latest) ?? null;
+}
+
+export async function listLatestAssetAnnotations(assetIds: string[]) {
+  const wanted = new Set(assetIds);
+  const state = await readState();
+  const latest = new Map<string, AssetAnnotationRecord>();
+
+  for (const annotation of state.asset_annotations) {
+    if (!annotation.is_latest || !wanted.has(annotation.asset_id) || latest.has(annotation.asset_id)) {
+      continue;
+    }
+    latest.set(annotation.asset_id, annotation);
+  }
+
+  return latest;
+}
+
 export async function getDatasetVersion(datasetVersionId: string) {
   const state = await readState();
   return state.dataset_versions.find((version) => version.id === datasetVersionId) ?? null;
@@ -1563,6 +1770,62 @@ export async function readDatasetVersionLines(datasetVersionId: string) {
   } catch {
     return null;
   }
+}
+
+export async function createDatasetVersionFromLatestAnnotations(input: {
+  datasetId: string;
+  batchId?: string;
+  actor?: string;
+}) {
+  const state = await readState();
+  const dataset = state.datasets.find((item) => item.id === input.datasetId);
+  if (!dataset) {
+    throw new Error("Dataset not found");
+  }
+
+  const assets = state.dataset_assets.filter((asset) => {
+    if (asset.dataset_id !== input.datasetId) {
+      return false;
+    }
+
+    if (input.batchId && asset.batch_id !== input.batchId) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const latestByAsset = new Map<string, AssetAnnotationRecord>();
+  for (const annotation of state.asset_annotations) {
+    if (!annotation.is_latest || annotation.dataset_id !== input.datasetId) {
+      continue;
+    }
+
+    if (input.batchId && annotation.batch_id !== input.batchId) {
+      continue;
+    }
+
+    if (!latestByAsset.has(annotation.asset_id)) {
+      latestByAsset.set(annotation.asset_id, annotation);
+    }
+  }
+
+  const lines = assets.map((asset) =>
+    JSON.stringify({
+      asset_id: asset.id,
+      batch_id: asset.batch_id,
+      type: asset.asset_type,
+      source: asset.storage_path,
+      annotation: latestByAsset.get(asset.id) ?? null,
+    }),
+  );
+
+  return createDatasetVersion({
+    datasetId: input.datasetId,
+    itemCount: lines.length,
+    lines,
+    actor: input.actor,
+  });
 }
 
 export async function createReviewDecision(input: {

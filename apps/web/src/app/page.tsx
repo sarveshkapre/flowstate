@@ -1,12 +1,5 @@
-import { PageHeader } from "@/components/page-header";
+import { redirect } from "next/navigation";
 
 export default function HomePage() {
-  return (
-    <main className="page space-y-4">
-      <PageHeader title="Home" links={[]} />
-      <p className="text-sm leading-6 text-muted-foreground">
-        OpenAI-native workspace for extraction and operations.
-      </p>
-    </main>
-  );
+  redirect("/projects");
 }

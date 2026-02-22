@@ -101,12 +101,28 @@ export const permissionSchema = z.enum([
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 
+export const projectVisibilitySchema = z.enum(["private", "public"]);
+export type ProjectVisibility = z.infer<typeof projectVisibilitySchema>;
+
+export const projectTypeSchema = z.enum([
+  "object_detection",
+  "classification",
+  "instance_segmentation",
+  "keypoint_detection",
+  "multimodal",
+  "semantic_segmentation",
+]);
+export type ProjectType = z.infer<typeof projectTypeSchema>;
+
 export const projectRecordSchema = z.object({
   id: z.string(),
   organization_id: z.string(),
   slug: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  annotation_group: z.string().default("objects"),
+  visibility: projectVisibilitySchema.default("private"),
+  project_type: projectTypeSchema.default("object_detection"),
   is_active: z.boolean(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -200,6 +216,7 @@ export const auditEventTypeSchema = z.enum([
   "flow_created_v2",
   "flow_version_created",
   "flow_deployed_v2",
+  "flow_deleted_v2",
   "run_created_v2",
   "run_completed_v2",
   "dataset_created_v2",
@@ -207,6 +224,8 @@ export const auditEventTypeSchema = z.enum([
   "dataset_batch_created_v2",
   "dataset_batch_status_updated_v2",
   "dataset_asset_created_v2",
+  "asset_annotation_created_v2",
+  "asset_auto_labeled_v2",
   "review_decision_v2",
   "evidence_attached_v2",
   "eval_pack_created_v2",
@@ -510,6 +529,53 @@ export const datasetAssetRecordSchema = z.object({
   updated_at: z.string(),
 });
 export type DatasetAssetRecord = z.infer<typeof datasetAssetRecordSchema>;
+
+export const assetAnnotationSourceSchema = z.enum(["manual", "ai_prelabel", "imported"]);
+export type AssetAnnotationSource = z.infer<typeof assetAnnotationSourceSchema>;
+
+export const assetAnnotationGeometrySchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("bbox"),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().min(0).max(1),
+    height: z.number().min(0).max(1),
+  }),
+  z.object({
+    type: z.literal("polygon"),
+    points: z.array(
+      z.object({
+        x: z.number().min(0).max(1),
+        y: z.number().min(0).max(1),
+      }),
+    ),
+  }),
+]);
+export type AssetAnnotationGeometry = z.infer<typeof assetAnnotationGeometrySchema>;
+
+export const assetAnnotationShapeSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  confidence: z.number().min(0).max(1).nullable(),
+  geometry: assetAnnotationGeometrySchema,
+});
+export type AssetAnnotationShape = z.infer<typeof assetAnnotationShapeSchema>;
+
+export const assetAnnotationRecordSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  dataset_id: z.string(),
+  batch_id: z.string(),
+  asset_id: z.string(),
+  source: assetAnnotationSourceSchema,
+  is_latest: z.boolean(),
+  shapes: z.array(assetAnnotationShapeSchema),
+  notes: z.string().nullable(),
+  created_by: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type AssetAnnotationRecord = z.infer<typeof assetAnnotationRecordSchema>;
 
 export const reviewDecisionValueSchema = z.enum(["correct", "incorrect", "missing", "uncertain"]);
 export type ReviewDecisionValue = z.infer<typeof reviewDecisionValueSchema>;

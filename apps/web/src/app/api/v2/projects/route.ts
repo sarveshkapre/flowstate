@@ -9,6 +9,16 @@ const createProjectSchema = z.object({
   name: z.string().min(1).max(160),
   slug: z.string().min(1).max(120).optional(),
   description: z.string().max(4000).optional(),
+  annotationGroup: z.string().min(1).max(120).optional(),
+  visibility: z.enum(["private", "public"]).optional(),
+  projectType: z.enum([
+    "object_detection",
+    "classification",
+    "instance_segmentation",
+    "keypoint_detection",
+    "multimodal",
+    "semantic_segmentation",
+  ]).optional(),
   ownerEmail: z.string().email().optional(),
 });
 
@@ -58,6 +68,9 @@ export async function POST(request: Request) {
       name: parsed.data.name,
       slug: parsed.data.slug,
       description: parsed.data.description,
+      annotationGroup: parsed.data.annotationGroup,
+      visibility: parsed.data.visibility,
+      projectType: parsed.data.projectType,
       actor: auth.actor.email ?? undefined,
     });
 

@@ -1,1 +1,6 @@
-export { cn } from "../../../../../ui/apps/v4/registry/new-york-v4/lib/utils.ts"
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}

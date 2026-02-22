@@ -2,58 +2,58 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Boxes, FolderKanban } from "lucide-react";
+
 import { cn } from "@shadcn-lib/utils";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 
-const CORE_NAV = [
-  { href: "/", label: "Home" },
+const NAV_ITEMS = [
+  { href: "/projects", label: "Projects", icon: FolderKanban },
+  { href: "/workflows", label: "Workflows", icon: Boxes },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  function isActive(href: string) {
-    return href === "/" ? pathname === "/" : pathname.startsWith(href);
-  }
-
-  function renderNavItems() {
-    return CORE_NAV.map((item) => (
-      <Link
-        key={item.href}
-        href={item.href}
-        className={cn(
-          "block rounded-md px-3 py-2 text-sm font-medium transition-colors",
-          isActive(item.href)
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-        )}
-      >
-        {item.label}
-      </Link>
-    ));
-  }
-
   return (
-    <div className="min-h-screen bg-background md:grid md:grid-cols-[230px_1fr]">
-      <aside className="hidden border-r border-border bg-card md:sticky md:top-0 md:flex md:h-screen md:flex-col">
-        <div className="border-b border-border px-4 py-3">
-          <Link href="/" className="text-lg font-semibold tracking-tight">
-            Flowstate
-          </Link>
+    <div className="min-h-screen bg-background md:grid md:grid-cols-[240px_1fr]">
+      <aside className="hidden border-r border-border bg-slate-950 text-slate-100 md:sticky md:top-0 md:flex md:h-screen md:flex-col">
+        <div className="border-b border-slate-800 px-5 py-5">
+          <p className="text-xs uppercase tracking-[0.14em] text-slate-400">Workspace</p>
+          <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-100">Flowstate</h1>
+          <p className="mt-1 text-xs text-slate-400">OpenAI vision ops</p>
         </div>
-        <nav className="flex flex-1 flex-col gap-1 p-3">{renderNavItems()}</nav>
+
+        <nav className="flex-1 space-y-1 px-3 py-4">
+          {NAV_ITEMS.map((item) => {
+            const active = item.href === "/workflows" ? pathname.includes("/workflows") : pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={`${item.href}-${item.label}`}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  active ? "bg-slate-800 text-slate-100" : "text-slate-300 hover:bg-slate-800/70 hover:text-slate-100",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
       </aside>
 
-      <div className="min-h-screen pb-20 md:pb-0">
-        <header className="sticky top-0 z-20 hidden border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:flex md:justify-end">
-          <ThemeToggle />
-        </header>
-        <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:hidden">
-          <div className="mb-2 flex items-center justify-between">
-            <Link href="/" className="text-base font-semibold tracking-tight">
+      <div className="min-h-screen pb-16 md:pb-0">
+        <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-center justify-between">
+            <Link href="/projects" className="text-base font-semibold tracking-tight md:hidden">
               Flowstate
             </Link>
+            <div className="hidden md:block" />
             <ThemeToggle />
           </div>
         </header>
@@ -61,21 +61,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 px-2 py-2 backdrop-blur md:hidden">
-        <div className="grid grid-cols-4 gap-1">
-          {CORE_NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "inline-flex w-full items-center justify-center rounded-md px-2 py-2 text-center text-xs font-medium",
-                isActive(item.href)
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
+        <div className="grid grid-cols-2 gap-1">
+          {NAV_ITEMS.map((item) => {
+            const active = item.href === "/workflows" ? pathname.includes("/workflows") : pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={`mobile-${item.href}-${item.label}`}
+                href={item.href}
+                className={cn(
+                  "inline-flex w-full flex-col items-center justify-center gap-1 rounded-md px-2 py-1 text-center text-[11px] font-medium",
+                  active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </div>

@@ -1,15 +1,8 @@
-import { PageHeader } from "@/components/page-header";
-
 import { WorkflowsClient } from "./workflows-client";
 
 export default function WorkflowsPage() {
   return (
-    <main className="page">
-      <PageHeader
-        title="Workflows"
-        links={[]}
-      />
-
+    <main className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-6">
       <WorkflowsClient />
     </main>
   );

@@ -168,48 +168,26 @@ export function ProjectsClient() {
 
   return (
     <section className="space-y-6">
-      <div className="grid gap-4 lg:grid-cols-[minmax(380px,520px)_1fr]">
-        <Card className="overflow-hidden border-border bg-card">
-          <CardContent className="space-y-4 p-6">
-            <p className="text-base font-semibold text-primary">Projects</p>
-            <h1 className="text-5xl font-semibold leading-[1.02] tracking-tight text-foreground">
-              Build vision models to recognize anything
-            </h1>
-            <p className="text-xl text-muted-foreground">Upload data, label it, and automate with OpenAI models.</p>
-            <div className="space-y-2 pt-2">
-              <Button className="h-12 w-full text-lg" onClick={() => setShowCreate(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                New Project
-              </Button>
-              <Button variant="outline" className="h-12 w-full text-lg" asChild>
-                <a href="https://platform.openai.com/docs/guides/images-vision" target="_blank" rel="noreferrer">
-                  View a Tutorial
-                </a>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          {[
-            { title: "Instance Segmentation", tone: "from-cyan-500/20 via-blue-500/15 to-indigo-500/15" },
-            { title: "Keypoint Detection", tone: "from-fuchsia-500/20 via-violet-500/15 to-indigo-500/15" },
-            { title: "Object Detection", tone: "from-emerald-500/20 via-lime-400/15 to-cyan-500/15" },
-            { title: "Multimodal", tone: "from-amber-500/20 via-orange-400/15 to-rose-500/15" },
-          ].map((item) => (
-            <Card key={item.title} className="overflow-hidden border-border">
-              <div className={cn("relative h-40 bg-gradient-to-br", item.tone)}>
-                <p className="absolute left-3 top-2 rounded-md bg-background/85 px-2 py-1 text-xs font-semibold">
-                  {item.title}
-                </p>
-              </div>
-              <CardContent className="p-4">
-                <p className="text-sm text-muted-foreground">Templates and UI patterns for production workflows.</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+      <Card className="max-w-[560px] overflow-hidden border-border bg-card">
+        <CardContent className="space-y-4 p-6">
+          <p className="text-base font-semibold text-primary">Projects</p>
+          <h1 className="text-5xl font-semibold leading-[1.02] tracking-tight text-foreground">
+            Build vision models to recognize anything
+          </h1>
+          <p className="text-xl text-muted-foreground">Upload data, label it, and automate with OpenAI models.</p>
+          <div className="space-y-2 pt-2">
+            <Button className="h-12 w-full text-lg" onClick={() => setShowCreate(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Project
+            </Button>
+            <Button variant="outline" className="h-12 w-full text-lg" asChild>
+              <a href="https://platform.openai.com/docs/guides/images-vision" target="_blank" rel="noreferrer">
+                View a Tutorial
+              </a>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-2">

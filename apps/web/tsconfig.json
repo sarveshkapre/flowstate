@@ -13,9 +13,22 @@
     "paths": {
       "@/*": ["./src/*"],
       "@flowstate/types": ["../../packages/types/src/index.ts"],
-      "@flowstate/ui": ["../../packages/ui/src/index.ts"]
+      "lucide-react": ["../../node_modules/lucide-react"],
+      "clsx": ["../../node_modules/clsx"],
+      "tailwind-merge": ["../../node_modules/tailwind-merge"],
+      "class-variance-authority": ["../../node_modules/class-variance-authority"],
+      "radix-ui": ["../../node_modules/radix-ui"],
+      "react": ["../../node_modules/@types/react"],
+      "react/jsx-runtime": ["../../node_modules/@types/react/jsx-runtime"],
+      "react-dom": ["../../node_modules/@types/react-dom"],
+      "react-dom/client": ["../../node_modules/@types/react-dom/client"],
+      "@shadcn-ui/*": ["./src/shadcn-ui/*"],
+      "@shadcn-lib/*": ["./src/shadcn-lib/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "../../../ui/apps/v4/registry/new-york-v4"
+  ]
 }

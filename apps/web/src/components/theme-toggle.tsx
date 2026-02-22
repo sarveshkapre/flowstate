@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Button } from "@flowstate/ui";
+import { Button } from "@shadcn-ui/button";
 
 type ThemeMode = "light" | "dark";
 
@@ -28,19 +28,16 @@ function applyTheme(theme: ThemeMode) {
 }
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
 
   useEffect(() => {
-    const next = readStoredTheme();
-    setTheme(next);
-    applyTheme(next);
-  }, []);
+    applyTheme(theme);
+    window.localStorage.setItem(STORAGE_KEY, theme);
+  }, [theme]);
 
   function onToggle() {
     const next: ThemeMode = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    window.localStorage.setItem(STORAGE_KEY, next);
-    applyTheme(next);
   }
 
   return (

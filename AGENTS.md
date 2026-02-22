@@ -25,9 +25,9 @@ Build Flowstate into an OpenAI-native VisionOps platform with production softwar
 - `https://ui.shadcn.com/docs/tailwind-v4`
 - `https://ui.shadcn.com/docs/components-json`
 - `https://www.radix-ui.com/primitives/docs/overview/introduction`
-- Local shadcn reference checkout at `/Users/sarvesh/code/ui` (alias: `/code/ui`) for implementation patterns and component structure.
-- Prefer adding reusable primitives in `packages/ui` and consume them in `apps/web` instead of page-specific one-off styling.
-- New buttons, inputs, dialogs, tabs, cards, and badges should come from `@flowstate/ui` wrappers (built on shadcn patterns + Radix).
+- Local shadcn reference checkout at `/Users/sarvesh/code/ui` (alias: `/code/ui`) is the canonical source for primitive implementations.
+- In `apps/web`, import `@shadcn-ui/*` and `@shadcn-lib/*` wrappers that are intentionally implemented as direct source imports from `/code/ui`.
+- Do not introduce custom visual primitives for controls; use the shared wrappers first, with fallback to custom styling only for layout/page composition.
 
 ## Code Quality
 

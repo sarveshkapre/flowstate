@@ -2,7 +2,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, CardContent, CardHeader, CardTitle, Input } from "@flowstate/ui";
+import { Button } from "@shadcn-ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
+import { Input } from "@shadcn-ui/input";
 
 type Organization = {
   id: string;

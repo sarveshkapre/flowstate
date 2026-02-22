@@ -14,7 +14,7 @@
     "components": "@/components",
     "hooks": "@/hooks",
     "lib": "@/lib",
-    "ui": "@flowstate/ui",
-    "utils": "@flowstate/ui"
+    "ui": "@/shadcn-ui",
+    "utils": "@/shadcn-lib"
   }
 }

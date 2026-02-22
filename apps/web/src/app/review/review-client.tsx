@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "@flowstate/ui";
+import { Badge } from "@shadcn-ui/badge";
+import { Button } from "@shadcn-ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
+import { Input } from "@shadcn-ui/input";
 
 type QueueJob = {
   id: string;

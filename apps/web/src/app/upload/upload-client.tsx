@@ -1,7 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, NativeSelect } from "@flowstate/ui";
+import { Badge } from "@shadcn-ui/badge";
+import { Button } from "@shadcn-ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
+import { Input } from "@shadcn-ui/input";
+import { NativeSelect } from "@shadcn-ui/native-select";
 
 import type { DocumentType } from "@flowstate/types";
 
@@ -154,7 +158,7 @@ export function UploadClient() {
             <div className="row wrap">
               <Badge variant="outline">Status: {extractionResult.job.status}</Badge>
               <Badge variant="outline">Review: {extractionResult.job.review_status}</Badge>
-              <Badge variant={extractionResult.job.validation?.is_valid ? "success" : "warning"}>
+              <Badge variant={extractionResult.job.validation?.is_valid ? "outline" : "destructive"}>
                 Valid: {String(extractionResult.job.validation?.is_valid ?? false)}
               </Badge>
               <Badge variant="secondary">Confidence: {extractionResult.job.validation?.confidence ?? 0}</Badge>

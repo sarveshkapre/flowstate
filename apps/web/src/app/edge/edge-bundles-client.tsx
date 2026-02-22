@@ -2,7 +2,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, NativeSelect } from "@flowstate/ui";
+import { Button } from "@shadcn-ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
+import { Input } from "@shadcn-ui/input";
+import { NativeSelect } from "@shadcn-ui/native-select";
 
 type Workflow = {
   id: string;

@@ -2,15 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@flowstate/ui";
+import { cn } from "@shadcn-lib/utils";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const CORE_NAV = [
   { href: "/", label: "Home" },
-  { href: "/workflows", label: "Flows" },
-  { href: "/flow-builder", label: "Builder" },
-  { href: "/review", label: "Review" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

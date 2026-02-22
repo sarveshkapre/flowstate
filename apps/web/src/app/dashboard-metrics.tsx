@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@flowstate/ui";
+import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
 
 type Summary = {
   jobs: number;

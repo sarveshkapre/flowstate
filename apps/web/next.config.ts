@@ -1,8 +1,23 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: {
+    externalDir: true,
+  },
+  turbopack: {
+    root: path.join(__dirname, "../../../"),
+    resolveAlias: {
+      "@/lib/utils": "./src/lib/utils",
+      "react": "react",
+      "react/jsx-runtime": "react/jsx-runtime",
+      "react/jsx-dev-runtime": "react/jsx-dev-runtime",
+      "react-dom": "react-dom",
+      "react-dom/client": "react-dom/client",
+    },
+  },
   async headers() {
     return [
       {

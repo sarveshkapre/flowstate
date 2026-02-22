@@ -8,8 +8,8 @@ This file defines the default UI standards for any new or updated interface in F
 2. Primary reference: `https://ui.shadcn.com/docs/tailwind-v4`
 3. Primary reference: `https://www.radix-ui.com/primitives`
 4. Component config reference: `https://ui.shadcn.com/docs/components-json`
-5. Local reference implementation: `/Users/sarvesh/code/ui` (alias: `/code/ui`)
-6. Reusable UI primitives must be added in `packages/ui` first, then consumed by `apps/web`.
+5. Local canonical source for reusable UI primitives: `/Users/sarvesh/code/ui` (alias: `/code/ui`).
+6. In `apps/web`, consume shadcn primitives via `@shadcn-ui/*` and `@shadcn-lib/*` wrappers that source from `/code/ui`.
 
 ## 1. Product UX Priorities
 
@@ -138,9 +138,9 @@ A UI task is complete only if:
 
 ## 12. Implementation Notes for Contributors
 
-1. Use `@flowstate/ui` components as the first choice for buttons, inputs, cards, tabs, and badges.
+1. Use `@shadcn-ui/*` and `@shadcn-lib/*` primitives as the first choice for buttons, inputs, cards, tabs, and badges.
 2. When adding a new component, follow shadcn component structure and `cn` utility patterns.
 3. Prefer Radix-based behavior wrappers (accessibility/state) over custom JS for primitives (for example dialog, tabs, popover/select when needed).
 4. Keep style tokens centralized in Tailwind v4 CSS variables and avoid page-scoped one-off color systems.
-5. Do not introduce new raw HTML controls (`button`, `input`, `select`, `textarea`) unless wrapped in `@flowstate/ui`.
+5. Do not introduce new raw HTML controls (`button`, `input`, `select`, `textarea`) unless wrapped with the shared primitives.
 6. If introducing a new pattern, document it in this file in the same PR.

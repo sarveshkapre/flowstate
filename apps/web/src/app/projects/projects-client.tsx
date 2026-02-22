@@ -6,6 +6,14 @@ import { Check, Circle, Lock, Plus, Tag, Trash2, X } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@shadcn-ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
 import { Input } from "@shadcn-ui/input";
 import { cn } from "@shadcn-lib/utils";
@@ -83,6 +91,8 @@ export function ProjectsClient() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
 
   const [name, setName] = useState("My First Project");
   const [annotationGroup, setAnnotationGroup] = useState("objects");
@@ -185,15 +195,19 @@ export function ProjectsClient() {
     }
   }
 
-  async function onDeleteProject(project: Project) {
-    const shouldDelete = window.confirm(`Delete project "${project.name}" and all related data?`);
-
-    if (!shouldDelete) {
-      return;
-    }
-
-    setDeletingProjectId(project.id);
+  function openDeleteDialog(project: Project) {
+    setProjectToDelete(project);
+    setDeleteConfirmName("");
     setError(null);
+  }
+
+  function closeDeleteDialog() {
+    setProjectToDelete(null);
+    setDeleteConfirmName("");
+  }
+
+  async function onDeleteProject(project: Project) {
+    setDeletingProjectId(project.id);
 
     try {
       const response = await fetch(`/api/v2/projects/${project.id}`, {
@@ -208,6 +222,7 @@ export function ProjectsClient() {
       await loadProjects();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete project.");
+      closeDeleteDialog();
     } finally {
       setDeletingProjectId(null);
     }
@@ -292,7 +307,7 @@ export function ProjectsClient() {
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => void onDeleteProject(project)}
+                      onClick={() => openDeleteDialog(project)}
                       disabled={deletingProjectId === project.id}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
@@ -424,6 +439,52 @@ export function ProjectsClient() {
           </div>
         </div>
       ) : null}
+
+      <Dialog
+        open={Boolean(projectToDelete)}
+        onOpenChange={(open) => (!open ? closeDeleteDialog() : null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Project</DialogTitle>
+            <DialogDescription>
+              This will permanently remove the project and all related data. Type the project name
+              to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={deleteConfirmName}
+            onChange={(event) => setDeleteConfirmName(event.target.value)}
+            placeholder="Type project name"
+          />
+          <p className="text-sm text-destructive">This action cannot be undone.</p>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={closeDeleteDialog}
+              disabled={Boolean(deletingProjectId)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (!projectToDelete || deleteConfirmName !== projectToDelete.name) {
+                  return;
+                }
+                void onDeleteProject(projectToDelete);
+              }}
+              disabled={
+                !projectToDelete ||
+                deletingProjectId === projectToDelete.id ||
+                deleteConfirmName !== projectToDelete.name
+              }
+            >
+              {deletingProjectId === (projectToDelete?.id ?? "") ? "Deleting..." : "Delete project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

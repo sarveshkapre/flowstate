@@ -270,9 +270,6 @@ export function ProjectsClient() {
                     <Button size="sm" asChild>
                       <a href={`/projects/${project.id}/upload`}>Open</a>
                     </Button>
-                    <Button size="sm" variant="outline" asChild>
-                      <a href={`/projects/${project.id}/workflows`}>Workflows</a>
-                    </Button>
                     <Button
                       size="sm"
                       variant="destructive"

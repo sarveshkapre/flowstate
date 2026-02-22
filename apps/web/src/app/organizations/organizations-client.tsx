@@ -59,14 +59,15 @@ export function OrganizationsClient() {
   return (
     <section className="panel stack">
       <h2>Organizations</h2>
-      <p className="muted">Use organizations to isolate workflow and deployment operations by tenant.</p>
+      <p className="muted">
+        Use organizations to isolate project and deployment operations by tenant.
+      </p>
 
       <Card className="stack">
         <CardHeader>
           <CardTitle>Create Organization</CardTitle>
         </CardHeader>
         <CardContent className="stack">
-
           <label className="field small">
             <span>Name</span>
             <Input value={name} onChange={(event) => setName(event.target.value)} />

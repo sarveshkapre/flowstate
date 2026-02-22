@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, Database, PencilLine, Upload } from "lucide-react";
+import { Database, PencilLine, Upload } from "lucide-react";
 
 import { cn } from "@shadcn-lib/utils";
 
@@ -10,7 +10,6 @@ const ITEMS = [
   { key: "upload", label: "Upload", icon: Upload },
   { key: "annotate", label: "Annotate", icon: PencilLine },
   { key: "dataset", label: "Dataset", icon: Database },
-  { key: "workflows", label: "Workflows", icon: Boxes },
 ];
 
 export function ProjectSidebar({
@@ -25,7 +24,9 @@ export function ProjectSidebar({
   return (
     <aside className="w-full rounded-2xl border border-border/90 bg-card p-3 shadow-sm md:sticky md:top-20 md:h-fit md:w-60">
       <div className="mb-3 rounded-xl border border-border bg-muted/40 p-3">
-        <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Project</p>
+        <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Project
+        </p>
         <p className="truncate text-base font-semibold text-foreground">{projectName}</p>
         <p className="truncate text-xs text-muted-foreground">ID {projectId.slice(0, 8)}</p>
       </div>

@@ -2,16 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, FolderKanban } from "lucide-react";
+import { FolderKanban } from "lucide-react";
 
 import { cn } from "@shadcn-lib/utils";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 
-const NAV_ITEMS = [
-  { href: "/projects", label: "Projects", icon: FolderKanban },
-  { href: "/workflows", label: "Workflows", icon: Boxes },
-];
+const NAV_ITEMS = [{ href: "/projects", label: "Projects", icon: FolderKanban }];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -27,7 +24,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <nav className="flex-1 space-y-1 px-3 py-4">
           {NAV_ITEMS.map((item) => {
-            const active = item.href === "/workflows" ? pathname.includes("/workflows") : pathname.startsWith(item.href);
+            const active = pathname.startsWith(item.href);
             const Icon = item.icon;
             return (
               <Link
@@ -74,7 +71,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 px-2 py-2 backdrop-blur md:hidden">
         <div className="grid grid-cols-2 gap-1">
           {NAV_ITEMS.map((item) => {
-            const active = item.href === "/workflows" ? pathname.includes("/workflows") : pathname.startsWith(item.href);
+            const active = pathname.startsWith(item.href);
             const Icon = item.icon;
             return (
               <Link
@@ -82,7 +79,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={cn(
                   "inline-flex w-full flex-col items-center justify-center gap-1 rounded-md px-2 py-1 text-center text-[11px] font-medium",
-                  active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />

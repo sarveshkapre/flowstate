@@ -247,7 +247,11 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         body: JSON.stringify({}),
       });
       const ingestPayload = (await ingestResponse.json().catch(() => ({}))) as {
-        result?: { created_assets_count?: number };
+        result?: {
+          created_assets_count?: number;
+          failed_extraction_artifact_ids?: string[];
+          extraction_errors?: Array<{ artifact_id?: string; message?: string }>;
+        };
         error?: string;
       };
 
@@ -258,11 +262,17 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       await refreshBatches(datasetId);
       setSelectedFiles([]);
       setBatchName(defaultBatchName());
-      setMessage(
-        ingestPayload.result?.created_assets_count
-          ? `Batch ready with ${ingestPayload.result.created_assets_count} assets.`
-          : "Batch created.",
-      );
+      const createdCount = ingestPayload.result?.created_assets_count ?? 0;
+      const failedExtractionCount = ingestPayload.result?.failed_extraction_artifact_ids?.length ?? 0;
+      if (failedExtractionCount > 0) {
+        const firstError = ingestPayload.result?.extraction_errors?.[0]?.message;
+        const suffix = firstError ? ` ${firstError}` : "";
+        setMessage(
+          `Batch ingested with ${createdCount} assets. Video extraction failed for ${failedExtractionCount} file(s).${suffix}`,
+        );
+      } else {
+        setMessage(createdCount ? `Batch ready with ${createdCount} assets.` : "Batch created.");
+      }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to create batch.");
     } finally {

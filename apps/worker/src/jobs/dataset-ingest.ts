@@ -293,8 +293,14 @@ export async function runDatasetBatchIngestOnce(input: {
 
     const result = payload.result && typeof payload.result === "object" ? (payload.result as JsonRecord) : {};
     const created = typeof result.created_assets_count === "number" ? result.created_assets_count : 0;
+    const failedExtractionCount = Array.isArray(result.failed_extraction_artifact_ids)
+      ? result.failed_extraction_artifact_ids.length
+      : 0;
     ingestedBatchCount += 1;
     createdAssetCount += created;
+    if (failedExtractionCount > 0) {
+      failures.push(`batch ${batchId}: video extraction failed for ${failedExtractionCount} artifact(s)`);
+    }
   }
 
   if (ingestedBatchCount > 0) {

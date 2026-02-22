@@ -1487,6 +1487,8 @@ export async function ingestDatasetBatch(input: {
         created_assets_count: 0,
         missing_artifact_ids: [] as string[],
         unsupported_artifact_ids: [] as string[],
+        failed_extraction_artifact_ids: [] as string[],
+        extraction_errors: [] as Array<{ artifact_id: string; message: string }>,
         already_ingested: true,
       };
     }
@@ -1516,6 +1518,8 @@ export async function ingestDatasetBatch(input: {
 
     const missingArtifactIds: string[] = [];
     const unsupportedArtifactIds: string[] = [];
+    const failedExtractionArtifactIds: string[] = [];
+    const extractionErrors: Array<{ artifact_id: string; message: string }> = [];
     const materializedAssets: DatasetAssetRecord[] = [];
 
     for (const artifactId of batch.source_artifact_ids) {
@@ -1589,7 +1593,11 @@ export async function ingestDatasetBatch(input: {
           });
 
           if (extraction.frames.length === 0) {
-            unsupportedArtifactIds.push(artifact.id);
+            failedExtractionArtifactIds.push(artifact.id);
+            extractionErrors.push({
+              artifact_id: artifact.id,
+              message: "No frames were extracted from this video.",
+            });
             continue;
           }
 
@@ -1616,8 +1624,12 @@ export async function ingestDatasetBatch(input: {
               }),
             );
           }
-        } catch {
-          unsupportedArtifactIds.push(artifact.id);
+        } catch (error) {
+          failedExtractionArtifactIds.push(artifact.id);
+          extractionErrors.push({
+            artifact_id: artifact.id,
+            message: error instanceof Error ? error.message : "Video frame extraction failed.",
+          });
         }
         continue;
       }
@@ -1646,6 +1658,7 @@ export async function ingestDatasetBatch(input: {
         asset_count: materializedAssets.length,
         missing_artifact_count: missingArtifactIds.length,
         unsupported_artifact_count: unsupportedArtifactIds.length,
+        failed_extraction_count: failedExtractionArtifactIds.length,
       },
     });
     appendAuditEvent(state, {
@@ -1663,6 +1676,8 @@ export async function ingestDatasetBatch(input: {
       created_assets_count: materializedAssets.length,
       missing_artifact_ids: missingArtifactIds,
       unsupported_artifact_ids: unsupportedArtifactIds,
+      failed_extraction_artifact_ids: failedExtractionArtifactIds,
+      extraction_errors: extractionErrors,
       already_ingested: false,
     };
   });

@@ -13,6 +13,7 @@ type Params = {
 
 const buildSchema = z.object({
   batchId: z.string().min(1).optional(),
+  includeUnlabeled: z.boolean().optional(),
 });
 
 export async function POST(request: Request, { params }: Params) {
@@ -39,11 +40,19 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Invalid request body", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const version = await createDatasetVersionFromLatestAnnotations({
-    datasetId,
-    batchId: parsed.data.batchId,
-    actor: auth.actor.email ?? undefined,
-  });
+  try {
+    const version = await createDatasetVersionFromLatestAnnotations({
+      datasetId,
+      batchId: parsed.data.batchId,
+      includeUnlabeled: parsed.data.includeUnlabeled,
+      actor: auth.actor.email ?? undefined,
+    });
 
-  return NextResponse.json({ version }, { status: 201 });
+    return NextResponse.json({ version }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to build dataset version" },
+      { status: 400 },
+    );
+  }
 }

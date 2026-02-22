@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
@@ -63,6 +63,25 @@ const EMPTY_DRAFT: LabelDraft = {
 };
 
 type FilterMode = "all" | "labeled" | "unlabeled";
+type DrawState = {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+};
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function toBbox(drawState: DrawState) {
+  const x = Math.min(drawState.startX, drawState.currentX);
+  const y = Math.min(drawState.startY, drawState.currentY);
+  const width = Math.abs(drawState.currentX - drawState.startX);
+  const height = Math.abs(drawState.currentY - drawState.startY);
+
+  return { x, y, width, height };
+}
 
 function assetPreviewUrl(asset: Asset | null) {
   if (!asset || !asset.artifact_id) {
@@ -73,6 +92,7 @@ function assetPreviewUrl(asset: Asset | null) {
 }
 
 export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
+  const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string>("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
@@ -80,6 +100,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   const [draftShapes, setDraftShapes] = useState<AnnotationShape[]>([]);
   const [autoLabelPrompt, setAutoLabelPrompt] = useState("");
   const [labelHints, setLabelHints] = useState("");
+  const [drawState, setDrawState] = useState<DrawState | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -136,11 +157,13 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!selectedAsset) {
       setDraftShapes([]);
+      setDrawState(null);
       return;
     }
 
     const prefill = selectedAsset.latest_annotation?.shapes.filter((shape) => shape.geometry.type === "bbox") ?? [];
     setDraftShapes(prefill);
+    setDrawState(null);
   }, [selectedAsset]);
 
   function addDraftShape() {
@@ -250,6 +273,94 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   const previewUrl = assetPreviewUrl(selectedAsset);
+  const inProgressBbox = drawState ? toBbox(drawState) : null;
+
+  function getPointerNormalizedPosition(event: React.PointerEvent<HTMLDivElement>) {
+    const frame = previewFrameRef.current;
+    if (!frame) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = frame.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return { x: 0, y: 0 };
+    }
+
+    return {
+      x: clamp01((event.clientX - rect.left) / rect.width),
+      y: clamp01((event.clientY - rect.top) / rect.height),
+    };
+  }
+
+  function onDrawStart(event: React.PointerEvent<HTMLDivElement>) {
+    if (!selectedAsset || selectedAsset.asset_type !== "image" || event.button !== 0) {
+      return;
+    }
+
+    const pointer = getPointerNormalizedPosition(event);
+    setDrawState({
+      startX: pointer.x,
+      startY: pointer.y,
+      currentX: pointer.x,
+      currentY: pointer.y,
+    });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function onDrawMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!drawState || !selectedAsset || selectedAsset.asset_type !== "image") {
+      return;
+    }
+
+    const pointer = getPointerNormalizedPosition(event);
+    setDrawState((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        currentX: pointer.x,
+        currentY: pointer.y,
+      };
+    });
+  }
+
+  function onDrawEnd(event: React.PointerEvent<HTMLDivElement>) {
+    if (!drawState || !selectedAsset || selectedAsset.asset_type !== "image") {
+      return;
+    }
+
+    const pointer = getPointerNormalizedPosition(event);
+    const finalized = toBbox({
+      ...drawState,
+      currentX: pointer.x,
+      currentY: pointer.y,
+    });
+    setDrawState(null);
+
+    if (finalized.width < 0.01 || finalized.height < 0.01) {
+      return;
+    }
+
+    const label = labelDraft.label.trim() || "object";
+    const next: AnnotationShape = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      label,
+      confidence: null,
+      geometry: {
+        type: "bbox",
+        x: finalized.x,
+        y: finalized.y,
+        width: finalized.width,
+        height: finalized.height,
+      },
+    };
+
+    setDraftShapes((current) => [...current, next]);
+    setError(null);
+    setMessage("Box added from draw tool.");
+  }
 
   return (
     <section className="space-y-5">
@@ -306,8 +417,54 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
                 {selectedAsset ? (
                   previewUrl ? (
                     selectedAsset.asset_type === "image" ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={previewUrl} alt="Asset preview" className="max-h-[520px] w-full rounded-lg object-contain" />
+                      <div className="mx-auto w-fit">
+                        <div
+                          ref={previewFrameRef}
+                          className="relative inline-block select-none touch-none"
+                          onPointerDown={onDrawStart}
+                          onPointerMove={onDrawMove}
+                          onPointerUp={onDrawEnd}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={previewUrl}
+                            alt="Asset preview"
+                            className="max-h-[520px] rounded-lg object-contain"
+                            draggable={false}
+                          />
+                          <div className="pointer-events-none absolute inset-0">
+                            {draftShapes.map((shape) =>
+                              shape.geometry.type === "bbox" ? (
+                                <div
+                                  key={shape.id}
+                                  className="absolute border-2 border-emerald-500/90"
+                                  style={{
+                                    left: `${shape.geometry.x * 100}%`,
+                                    top: `${shape.geometry.y * 100}%`,
+                                    width: `${shape.geometry.width * 100}%`,
+                                    height: `${shape.geometry.height * 100}%`,
+                                  }}
+                                >
+                                  <span className="absolute left-0 top-0 -translate-y-full rounded bg-emerald-600 px-1 py-0.5 text-[10px] text-white">
+                                    {shape.label}
+                                  </span>
+                                </div>
+                              ) : null,
+                            )}
+                            {inProgressBbox ? (
+                              <div
+                                className="absolute border-2 border-dashed border-primary"
+                                style={{
+                                  left: `${inProgressBbox.x * 100}%`,
+                                  top: `${inProgressBbox.y * 100}%`,
+                                  width: `${inProgressBbox.width * 100}%`,
+                                  height: `${inProgressBbox.height * 100}%`,
+                                }}
+                              />
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
                     ) : selectedAsset.asset_type === "pdf_page" ? (
                       <iframe title="PDF preview" src={previewUrl} className="h-[520px] w-full rounded-lg border border-border bg-background" />
                     ) : (
@@ -354,6 +511,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
                   value={labelDraft.label}
                   onChange={(event) => setLabelDraft((current) => ({ ...current, label: event.target.value }))}
                 />
+                <p className="text-xs text-muted-foreground">Tip: click and drag directly on image preview to add a box.</p>
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     type="number"
@@ -427,7 +585,9 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
               <CardTitle className="text-base">Draft Shapes</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {draftShapes.length === 0 ? <p className="text-sm text-muted-foreground">No shapes yet.</p> : null}
+              {draftShapes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No shapes yet. Draw on image or add a numeric box.</p>
+              ) : null}
               {draftShapes.map((shape) => (
                 <div key={shape.id} className="flex items-center justify-between rounded-lg border border-border p-2">
                   <div>

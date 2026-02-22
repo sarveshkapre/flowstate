@@ -1707,6 +1707,26 @@ export async function createAssetAnnotation(input: {
     });
 
     state.asset_annotations.unshift(annotation);
+
+    const batch = state.dataset_batches.find((item) => item.id === asset.batch_id);
+    if (batch) {
+      const labeledAssetIds = new Set<string>();
+      for (const candidate of state.asset_annotations) {
+        if (candidate.batch_id === batch.id && candidate.is_latest) {
+          labeledAssetIds.add(candidate.asset_id);
+        }
+      }
+
+      batch.labeled_count = labeledAssetIds.size;
+      if (
+        (batch.status === "uploaded" || batch.status === "preprocessing" || batch.status === "ready_for_label") &&
+        batch.labeled_count > 0
+      ) {
+        batch.status = "in_labeling";
+      }
+      batch.updated_at = timestamp;
+    }
+
     appendAuditEvent(state, {
       eventType: annotation.source === "ai_prelabel" ? "asset_auto_labeled_v2" : "asset_annotation_created_v2",
       actor: input.actor ?? "system",
@@ -1775,6 +1795,7 @@ export async function readDatasetVersionLines(datasetVersionId: string) {
 export async function createDatasetVersionFromLatestAnnotations(input: {
   datasetId: string;
   batchId?: string;
+  includeUnlabeled?: boolean;
   actor?: string;
 }) {
   const state = await readState();
@@ -1810,15 +1831,21 @@ export async function createDatasetVersionFromLatestAnnotations(input: {
     }
   }
 
-  const lines = assets.map((asset) =>
-    JSON.stringify({
-      asset_id: asset.id,
-      batch_id: asset.batch_id,
-      type: asset.asset_type,
-      source: asset.storage_path,
-      annotation: latestByAsset.get(asset.id) ?? null,
-    }),
-  );
+  const lines = assets
+    .filter((asset) => (input.includeUnlabeled ? true : latestByAsset.has(asset.id)))
+    .map((asset) =>
+      JSON.stringify({
+        asset_id: asset.id,
+        batch_id: asset.batch_id,
+        type: asset.asset_type,
+        source: asset.storage_path,
+        annotation: latestByAsset.get(asset.id) ?? null,
+      }),
+    );
+
+  if (lines.length === 0) {
+    throw new Error("No labeled assets available to build a dataset version.");
+  }
 
   return createDatasetVersion({
     datasetId: input.datasetId,

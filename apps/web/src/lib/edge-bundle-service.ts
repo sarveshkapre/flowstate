@@ -9,6 +9,7 @@ import {
   writeEdgeBundleFile,
 } from "@/lib/data-store";
 import { buildEdgeBundleManifest, getEdgeAdapterDefinition } from "@/lib/edge-adapters";
+import { resolveOpenAIModel } from "@/lib/openai-model";
 
 function slugify(input: string) {
   return input
@@ -35,7 +36,7 @@ export async function createEdgeDeploymentBundle(input: {
     return null;
   }
 
-  const model = input.model?.trim() || process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const model = resolveOpenAIModel(input.model);
   const manifest = buildEdgeBundleManifest({ workflow, adapter, model });
   const contents = `${JSON.stringify(manifest, null, 2)}\n`;
 

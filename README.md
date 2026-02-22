@@ -117,7 +117,7 @@ Web app:
 ## Environment Variables
 
 - `OPENAI_API_KEY` (required)
-- `OPENAI_MODEL` (default: `gpt-4.1-mini`)
+- `OPENAI_MODEL` (default: `gpt-5.2`)
 - `FLOWSTATE_ENV_PROFILE` (`local` | `staging` | `prod`, default: `local`)
 - `FLOWSTATE_AUTH_MODE` (`optional` | `strict`, default: `optional`)
 - `FLOWSTATE_MAGIC_LINK_EXPOSE_TOKEN` (default: `true` for local development)

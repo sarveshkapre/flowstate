@@ -14,6 +14,7 @@ import {
   setExtractionJobProcessing,
 } from "@/lib/data-store";
 import { extractionTemplates } from "@/lib/extraction-templates";
+import { resolveOpenAIModel } from "@/lib/openai-model";
 import { getOpenAIClient } from "@/lib/openai";
 import { validateExtraction } from "@/lib/validation";
 
@@ -49,7 +50,7 @@ async function runModelExtraction(input: {
   const openai = getOpenAIClient();
 
   const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    model: resolveOpenAIModel(),
     input: [
       {
         role: "system",

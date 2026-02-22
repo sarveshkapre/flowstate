@@ -48,7 +48,7 @@ type RunRecord = {
 const DRAFT_GRAPH = {
   nodes: [
     { id: "n_input", type: "source_upload", label: "Input", config: { accept: ["image"] } },
-    { id: "n_detect", type: "extract", label: "Detect Boxes", config: { model: "gpt-4.1-mini" } },
+    { id: "n_detect", type: "extract", label: "Detect Boxes", config: { model: "gpt-5.2" } },
     { id: "n_filter", type: "validate", label: "Filter to Zone", config: { zone: "A" } },
     { id: "n_count", type: "classify", label: "Count Boxes", config: { key: "count" } },
     { id: "n_alert", type: "route", label: "Backup Detected", config: { when: "count > 4" } },

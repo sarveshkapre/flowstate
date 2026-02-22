@@ -12,6 +12,7 @@ import {
   setRunV2Failed,
   setRunV2Running,
 } from "@/lib/data-store-v2";
+import { resolveOpenAIModel } from "@/lib/openai-model";
 
 function asObject(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -135,7 +136,7 @@ export async function executeFlowVersionRun(input: {
 
     await createRunTrace({
       runId: run.id,
-      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+      model: resolveOpenAIModel(),
       inputTokens: 0,
       outputTokens: 0,
       costUsd: 0,

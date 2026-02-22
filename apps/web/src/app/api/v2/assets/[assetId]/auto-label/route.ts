@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createAssetAnnotation, getDatasetAsset, resolveDatasetAssetBinarySource } from "@/lib/data-store-v2";
+import { resolveOpenAIModel } from "@/lib/openai-model";
 import { getOpenAIClient } from "@/lib/openai";
 import { requirePermission } from "@/lib/v2/auth";
 
@@ -87,7 +88,7 @@ export async function POST(request: Request, { params }: Params) {
     const instruction = parsed.data.prompt?.trim() || "Detect prominent objects and return bounding boxes.";
 
     const response = await openai.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+      model: resolveOpenAIModel(),
       input: [
         {
           role: "system",
@@ -166,7 +167,7 @@ export async function POST(request: Request, { params }: Params) {
           height: shape.bbox.height,
         },
       })),
-      notes: `Auto-labeled by ${process.env.OPENAI_MODEL || "gpt-4.1-mini"}`,
+      notes: `Auto-labeled by ${resolveOpenAIModel()}`,
       actor: auth.actor.email ?? undefined,
     });
 

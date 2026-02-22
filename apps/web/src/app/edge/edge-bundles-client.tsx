@@ -6,6 +6,7 @@ import { Button } from "@shadcn-ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
 import { Input } from "@shadcn-ui/input";
 import { NativeSelect } from "@shadcn-ui/native-select";
+import { DEFAULT_OPENAI_MODEL } from "@/lib/openai-model";
 
 type Workflow = {
   id: string;
@@ -52,7 +53,7 @@ export function EdgeBundlesClient() {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [workflowId, setWorkflowId] = useState("");
   const [adapterId, setAdapterId] = useState<Adapter["id"] | "">("");
-  const [model, setModel] = useState("gpt-4.1-mini");
+  const [model, setModel] = useState(DEFAULT_OPENAI_MODEL);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [manifestPreview, setManifestPreview] = useState<string>("");
 
@@ -198,7 +199,7 @@ export function EdgeBundlesClient() {
 
             <label className="field">
               <span>OpenAI Model</span>
-              <Input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-4.1-mini" />
+              <Input value={model} onChange={(event) => setModel(event.target.value)} placeholder={DEFAULT_OPENAI_MODEL} />
             </label>
 
             <Button onClick={() => void createBundle()}>Generate Edge Bundle</Button>

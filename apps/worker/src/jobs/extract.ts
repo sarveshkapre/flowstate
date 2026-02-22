@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { z } from "zod";
 
+import { resolveOpenAIModel } from "../lib/openai-model";
+
 const payloadSchema = z.object({
   imageUrl: z.url(),
   prompt: z.string().min(1).max(1000).optional(),
@@ -15,7 +17,7 @@ export async function runExtractionJob(payload: unknown) {
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    model: resolveOpenAIModel(),
     input: [
       {
         role: "user",

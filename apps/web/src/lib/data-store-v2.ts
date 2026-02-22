@@ -2195,6 +2195,64 @@ export async function getDatasetAsset(assetId: string) {
   return state.dataset_assets.find((asset) => asset.id === assetId) ?? null;
 }
 
+export async function deleteDatasetAsset(input: { assetId: string; actor?: string }) {
+  return withWriteLock(async (state) => {
+    const asset = state.dataset_assets.find((item) => item.id === input.assetId);
+    if (!asset) {
+      return null;
+    }
+
+    const timestamp = new Date().toISOString();
+    await removeLocalDatasetAssets(asset.project_id, new Set([asset.id]));
+
+    if (asset.asset_type === "video_frame" && asset.artifact_id && asset.frame_index !== null) {
+      await fs.rm(videoFrameFilePath(asset.batch_id, asset.artifact_id, asset.frame_index), { force: true });
+    }
+
+    state.dataset_assets = state.dataset_assets.filter((item) => item.id !== input.assetId);
+    state.asset_annotations = state.asset_annotations.filter(
+      (annotation) => annotation.asset_id !== input.assetId,
+    );
+
+    const batch = state.dataset_batches.find((item) => item.id === asset.batch_id);
+    if (batch) {
+      const batchAssetIds = new Set(
+        state.dataset_assets
+          .filter((candidate) => candidate.batch_id === batch.id)
+          .map((candidate) => candidate.id),
+      );
+      const labeledAssetIds = new Set<string>();
+      for (const annotation of state.asset_annotations) {
+        if (
+          annotation.batch_id === batch.id &&
+          annotation.is_latest &&
+          batchAssetIds.has(annotation.asset_id)
+        ) {
+          labeledAssetIds.add(annotation.asset_id);
+        }
+      }
+
+      batch.item_count = batchAssetIds.size;
+      batch.labeled_count = labeledAssetIds.size;
+      batch.updated_at = timestamp;
+    }
+
+    appendAuditEvent(state, {
+      eventType: "dataset_batch_status_updated_v2",
+      actor: input.actor ?? "system",
+      metadata: {
+        project_id: asset.project_id,
+        dataset_id: asset.dataset_id,
+        dataset_batch_id: asset.batch_id,
+        asset_id: asset.id,
+        asset_deleted: true,
+      },
+    });
+
+    return asset;
+  });
+}
+
 export async function createAssetAnnotation(input: {
   assetId: string;
   source: AssetAnnotationSource;

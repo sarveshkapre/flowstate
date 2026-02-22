@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
@@ -74,6 +74,7 @@ export function ReviewWorkspaceClient({ projectId }: { projectId: string }) {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -153,6 +154,33 @@ export function ReviewWorkspaceClient({ projectId }: { projectId: string }) {
     }
   }
 
+  async function deleteFromQueue(asset: Asset) {
+    const confirmed = window.confirm("Delete this image from the queue?");
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingAssetId(asset.id);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/v2/assets/${asset.id}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok && response.status !== 204) {
+        throw new Error(payload.error || "Unable to delete image.");
+      }
+
+      await load();
+      setMessage("Image deleted from queue.");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete image.");
+    } finally {
+      setDeletingAssetId(null);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <div className="space-y-1">
@@ -172,6 +200,7 @@ export function ReviewWorkspaceClient({ projectId }: { projectId: string }) {
 
           {queue.map(({ asset, risk }) => {
             const isBusy = busyAssetId === asset.id;
+            const isDeleting = deletingAssetId === asset.id;
             const status =
               !asset.latest_annotation || asset.latest_annotation.shapes.length === 0
                 ? "unlabeled"
@@ -209,11 +238,25 @@ export function ReviewWorkspaceClient({ projectId }: { projectId: string }) {
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={isBusy || risk.totalShapes === 0}
+                    disabled={isBusy || isDeleting || risk.totalShapes === 0}
                     onClick={() => void markReviewed(asset)}
                   >
                     {isBusy ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
                     Mark reviewed
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isBusy || isDeleting}
+                    onClick={() => void deleteFromQueue(asset)}
+                  >
+                    {isDeleting ? (
+                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                    )}
+                    Delete
                   </Button>
                 </div>
               </div>

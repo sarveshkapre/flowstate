@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, FileOutput, FolderUp, ListChecks, PencilLine, Settings } from "lucide-react";
+import { Boxes, Clapperboard, FileOutput, FolderUp, ListChecks, PencilLine, Settings } from "lucide-react";
 
 import { cn } from "@shadcn-lib/utils";
 
@@ -10,6 +10,7 @@ const ITEMS = [
   { key: "upload", label: "Import", icon: FolderUp },
   { key: "dataset", label: "Dataset", icon: Boxes },
   { key: "annotate", label: "Annotate", icon: PencilLine },
+  { key: "video", label: "Video", icon: Clapperboard },
   { key: "review", label: "Review Queue", icon: ListChecks },
   { key: "exports", label: "Exports", icon: FileOutput },
   { key: "settings", label: "Settings", icon: Settings },

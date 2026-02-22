@@ -34,6 +34,9 @@ export default async function ProjectLayout({
             <Link href={`/projects/${project.id}/annotate`}>Auto-annotate</Link>
           </Button>
           <Button asChild size="sm" variant="outline">
+            <Link href={`/projects/${project.id}/video`}>Video</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
             <Link href={`/projects/${project.id}/exports`}>Export</Link>
           </Button>
         </div>

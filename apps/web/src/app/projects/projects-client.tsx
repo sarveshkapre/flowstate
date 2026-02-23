@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, FolderOpen, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, FolderOpen, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
@@ -215,7 +215,24 @@ export function ProjectsClient() {
           {projects.map((project) => (
             <Card key={project.id} className="border border-border/70">
               <CardHeader className="space-y-2">
-                <CardTitle className="text-base">{project.name}</CardTitle>
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{project.name}</CardTitle>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="outline"
+                    disabled={deletingId === project.id}
+                    onClick={() => void onDeleteProject(project)}
+                    aria-label={`Delete ${project.name}`}
+                    title={`Delete ${project.name}`}
+                  >
+                    {deletingId === project.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{formatProjectType(project.project_type)}</Badge>
                   <Badge variant="outline">{project.annotation_group}</Badge>
@@ -231,15 +248,6 @@ export function ProjectsClient() {
                     Open
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={deletingId === project.id}
-                  onClick={() => void onDeleteProject(project)}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {deletingId === project.id ? "Deleting..." : "Delete"}
                 </Button>
               </CardContent>
             </Card>

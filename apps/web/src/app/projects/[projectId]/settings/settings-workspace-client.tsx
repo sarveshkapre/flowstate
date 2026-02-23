@@ -201,15 +201,17 @@ export function SettingsWorkspaceClient({ projectId }: { projectId: string }) {
                     <Button
                       type="button"
                       variant="outline"
+                      size="icon-sm"
                       disabled={deleting || deletingDatasetId !== null}
                       onClick={() => void deleteDataset(dataset)}
+                      aria-label={`Delete dataset ${dataset.name}`}
+                      title={`Delete dataset ${dataset.name}`}
                     >
                       {deletingDatasetId === dataset.id ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <Trash2 className="mr-2 h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       )}
-                      {deletingDatasetId === dataset.id ? "Deleting..." : "Delete Dataset"}
                     </Button>
                   </div>
                 ))
@@ -217,16 +219,21 @@ export function SettingsWorkspaceClient({ projectId }: { projectId: string }) {
           </div>
 
           <div className="space-y-2 border-t border-destructive/30 pt-4">
-            <p className="text-sm font-medium text-destructive">Delete Project</p>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={deleting || !project || deletingDatasetId !== null}
-              onClick={() => void deleteProject()}
-            >
-              {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-              {deleting ? "Deleting..." : "Delete Project"}
-            </Button>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-destructive">Delete Project</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                disabled={deleting || !project || deletingDatasetId !== null}
+                onClick={() => void deleteProject()}
+                aria-label="Delete project"
+                title="Delete project"
+              >
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">This action cannot be undone.</p>
           </div>
         </CardContent>
       </Card>

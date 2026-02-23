@@ -246,17 +246,18 @@ export function ReviewWorkspaceClient({ projectId }: { projectId: string }) {
                   </Button>
                   <Button
                     type="button"
-                    size="sm"
+                    size="icon-sm"
                     variant="outline"
                     disabled={isBusy || isDeleting}
                     onClick={() => void deleteFromQueue(asset)}
+                    aria-label={`Delete ${asset.id}`}
+                    title={`Delete ${asset.id}`}
                   >
                     {isDeleting ? (
-                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     )}
-                    Delete
                   </Button>
                 </div>
               </div>

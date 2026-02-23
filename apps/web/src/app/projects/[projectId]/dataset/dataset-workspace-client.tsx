@@ -578,13 +578,15 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
               variant="outline"
               disabled={selectedDatasetId === "all" || deletingDatasetId !== null}
               onClick={() => void deleteSelectedDataset()}
+              size="icon-sm"
+              aria-label="Delete selected dataset"
+              title="Delete selected dataset"
             >
               {deletingDatasetId ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
               )}
-              {deletingDatasetId ? "Deleting..." : "Delete dataset"}
             </Button>
             <Button
               type="button"
@@ -620,13 +622,14 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
                   </div>
                   <Button
                     type="button"
-                    size="sm"
+                    size="icon-sm"
                     variant="outline"
                     disabled={deleting || deletingDatasetId !== null}
                     onClick={() => void deleteDatasetById(dataset.id)}
+                    aria-label={`Delete ${dataset.name}`}
+                    title={`Delete ${dataset.name}`}
                   >
-                    {deleting ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-2 h-3.5 w-3.5" />}
-                    {deleting ? "Deleting..." : "Delete"}
+                    {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
                 </div>
               );
@@ -669,9 +672,26 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
               <CardHeader className="space-y-2 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="truncate text-sm">{title}</CardTitle>
-                  <Badge variant={status === "reviewed" ? "secondary" : status === "auto_labeled" ? "outline" : "destructive"}>
-                    {status === "auto_labeled" ? "auto" : status}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={status === "reviewed" ? "secondary" : status === "auto_labeled" ? "outline" : "destructive"}>
+                      {status === "auto_labeled" ? "auto" : status}
+                    </Badge>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      disabled={isBusy || isDeleting || deletingItemId !== null}
+                      onClick={() => void deleteItem(item)}
+                      aria-label={`Delete ${title}`}
+                      title={`Delete ${title}`}
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 {item.kind === "video" ? (
                   <p className="text-xs text-muted-foreground">{item.assets.length} extracted frames (grouped)</p>
@@ -721,16 +741,6 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
                   </Button>
                   <Button asChild size="sm">
                     <Link href={openHref}>{openLabel}</Link>
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={isBusy || isDeleting || deletingItemId !== null}
-                    onClick={() => void deleteItem(item)}
-                  >
-                    {isDeleting ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-2 h-3.5 w-3.5" />}
-                    Delete
                   </Button>
                 </div>
               </CardContent>

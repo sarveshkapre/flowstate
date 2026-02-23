@@ -658,6 +658,11 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
             item.kind === "video" && asset.artifact_id
               ? `video:${asset.artifact_id.slice(0, 8)}`
               : asset.id.slice(0, 10);
+          const openHref =
+            item.kind === "video" && asset.artifact_id
+              ? `/projects/${projectId}/clips/${asset.artifact_id}`
+              : `/projects/${projectId}/annotate?assetId=${asset.id}`;
+          const openLabel = item.kind === "video" ? "Open clip" : "Open";
 
           return (
             <Card key={item.id} className="overflow-hidden border border-border/70">
@@ -715,7 +720,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
                     Mark reviewed
                   </Button>
                   <Button asChild size="sm">
-                    <Link href={`/projects/${projectId}/annotate?assetId=${asset.id}`}>Open</Link>
+                    <Link href={openHref}>{openLabel}</Link>
                   </Button>
                   <Button
                     type="button"

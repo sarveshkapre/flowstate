@@ -146,12 +146,12 @@ body {
   line-height: 1.45;
 }
 
-a {
+a:not([data-slot="button"]) {
   color: var(--accent-hover);
   text-decoration: none;
 }
 
-a:hover {
+a:not([data-slot="button"]):hover {
   text-decoration: none;
 }
 

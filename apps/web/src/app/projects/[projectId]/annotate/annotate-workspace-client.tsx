@@ -61,6 +61,13 @@ type AutoLabelModelOutput = {
 };
 
 type ReasoningEffort = "low" | "medium" | "high";
+type LabelSummary = {
+  label: string;
+  count: number;
+  avgConfidence: number | null;
+  minConfidence: number | null;
+  maxConfidence: number | null;
+};
 
 function formatConfidence(confidence: number | null) {
   if (confidence == null) {
@@ -121,6 +128,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [lastModelOutput, setLastModelOutput] = useState<AutoLabelModelOutput | null>(null);
+  const [showLabelInstances, setShowLabelInstances] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const supportedAssets = useMemo(() => assets.filter((asset) => isImageLikeAsset(asset.asset_type)), [assets]);
@@ -264,7 +272,45 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
 
   const previewUrl = assetPreviewUrl(selectedAsset);
   const canAutoLabel = selectedAsset ? isImageLikeAsset(selectedAsset.asset_type) : false;
-  const labels = selectedAsset?.latest_annotation?.shapes ?? [];
+  const labels = useMemo(() => selectedAsset?.latest_annotation?.shapes ?? [], [selectedAsset]);
+  const labelSummaries = useMemo<LabelSummary[]>(() => {
+    const grouped = new Map<
+      string,
+      {
+        count: number;
+        confidenceValues: number[];
+      }
+    >();
+
+    for (const shape of labels) {
+      const key = displayShapeLabel(shape);
+      const entry = grouped.get(key) ?? { count: 0, confidenceValues: [] };
+      entry.count += 1;
+      if (shape.confidence != null) {
+        entry.confidenceValues.push(shape.confidence);
+      }
+      grouped.set(key, entry);
+    }
+
+    return [...grouped.entries()]
+      .map(([label, entry]) => {
+        const values = entry.confidenceValues;
+        return {
+          label,
+          count: entry.count,
+          avgConfidence:
+            values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
+          minConfidence: values.length > 0 ? Math.min(...values) : null,
+          maxConfidence: values.length > 0 ? Math.max(...values) : null,
+        };
+      })
+      .sort((left, right) => {
+        if (right.count !== left.count) {
+          return right.count - left.count;
+        }
+        return left.label.localeCompare(right.label);
+      });
+  }, [labels]);
 
   return (
     <section className="space-y-5">
@@ -401,16 +447,82 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
             <CardHeader>
               <CardTitle className="text-base">Detected Labels</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
               {labels.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No labels yet. Run OpenAI auto-label.</p>
               ) : null}
-              {labels.map((shape) => (
-                <div key={shape.id} className="flex items-center justify-between rounded-lg border border-border p-2">
-                  <p className="text-sm font-medium">{displayShapeLabel(shape)}</p>
-                  <p className="text-xs text-muted-foreground">confidence {formatConfidence(shape.confidence)}</p>
-                </div>
-              ))}
+              {labels.length > 0 ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">{labels.length} boxes</Badge>
+                    <Badge variant="outline">{labelSummaries.length} unique labels</Badge>
+                    {labelSummaries.slice(0, 6).map((summary) => (
+                      <Badge key={summary.label} variant="outline">
+                        {summary.label} x{summary.count}
+                      </Badge>
+                    ))}
+                    {labelSummaries.length > 6 ? (
+                      <Badge variant="outline">+{labelSummaries.length - 6} more</Badge>
+                    ) : null}
+                  </div>
+
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <div className="grid grid-cols-[minmax(0,1fr)_80px_90px_120px] gap-2 border-b border-border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                      <span>Label</span>
+                      <span className="text-right">Count</span>
+                      <span className="text-right">Avg</span>
+                      <span className="text-right">Range</span>
+                    </div>
+                    <div className="max-h-56 overflow-auto">
+                      {labelSummaries.map((summary) => (
+                        <div
+                          key={summary.label}
+                          className="grid grid-cols-[minmax(0,1fr)_80px_90px_120px] gap-2 border-b border-border/70 px-3 py-2 text-sm last:border-b-0"
+                        >
+                          <span className="truncate font-medium">{summary.label}</span>
+                          <span className="text-right text-muted-foreground">{summary.count}</span>
+                          <span className="text-right text-muted-foreground">
+                            {formatConfidence(summary.avgConfidence)}
+                          </span>
+                          <span className="text-right text-muted-foreground">
+                            {summary.minConfidence == null || summary.maxConfidence == null
+                              ? "n/a"
+                              : `${formatConfidence(summary.minConfidence)} - ${formatConfidence(summary.maxConfidence)}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Grouped by label to reduce scrolling.</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowLabelInstances((current) => !current)}
+                    >
+                      {showLabelInstances ? "Hide instances" : "Show instances"}
+                    </Button>
+                  </div>
+
+                  {showLabelInstances ? (
+                    <div className="max-h-56 space-y-2 overflow-auto rounded-lg border border-border p-2">
+                      {labels.map((shape) => (
+                        <div
+                          key={shape.id}
+                          className="flex items-center justify-between rounded-md border border-border/70 px-2 py-1.5"
+                        >
+                          <p className="truncate text-xs font-medium">{displayShapeLabel(shape)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            confidence {formatConfidence(shape.confidence)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </CardContent>
           </Card>
 

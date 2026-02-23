@@ -35,6 +35,12 @@ type UploadArtifactResponse = {
   } | null;
 };
 
+type FileAnalysis = {
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+};
+
 type BatchAsset = {
   id: string;
   asset_type: "image" | "video_frame" | "pdf_page";
@@ -101,6 +107,17 @@ type UploadScanJob = {
 
 const IMAGE_FILE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const VIDEO_FILE_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"]);
+const DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS = 3;
+const DEFAULT_VIDEO_SAMPLE_FRAMES = 10;
+const DEFAULT_INPUT_TOKENS_PER_FRAME = 910;
+const AUTO_LABEL_PASSES_PER_FRAME = 2;
+const INPUT_PRICE_PER_MILLION = 1.75;
+const OUTPUT_PRICE_PER_MILLION = 14;
+const OUTPUT_TOKENS_PER_FRAME = {
+  low: 120,
+  typical: 260,
+  high: 500,
+};
 
 function defaultBatchName() {
   return `Uploaded on ${new Date().toLocaleString()}`;
@@ -112,6 +129,10 @@ function fileExtension(fileName: string) {
     return "";
   }
   return fileName.slice(dotIndex).toLowerCase();
+}
+
+function fileKey(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
 function detectUploadFileKind(file: File): "image" | "video" | null {
@@ -135,6 +156,110 @@ function detectUploadFileKind(file: File): "image" | "video" | null {
 
 function isSupportedUploadFile(file: File) {
   return detectUploadFileKind(file) !== null;
+}
+
+function formatUsd(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "$0.00";
+  }
+  if (value < 0.01) {
+    return "<$0.01";
+  }
+  return `$${value.toFixed(2)}`;
+}
+
+function estimateVisionInputTokens(width: number | null, height: number | null) {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return DEFAULT_INPUT_TOKENS_PER_FRAME;
+  }
+
+  let scaledWidth = width;
+  let scaledHeight = height;
+
+  const shortest = Math.min(scaledWidth, scaledHeight);
+  if (shortest > 768) {
+    const scale = 768 / shortest;
+    scaledWidth *= scale;
+    scaledHeight *= scale;
+  }
+
+  const longest = Math.max(scaledWidth, scaledHeight);
+  if (longest > 2048) {
+    const scale = 2048 / longest;
+    scaledWidth *= scale;
+    scaledHeight *= scale;
+  }
+
+  const tiles = Math.max(1, Math.ceil(scaledWidth / 512) * Math.ceil(scaledHeight / 512));
+  return 70 + 140 * tiles;
+}
+
+function analyzedFramesForVideo(durationSeconds: number | null) {
+  if (durationSeconds === null || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return DEFAULT_VIDEO_SAMPLE_FRAMES;
+  }
+
+  const clipped = Math.min(durationSeconds, DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS);
+  const ratio = clipped / DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS;
+  return Math.max(1, Math.min(DEFAULT_VIDEO_SAMPLE_FRAMES, Math.round(ratio * DEFAULT_VIDEO_SAMPLE_FRAMES)));
+}
+
+async function analyzeFile(file: File): Promise<FileAnalysis> {
+  const kind = detectUploadFileKind(file);
+  if (kind === "image") {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        resolve({
+          width: image.naturalWidth || null,
+          height: image.naturalHeight || null,
+          durationSeconds: null,
+        });
+        URL.revokeObjectURL(url);
+      };
+      image.onerror = () => {
+        resolve({
+          width: null,
+          height: null,
+          durationSeconds: null,
+        });
+        URL.revokeObjectURL(url);
+      };
+      image.src = url;
+    });
+  }
+
+  if (kind === "video") {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        resolve({
+          width: video.videoWidth || null,
+          height: video.videoHeight || null,
+          durationSeconds: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null,
+        });
+        URL.revokeObjectURL(url);
+      };
+      video.onerror = () => {
+        resolve({
+          width: null,
+          height: null,
+          durationSeconds: null,
+        });
+        URL.revokeObjectURL(url);
+      };
+      video.src = url;
+    });
+  }
+
+  return {
+    width: null,
+    height: null,
+    durationSeconds: null,
+  };
 }
 
 function inferSourceType(files: File[]): "image" | "video" | "mixed" {
@@ -234,6 +359,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [scanPrompt, setScanPrompt] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [fileAnalyses, setFileAnalyses] = useState<Record<string, FileAnalysis>>({});
   const [previewAsset, setPreviewAsset] = useState<BatchAsset | null>(null);
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<UploadScanJob[]>([]);
@@ -253,6 +379,35 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       folderInputRef.current.setAttribute("directory", "");
     }
   }, []);
+
+  useEffect(() => {
+    if (selectedFiles.length === 0) {
+      setFileAnalyses({});
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      const entries = await Promise.all(
+        selectedFiles.map(async (file) => {
+          const analysis = await analyzeFile(file);
+          return [fileKey(file), analysis] as const;
+        }),
+      );
+      if (cancelled) {
+        return;
+      }
+
+      setFileAnalyses(
+        Object.fromEntries(entries) as Record<string, FileAnalysis>,
+      );
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFiles]);
 
   async function ensureDataset(currentProjectId: string) {
     const listResponse = await fetch(
@@ -544,6 +699,58 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     const videoCount = selectedFiles.filter((file) => detectUploadFileKind(file) === "video").length;
     return { imageCount, videoCount };
   }, [selectedFiles]);
+  const costEstimate = useMemo(() => {
+    if (selectedFiles.length === 0) {
+      return null;
+    }
+
+    let analyzedFrames = 0;
+    let inputTokens = 0;
+    for (const file of selectedFiles) {
+      const kind = detectUploadFileKind(file);
+      if (!kind) {
+        continue;
+      }
+
+      const analysis = fileAnalyses[fileKey(file)];
+      const tokensPerFrame = estimateVisionInputTokens(
+        analysis?.width ?? null,
+        analysis?.height ?? null,
+      );
+      const frames =
+        kind === "video"
+          ? analyzedFramesForVideo(analysis?.durationSeconds ?? null)
+          : 1;
+
+      analyzedFrames += frames;
+      inputTokens += tokensPerFrame * frames * AUTO_LABEL_PASSES_PER_FRAME;
+    }
+
+    if (analyzedFrames === 0) {
+      return null;
+    }
+
+    const outputTokensLow =
+      analyzedFrames * OUTPUT_TOKENS_PER_FRAME.low * AUTO_LABEL_PASSES_PER_FRAME;
+    const outputTokensTypical =
+      analyzedFrames * OUTPUT_TOKENS_PER_FRAME.typical * AUTO_LABEL_PASSES_PER_FRAME;
+    const outputTokensHigh =
+      analyzedFrames * OUTPUT_TOKENS_PER_FRAME.high * AUTO_LABEL_PASSES_PER_FRAME;
+
+    const inputCost = (inputTokens / 1_000_000) * INPUT_PRICE_PER_MILLION;
+    const totalLow = inputCost + (outputTokensLow / 1_000_000) * OUTPUT_PRICE_PER_MILLION;
+    const totalTypical =
+      inputCost + (outputTokensTypical / 1_000_000) * OUTPUT_PRICE_PER_MILLION;
+    const totalHigh = inputCost + (outputTokensHigh / 1_000_000) * OUTPUT_PRICE_PER_MILLION;
+
+    return {
+      analyzedFrames,
+      inputTokens,
+      low: totalLow,
+      typical: totalTypical,
+      high: totalHigh,
+    };
+  }, [selectedFiles, fileAnalyses]);
   const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null;
   const hasRunningJobs = jobs.some((job) => isJobRunning(job.status));
 
@@ -835,6 +1042,25 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   Videos are normalized to first 3 seconds and max 20MB on upload.
                 </p>
               </div>
+
+              {costEstimate ? (
+                <div className="mx-auto mt-3 w-full max-w-xl rounded-lg border border-border/80 bg-background/90 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Estimated OpenAI Cost</p>
+                  <p className="mt-1 text-sm font-semibold">
+                    {formatUsd(costEstimate.typical)}{" "}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      ({formatUsd(costEstimate.low)} - {formatUsd(costEstimate.high)})
+                    </span>
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    ~{costEstimate.analyzedFrames} analyzed frames • ~
+                    {(costEstimate.inputTokens / 1000).toFixed(1)}k input tokens.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Assumes high-detail vision and dense auto-labeling (2 passes/frame).
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

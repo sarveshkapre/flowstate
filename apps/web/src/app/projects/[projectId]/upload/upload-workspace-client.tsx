@@ -89,6 +89,7 @@ type UploadScanJob = {
   error_message: string | null;
   batch_id: string | null;
   preview_asset_id: string | null;
+  annotated_video_artifact_id: string | null;
   created_assets_count: number;
   labeled_assets_count: number;
   failed_assets_count: number;
@@ -548,6 +549,10 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
 
   const previewShapes = previewAsset?.latest_annotation?.shapes ?? [];
   const canExport = Boolean(previewAsset && previewShapes.length > 0);
+  const annotatedVideoArtifactId = activeJob?.annotated_video_artifact_id ?? null;
+  const annotatedVideoUrl = annotatedVideoArtifactId
+    ? `/api/v1/uploads/${encodeURIComponent(annotatedVideoArtifactId)}/file`
+    : null;
 
   function resolvePreviewImageSize() {
     if (!previewAsset) {
@@ -698,6 +703,21 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       type: "application/json",
     });
     downloadBlob(`${previewAsset?.id ?? "annotations"}_coco.json`, blob);
+  }
+
+  async function downloadAnnotatedVideo() {
+    if (!annotatedVideoArtifactId) {
+      return;
+    }
+
+    const response = await fetch(annotatedVideoUrl ?? "", { cache: "no-store" });
+    if (!response.ok) {
+      setError("Unable to download annotated video.");
+      return;
+    }
+
+    const blob = await response.blob();
+    downloadBlob(`${annotatedVideoArtifactId}_annotated.mp4`, blob);
   }
 
   function toggleCocoJsonPreview() {
@@ -967,6 +987,29 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         {previewAsset ? (
           <Card>
             <CardContent className="space-y-4 p-5">
+              {annotatedVideoUrl ? (
+                <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">Annotated video output</p>
+                      <p className="text-xs text-muted-foreground">
+                        Processed clip with auto-labeled bounding boxes.
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={() => void downloadAnnotatedVideo()}>
+                      Download annotated MP4
+                    </Button>
+                  </div>
+                  <video
+                    key={annotatedVideoArtifactId}
+                    controls
+                    preload="metadata"
+                    className="block w-full rounded-lg border border-border/80 bg-black"
+                    src={annotatedVideoUrl}
+                  />
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium">Auto-label result</p>

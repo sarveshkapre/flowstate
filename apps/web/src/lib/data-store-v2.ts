@@ -1571,6 +1571,7 @@ export async function createUploadScanJob(input: {
       error_message: null,
       batch_id: null,
       preview_asset_id: null,
+      annotated_video_artifact_id: null,
       created_assets_count: 0,
       labeled_assets_count: 0,
       failed_assets_count: 0,
@@ -1612,6 +1613,7 @@ export async function patchUploadScanJob(input: {
   errorMessage?: string | null;
   batchId?: string | null;
   previewAssetId?: string | null;
+  annotatedVideoArtifactId?: string | null;
   createdAssetsCount?: number;
   labeledAssetsCount?: number;
   failedAssetsCount?: number;
@@ -1645,6 +1647,9 @@ export async function patchUploadScanJob(input: {
     }
     if (input.previewAssetId !== undefined) {
       job.preview_asset_id = input.previewAssetId;
+    }
+    if (input.annotatedVideoArtifactId !== undefined) {
+      job.annotated_video_artifact_id = input.annotatedVideoArtifactId;
     }
     if (typeof input.createdAssetsCount === "number" && Number.isFinite(input.createdAssetsCount)) {
       job.created_assets_count = Math.max(0, Math.floor(input.createdAssetsCount));

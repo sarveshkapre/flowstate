@@ -545,6 +545,7 @@ export const uploadScanJobRecordSchema = z.object({
   error_message: z.string().nullable(),
   batch_id: z.string().nullable(),
   preview_asset_id: z.string().nullable(),
+  annotated_video_artifact_id: z.string().nullable().default(null),
   created_assets_count: z.number().int().nonnegative(),
   labeled_assets_count: z.number().int().nonnegative(),
   failed_assets_count: z.number().int().nonnegative(),

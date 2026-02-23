@@ -180,13 +180,6 @@ export function ProjectsClient() {
 
   return (
     <section className="mx-auto w-full max-w-[1400px] space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-3xl font-semibold tracking-tight">Projects</h1>
-        <p className="text-sm text-muted-foreground">
-          Create a local project, import images/videos, auto-annotate, review, and export.
-        </p>
-      </div>
-
       <Card className="border border-border/70">
         <CardHeader>
           <CardTitle className="text-base">Create Project</CardTitle>

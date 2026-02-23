@@ -153,6 +153,19 @@ function colorForLabel(label: string) {
   return OVERLAY_COLORS[hash[0]! % OVERLAY_COLORS.length]!;
 }
 
+function shapeOverlayLabel(shape: AssetAnnotationRecord["shapes"][number]) {
+  const base = shape.label.trim() || "object";
+  const identity = shape.identity;
+  if (!identity?.possible_name) {
+    return base;
+  }
+  const confidence = identity.confidence ?? 0;
+  if (confidence < 0.62) {
+    return base;
+  }
+  return `${base}: ${identity.possible_name}`;
+}
+
 async function resolveAssetDimensions(asset: DatasetAssetRecord, filePath: string) {
   if (asset.width && asset.width > 0 && asset.height && asset.height > 0) {
     return { width: asset.width, height: asset.height };
@@ -277,7 +290,7 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
           `drawbox=x=${x.toFixed(2)}:y=${y.toFixed(2)}:w=${w.toFixed(2)}:h=${h.toFixed(2)}:color=0x${color}@0.95:t=2`,
         );
 
-        const label = shape.label.trim() || "object";
+        const label = shapeOverlayLabel(shape);
         const safeText = escapeDrawText(label);
         const textY = Math.max(10, y - 8);
         filters.push(

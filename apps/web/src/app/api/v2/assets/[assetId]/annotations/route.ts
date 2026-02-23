@@ -36,6 +36,14 @@ const createAnnotationSchema = z.object({
         id: z.string().optional(),
         label: z.string().min(1).max(200),
         confidence: z.number().min(0).max(1).nullable().optional(),
+        identity: z
+          .object({
+            possible_name: z.string().min(1).max(200),
+            confidence: z.number().min(0).max(1).nullable().optional(),
+            evidence: z.string().min(1).max(500).nullable().optional(),
+          })
+          .nullable()
+          .optional(),
         geometry: geometrySchema,
       }),
     )

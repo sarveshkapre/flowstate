@@ -2429,6 +2429,11 @@ export async function createAssetAnnotation(input: {
     id?: string;
     label: string;
     confidence?: number | null;
+    identity?: {
+      possible_name: string;
+      confidence?: number | null;
+      evidence?: string | null;
+    } | null;
     geometry: unknown;
   }>;
   notes?: string;
@@ -2459,6 +2464,18 @@ export async function createAssetAnnotation(input: {
         confidence:
           typeof shape.confidence === "number" && Number.isFinite(shape.confidence)
             ? Math.max(0, Math.min(1, shape.confidence))
+            : null,
+        identity:
+          shape.identity && shape.identity.possible_name.trim()
+            ? {
+                possible_name: shape.identity.possible_name.trim(),
+                confidence:
+                  typeof shape.identity.confidence === "number" &&
+                  Number.isFinite(shape.identity.confidence)
+                    ? Math.max(0, Math.min(1, shape.identity.confidence))
+                    : null,
+                evidence: shape.identity.evidence?.trim() || null,
+              }
             : null,
         geometry: shape.geometry,
       }),

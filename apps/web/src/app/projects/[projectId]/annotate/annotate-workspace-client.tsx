@@ -23,6 +23,11 @@ type AnnotationShape = {
   id: string;
   label: string;
   confidence: number | null;
+  identity?: {
+    possible_name: string;
+    confidence: number | null;
+    evidence: string | null;
+  } | null;
   geometry: {
     type: "bbox";
     x: number;
@@ -43,6 +48,9 @@ type AutoLabelModelOutput = {
   shapes: Array<{
     label: string;
     confidence: number | null;
+    possible_name: string | null;
+    identity_confidence: number | null;
+    identity_evidence: string | null;
     bbox: {
       x: number;
       y: number;
@@ -60,6 +68,16 @@ function formatConfidence(confidence: number | null) {
   }
 
   return `${Math.round(confidence * 100)}%`;
+}
+
+function displayShapeLabel(shape: AnnotationShape) {
+  if (!shape.identity?.possible_name) {
+    return shape.label;
+  }
+  if ((shape.identity.confidence ?? 0) < 0.62) {
+    return shape.label;
+  }
+  return `${shape.label}: ${shape.identity.possible_name}`;
 }
 
 function assetPreviewUrl(asset: Asset | null) {
@@ -337,7 +355,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
                                 }}
                               >
                                 <span className="absolute left-0 top-0 -translate-y-full rounded bg-emerald-600 px-1 py-0.5 text-[10px] text-white">
-                                  {shape.label}
+                                  {displayShapeLabel(shape)}
                                 </span>
                               </div>
                             ) : null,
@@ -389,7 +407,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
               ) : null}
               {labels.map((shape) => (
                 <div key={shape.id} className="flex items-center justify-between rounded-lg border border-border p-2">
-                  <p className="text-sm font-medium">{shape.label}</p>
+                  <p className="text-sm font-medium">{displayShapeLabel(shape)}</p>
                   <p className="text-xs text-muted-foreground">confidence {formatConfidence(shape.confidence)}</p>
                 </div>
               ))}

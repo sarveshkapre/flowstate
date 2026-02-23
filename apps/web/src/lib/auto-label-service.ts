@@ -15,6 +15,9 @@ import { getOpenAIClient } from "@/lib/openai";
 export const autoLabelModelShapeSchema = z.object({
   label: z.string().min(1),
   confidence: z.number().min(0).max(1).nullable(),
+  possible_name: z.string().min(1).nullable().default(null),
+  identity_confidence: z.number().min(0).max(1).nullable().default(null),
+  identity_evidence: z.string().min(1).nullable().default(null),
   bbox: z.object({
     x: z.number().min(0).max(1),
     y: z.number().min(0).max(1),
@@ -28,6 +31,9 @@ const modelResponseSchema = z.object({
     z.object({
       label: z.string().min(1),
       confidence: z.number().min(0).max(1).nullable(),
+      possible_name: z.string().min(1).max(200).nullable(),
+      identity_confidence: z.number().min(0).max(1).nullable(),
+      identity_evidence: z.string().min(1).max(500).nullable(),
       bbox_xywh: z.tuple([
         z.number().nonnegative(),
         z.number().nonnegative(),
@@ -61,6 +67,7 @@ const DEFAULT_MAX_OBJECTS = 250;
 const DENSE_MAX_OBJECTS = 400;
 const AUTO_LABEL_MODEL = "gpt-5.2";
 const DUPLICATE_IOU_THRESHOLD = 0.88;
+const IDENTITY_CONFIDENCE_THRESHOLD = 0.62;
 const GENERIC_LABELS = new Set([
   "object",
   "objects",
@@ -75,6 +82,9 @@ const GENERIC_LABELS = new Set([
   "content",
   "entity",
 ]);
+const SPORTS_CONTEXT_PATTERN =
+  /\b(olympic|athlet|sprinter|runner|track|field|lane|race|soccer|football|basketball|tennis|cricket|hockey|baseball|rugby|swimmer|cycling|marathon|tournament|match|player)\b/i;
+const PERSON_LABEL_PATTERN = /\b(person|athlete|runner|sprinter|player|man|woman|boy|girl)\b/i;
 
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) {
@@ -103,9 +113,45 @@ function filterUnhelpfulLabels(objects: PixelObject[]) {
   return objects;
 }
 
+function sanitizeIdentityName(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const lowered = trimmed.toLowerCase();
+  if (
+    lowered === "unknown" ||
+    lowered === "none" ||
+    lowered === "n/a" ||
+    lowered === "na" ||
+    lowered === "unsure" ||
+    lowered === "uncertain"
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+function isPersonLikeLabel(label: string) {
+  return PERSON_LABEL_PATTERN.test(label);
+}
+
+function shouldAttemptSportsIdentity(input: { instruction: string; hints: string; assetType: "image" | "video_frame" }) {
+  if (input.assetType === "video_frame") {
+    return true;
+  }
+  return SPORTS_CONTEXT_PATTERN.test(`${input.instruction} ${input.hints}`);
+}
+
 type PixelObject = {
   label: string;
   confidence: number | null;
+  possible_name: string | null;
+  identity_confidence: number | null;
+  identity_evidence: string | null;
   bbox_xywh: [number, number, number, number];
 };
 
@@ -126,6 +172,12 @@ function sanitizePixelObject(
   return {
     label: normalizeLabel(object.label),
     confidence: object.confidence ?? null,
+    possible_name: sanitizeIdentityName(object.possible_name),
+    identity_confidence:
+      typeof object.identity_confidence === "number" && Number.isFinite(object.identity_confidence)
+        ? clamp(object.identity_confidence, 0, 1)
+        : null,
+    identity_evidence: object.identity_evidence?.trim() ? object.identity_evidence.trim() : null,
     bbox_xywh: [x, y, width, height],
   };
 }
@@ -207,6 +259,7 @@ function promptForPass(input: {
   imageHeight: number;
   maxObjects: number;
   qualityMode: "fast" | "dense";
+  sportsIdentityMode: boolean;
   priorDetections?: PixelObject[];
 }) {
   const priorDetections = input.priorDetections ?? [];
@@ -222,6 +275,12 @@ function promptForPass(input: {
     `Return at most ${input.maxObjects} objects.`,
     "Use specific short singular noun labels. Avoid generic labels like object, thing, photo, image, or scene.",
     "If uncertain, keep the best-effort label and lower confidence.",
+    input.sportsIdentityMode
+      ? "Sports identity mode: for person/athlete detections only, include possible_name only when evidence is strong (on-screen text, jersey number + team kit, scoreboard/lane graphics, or other explicit broadcast cues)."
+      : "Set possible_name to \"unknown\" when no strong identity evidence exists.",
+    input.sportsIdentityMode
+      ? "Never guess identities. If evidence is weak or ambiguous, set possible_name to \"unknown\", identity_confidence to null, and identity_evidence to null."
+      : "If not a sports/celebrity context, keep possible_name as \"unknown\" and identity fields null.",
   ];
 
   if (input.qualityMode === "dense") {
@@ -247,6 +306,7 @@ function promptForPass(input: {
       "3) add obvious missed salient objects",
       "4) remove duplicates",
       "5) remove detections that are just player/browser UI controls or non-semantic background noise",
+      "6) for person/athlete boxes, update identity fields only if strong explicit evidence is present; otherwise keep possible_name as \"unknown\"",
       `Existing detections seed:\n${JSON.stringify(compact)}`,
     );
   }
@@ -264,6 +324,7 @@ async function runDetectionPass(input: {
   maxObjects: number;
   reasoningEffort: "low" | "medium" | "high";
   qualityMode: "fast" | "dense";
+  sportsIdentityMode: boolean;
   priorDetections?: PixelObject[];
 }) {
   const openai = getOpenAIClient();
@@ -294,6 +355,7 @@ async function runDetectionPass(input: {
               imageHeight: input.imageHeight,
               maxObjects: input.maxObjects,
               qualityMode: input.qualityMode,
+              sportsIdentityMode: input.sportsIdentityMode,
               priorDetections: input.priorDetections,
             }),
           },
@@ -321,6 +383,9 @@ async function runDetectionPass(input: {
                 properties: {
                   label: { type: "string" },
                   confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
+                  possible_name: { type: ["string", "null"] },
+                  identity_confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
+                  identity_evidence: { type: ["string", "null"] },
                   bbox_xywh: {
                     type: "array",
                     items: { type: "number", minimum: 0 },
@@ -328,7 +393,14 @@ async function runDetectionPass(input: {
                     maxItems: 4,
                   },
                 },
-                required: ["label", "bbox_xywh", "confidence"],
+                required: [
+                  "label",
+                  "bbox_xywh",
+                  "confidence",
+                  "possible_name",
+                  "identity_confidence",
+                  "identity_evidence",
+                ],
               },
             },
           },
@@ -374,6 +446,11 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
       ? `Preferred labels: ${options.labelHints.join(", ")}.`
       : "";
   const qualityMode = options?.qualityMode ?? "fast";
+  const sportsIdentityMode = shouldAttemptSportsIdentity({
+    instruction,
+    hints,
+    assetType: asset.asset_type,
+  });
   const maxObjects =
     typeof options?.maxObjects === "number" && Number.isFinite(options.maxObjects)
       ? clamp(Math.floor(options.maxObjects), 1, 1000)
@@ -400,6 +477,7 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
     maxObjects,
     reasoningEffort,
     qualityMode,
+    sportsIdentityMode,
   });
 
   let finalObjects = firstPass;
@@ -415,6 +493,7 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
         maxObjects,
         reasoningEffort,
         qualityMode,
+        sportsIdentityMode,
         priorDetections: firstPass,
       });
       finalObjects = refined.length > 0 ? refined : firstPass;
@@ -426,9 +505,16 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
 
   const shapes = finalObjects.map((item) => {
     const [x, y, width, height] = item.bbox_xywh;
+    const identityAllowed =
+      isPersonLikeLabel(item.label) &&
+      Boolean(item.possible_name) &&
+      (item.identity_confidence ?? 0) >= IDENTITY_CONFIDENCE_THRESHOLD;
     return {
       label: item.label,
       confidence: item.confidence ?? null,
+      possible_name: identityAllowed ? item.possible_name : null,
+      identity_confidence: identityAllowed ? item.identity_confidence : null,
+      identity_evidence: identityAllowed ? item.identity_evidence : null,
       bbox: {
         x: x / imageWidth,
         y: y / imageHeight,
@@ -445,6 +531,16 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
       id: randomUUID(),
       label: shape.label.trim(),
       confidence: shape.confidence ?? null,
+      identity: shape.possible_name
+        ? {
+            possible_name: shape.possible_name,
+            confidence:
+              typeof shape.identity_confidence === "number"
+                ? shape.identity_confidence
+                : null,
+            evidence: shape.identity_evidence ?? null,
+          }
+        : null,
       geometry: {
         type: "bbox",
         x: shape.bbox.x,

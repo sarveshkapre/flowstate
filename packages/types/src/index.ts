@@ -618,6 +618,14 @@ export const assetAnnotationShapeSchema = z.object({
   id: z.string(),
   label: z.string(),
   confidence: z.number().min(0).max(1).nullable(),
+  identity: z
+    .object({
+      possible_name: z.string().min(1),
+      confidence: z.number().min(0).max(1).nullable(),
+      evidence: z.string().min(1).nullable(),
+    })
+    .nullable()
+    .optional(),
   geometry: assetAnnotationGeometrySchema,
 });
 export type AssetAnnotationShape = z.infer<typeof assetAnnotationShapeSchema>;

@@ -14,6 +14,11 @@ type AnnotationShape = {
   id: string;
   label: string;
   confidence: number | null;
+  identity?: {
+    possible_name: string;
+    confidence: number | null;
+    evidence: string | null;
+  } | null;
   geometry: {
     type: "bbox";
     x: number;
@@ -405,6 +410,7 @@ export function DatasetWorkspaceClient({ projectId }: { projectId: string }) {
             shapes: asset.latest_annotation?.shapes.map((shape) => ({
               label: shape.label,
               confidence: shape.confidence,
+              identity: shape.identity ?? null,
               geometry: shape.geometry,
             })),
           }),

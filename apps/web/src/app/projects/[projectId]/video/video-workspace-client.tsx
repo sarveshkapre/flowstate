@@ -511,48 +511,10 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
                   onChange={(event) => setVideoFile(event.target.files?.[0] ?? null)}
                 />
               </label>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="space-y-1">
-                  <span className="text-sm font-medium">Mode</span>
-                  <NativeSelect value={mode} onChange={(event) => setMode(event.target.value as VideoRunMode)}>
-                    <option value="track_only">Track only</option>
-                    <option value="track_speed">Track + Speed</option>
-                  </NativeSelect>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium">Quality</span>
-                  <NativeSelect
-                    value={qualityMode}
-                    onChange={(event) => {
-                      const nextMode = event.target.value as VideoQualityMode;
-                      setQualityMode(nextMode);
-                      const defaults = qualityDefaults(nextMode);
-                      setFpsWork(String(defaults.fpsWork));
-                      setInferenceStrideFrames(String(defaults.stride));
-                      setConfidenceThreshold(String(defaults.threshold));
-                    }}
-                  >
-                    <option value="fast">Fast</option>
-                    <option value="balanced">Balanced</option>
-                    <option value="quality">Quality</option>
-                  </NativeSelect>
-                </label>
+              <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                Quick defaults: Track only, Balanced quality, {trimStartS}s to {trimEndS}s
+                (max {MAX_VIDEO_CLIP_SECONDS}s clip).
               </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="space-y-1">
-                  <span className="text-sm font-medium">Trim Start (s)</span>
-                  <Input value={trimStartS} onChange={(event) => setTrimStartS(event.target.value)} />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-medium">Trim End (s)</span>
-                  <Input value={trimEndS} onChange={(event) => setTrimEndS(event.target.value)} />
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Video runs are currently capped to {MAX_VIDEO_CLIP_SECONDS} seconds to control token usage.
-              </p>
 
               <div className="space-y-2">
                 <p className="text-sm font-medium">Targets</p>
@@ -595,19 +557,60 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
               </div>
 
               {advancedOpen ? (
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="space-y-1">
-                    <span className="text-xs text-muted-foreground">FPS</span>
-                    <Input value={fpsWork} onChange={(event) => setFpsWork(event.target.value)} />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-muted-foreground">Stride</span>
-                    <Input value={inferenceStrideFrames} onChange={(event) => setInferenceStrideFrames(event.target.value)} />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-muted-foreground">Confidence</span>
-                    <Input value={confidenceThreshold} onChange={(event) => setConfidenceThreshold(event.target.value)} />
-                  </label>
+                <div className="space-y-3 rounded-xl border border-border bg-muted/10 p-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Mode</span>
+                      <NativeSelect value={mode} onChange={(event) => setMode(event.target.value as VideoRunMode)}>
+                        <option value="track_only">Track only</option>
+                        <option value="track_speed">Track + Speed</option>
+                      </NativeSelect>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Quality</span>
+                      <NativeSelect
+                        value={qualityMode}
+                        onChange={(event) => {
+                          const nextMode = event.target.value as VideoQualityMode;
+                          setQualityMode(nextMode);
+                          const defaults = qualityDefaults(nextMode);
+                          setFpsWork(String(defaults.fpsWork));
+                          setInferenceStrideFrames(String(defaults.stride));
+                          setConfidenceThreshold(String(defaults.threshold));
+                        }}
+                      >
+                        <option value="fast">Fast</option>
+                        <option value="balanced">Balanced</option>
+                        <option value="quality">Quality</option>
+                      </NativeSelect>
+                    </label>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Trim Start (s)</span>
+                      <Input value={trimStartS} onChange={(event) => setTrimStartS(event.target.value)} />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Trim End (s)</span>
+                      <Input value={trimEndS} onChange={(event) => setTrimEndS(event.target.value)} />
+                    </label>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <label className="space-y-1">
+                      <span className="text-xs text-muted-foreground">FPS</span>
+                      <Input value={fpsWork} onChange={(event) => setFpsWork(event.target.value)} />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Stride</span>
+                      <Input value={inferenceStrideFrames} onChange={(event) => setInferenceStrideFrames(event.target.value)} />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Confidence</span>
+                      <Input value={confidenceThreshold} onChange={(event) => setConfidenceThreshold(event.target.value)} />
+                    </label>
+                  </div>
                 </div>
               ) : null}
 
@@ -643,10 +646,16 @@ export function VideoWorkspaceClient({ projectId }: { projectId: string }) {
                   <span>Trails</span>
                   <Switch checked={trailsEnabled} onCheckedChange={setTrailsEnabled} />
                 </label>
-                <label className="space-y-1">
-                  <span className="text-xs text-muted-foreground">Trail frames</span>
-                  <Input value={trailFrames} onChange={(event) => setTrailFrames(event.target.value)} />
-                </label>
+                {trailsEnabled ? (
+                  <label className="space-y-1">
+                    <span className="text-xs text-muted-foreground">Trail frames</span>
+                    <Input value={trailFrames} onChange={(event) => setTrailFrames(event.target.value)} />
+                  </label>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                    Trails are off.
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">

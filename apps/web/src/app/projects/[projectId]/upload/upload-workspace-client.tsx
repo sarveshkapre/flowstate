@@ -397,6 +397,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [fileAnalyses, setFileAnalyses] = useState<Record<string, FileAnalysis>>({});
   const [previewAsset, setPreviewAsset] = useState<BatchAsset | null>(null);
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
+  const [previewImageStatus, setPreviewImageStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [jobs, setJobs] = useState<UploadScanJob[]>([]);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [showCocoJson, setShowCocoJson] = useState(false);
@@ -443,6 +444,14 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       cancelled = true;
     };
   }, [selectedFiles]);
+
+  useEffect(() => {
+    if (!previewAsset) {
+      setPreviewImageStatus("idle");
+      return;
+    }
+    setPreviewImageStatus("loading");
+  }, [previewAsset]);
 
   async function ensureDataset(currentProjectId: string) {
     const listResponse = await fetch(
@@ -1006,7 +1015,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   return (
-    <section className="space-y-5">
+    <section className="min-w-0 space-y-5">
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">Upload</h1>
         <p className="text-sm text-muted-foreground">{project?.name ?? "Project"}</p>
@@ -1281,11 +1290,11 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   {activeJob.error_message ? (
                     <p className="text-sm text-destructive">{activeJob.error_message}</p>
                   ) : null}
-                  <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-background p-3 text-xs">
-                    {(activeJob.logs.length > 0
+                  <div className="max-h-48 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                    {activeJob.logs.length > 0
                       ? activeJob.logs.slice(-12).join("\n")
-                      : "No logs yet.")}
-                  </pre>
+                      : "No logs yet."}
+                  </div>
                 </div>
               ) : null}
             </CardContent>
@@ -1358,42 +1367,58 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               </div>
 
               <div className="rounded-xl border border-border bg-muted/20 p-2">
-                <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg">
+                <div className="relative flex min-h-[220px] w-full items-center justify-center overflow-hidden rounded-lg bg-background/30">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     ref={previewImageRef}
                     src={`/api/v2/assets/${previewAsset.id}/file`}
                     alt="Auto-labeled preview"
-                    className="block h-auto max-h-[640px] w-auto max-w-full"
+                    className={`block h-auto max-h-[560px] w-auto max-w-full transition-opacity ${
+                      previewImageStatus === "ready" ? "opacity-100" : "opacity-0"
+                    }`}
                     draggable={false}
+                    onLoad={() => setPreviewImageStatus("ready")}
+                    onError={() => setPreviewImageStatus("error")}
                   />
-                  <div className="pointer-events-none absolute inset-0">
-                    {previewAsset.latest_annotation?.shapes.map((shape) =>
-                      shape.geometry.type === "bbox" ? (
-                        <div
-                          key={shape.id}
-                          className="absolute border-2 border-emerald-500/90"
-                          style={{
-                            left: `${shape.geometry.x * 100}%`,
-                            top: `${shape.geometry.y * 100}%`,
-                            width: `${shape.geometry.width * 100}%`,
-                            height: `${shape.geometry.height * 100}%`,
-                          }}
-                        >
-                          <span className="absolute left-0 top-0 -translate-y-full rounded bg-emerald-600 px-1 py-0.5 text-[10px] text-white">
-                            {shape.label}
-                          </span>
-                        </div>
-                      ) : null,
-                    )}
-                  </div>
+                  {previewImageStatus === "loading" ? (
+                    <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                      Loading preview…
+                    </p>
+                  ) : null}
+                  {previewImageStatus === "error" ? (
+                    <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                      Preview unavailable for this asset.
+                    </p>
+                  ) : null}
+                  {previewImageStatus === "ready" ? (
+                    <div className="pointer-events-none absolute inset-0">
+                      {previewAsset.latest_annotation?.shapes.map((shape) =>
+                        shape.geometry.type === "bbox" ? (
+                          <div
+                            key={shape.id}
+                            className="absolute border-2 border-emerald-500/90"
+                            style={{
+                              left: `${shape.geometry.x * 100}%`,
+                              top: `${shape.geometry.y * 100}%`,
+                              width: `${shape.geometry.width * 100}%`,
+                              height: `${shape.geometry.height * 100}%`,
+                            }}
+                          >
+                            <span className="absolute left-0 top-0 -translate-y-full rounded bg-emerald-600 px-1 py-0.5 text-[10px] text-white">
+                              {shape.label}
+                            </span>
+                          </div>
+                        ) : null,
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
               {showCocoJson ? (
                 <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-3">
                   <p className="text-sm font-medium">COCO JSON</p>
-                  <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-background p-3 text-xs">
+                  <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-background p-3 text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     {cocoPreviewText ?? "No COCO JSON available yet."}
                   </pre>
                 </div>

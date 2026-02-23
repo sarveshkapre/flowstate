@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Badge } from "@shadcn-ui/badge";
 import { Button } from "@shadcn-ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@shadcn-ui/card";
+import { Input } from "@shadcn-ui/input";
 import { NativeSelect } from "@shadcn-ui/native-select";
 
 type Asset = {
@@ -69,6 +70,8 @@ type LabelSummary = {
   maxConfidence: number | null;
 };
 
+const ASSET_PAGE_SIZE = 18;
+
 function formatConfidence(confidence: number | null) {
   if (confidence == null) {
     return "n/a";
@@ -129,6 +132,10 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
   const [lastModelOutput, setLastModelOutput] = useState<AutoLabelModelOutput | null>(null);
   const [showLabelInstances, setShowLabelInstances] = useState(false);
+  const [assetSearch, setAssetSearch] = useState("");
+  const [assetStatusFilter, setAssetStatusFilter] = useState<"all" | "labeled" | "pending">("all");
+  const [assetSortOrder, setAssetSortOrder] = useState<"newest" | "oldest">("newest");
+  const [assetPage, setAssetPage] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const supportedAssets = useMemo(() => assets.filter((asset) => isImageLikeAsset(asset.asset_type)), [assets]);
@@ -273,6 +280,83 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
   const previewUrl = assetPreviewUrl(selectedAsset);
   const canAutoLabel = selectedAsset ? isImageLikeAsset(selectedAsset.asset_type) : false;
   const labels = useMemo(() => selectedAsset?.latest_annotation?.shapes ?? [], [selectedAsset]);
+  const filteredAssets = useMemo(() => {
+    const query = assetSearch.trim().toLowerCase();
+
+    return [...supportedAssets]
+      .filter((asset) => {
+        if (assetStatusFilter === "labeled" && !asset.latest_annotation) {
+          return false;
+        }
+        if (assetStatusFilter === "pending" && asset.latest_annotation) {
+          return false;
+        }
+        if (!query) {
+          return true;
+        }
+        const label = assetDisplayLabel(asset).toLowerCase();
+        const id = asset.id.toLowerCase();
+        return label.includes(query) || id.includes(query);
+      })
+      .sort((left, right) => {
+        const leftOrder = left.frame_index ?? Number.MIN_SAFE_INTEGER;
+        const rightOrder = right.frame_index ?? Number.MIN_SAFE_INTEGER;
+
+        if (leftOrder !== rightOrder) {
+          return assetSortOrder === "newest" ? rightOrder - leftOrder : leftOrder - rightOrder;
+        }
+        return assetSortOrder === "newest"
+          ? right.id.localeCompare(left.id)
+          : left.id.localeCompare(right.id);
+      });
+  }, [assetSearch, assetSortOrder, assetStatusFilter, supportedAssets]);
+  const pageCount = Math.max(1, Math.ceil(filteredAssets.length / ASSET_PAGE_SIZE));
+  const pagedAssets = useMemo(() => {
+    const start = assetPage * ASSET_PAGE_SIZE;
+    return filteredAssets.slice(start, start + ASSET_PAGE_SIZE);
+  }, [assetPage, filteredAssets]);
+  const selectedAssetPosition = useMemo(
+    () => (selectedAsset ? filteredAssets.findIndex((asset) => asset.id === selectedAsset.id) : -1),
+    [filteredAssets, selectedAsset],
+  );
+  const hasPreviousAsset = selectedAssetPosition > 0;
+  const hasNextAsset = selectedAssetPosition >= 0 && selectedAssetPosition < filteredAssets.length - 1;
+
+  function selectRelativeAsset(offset: -1 | 1) {
+    if (selectedAssetPosition < 0) {
+      return;
+    }
+    const targetIndex = selectedAssetPosition + offset;
+    if (targetIndex < 0 || targetIndex >= filteredAssets.length) {
+      return;
+    }
+    const target = filteredAssets[targetIndex];
+    if (!target) {
+      return;
+    }
+    setSelectedAssetId(target.id);
+    setAssetPage(Math.floor(targetIndex / ASSET_PAGE_SIZE));
+  }
+
+  useEffect(() => {
+    setAssetPage(0);
+  }, [assetSearch, assetSortOrder, assetStatusFilter]);
+
+  useEffect(() => {
+    if (assetPage > pageCount - 1) {
+      setAssetPage(Math.max(0, pageCount - 1));
+    }
+  }, [assetPage, pageCount]);
+
+  useEffect(() => {
+    if (filteredAssets.length === 0) {
+      return;
+    }
+    if (selectedAsset && filteredAssets.some((asset) => asset.id === selectedAsset.id)) {
+      return;
+    }
+    setSelectedAssetId(filteredAssets[0]!.id);
+  }, [filteredAssets, selectedAsset]);
   const labelSummaries = useMemo<LabelSummary[]>(() => {
     const grouped = new Map<
       string,
@@ -324,6 +408,7 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{supportedAssets.length} assets</Badge>
           <Badge variant="secondary">{unlabeledCount} pending</Badge>
+          <Badge variant="outline">{filteredAssets.length} visible</Badge>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>Reasoning</span>
             <NativeSelect
@@ -339,36 +424,97 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[280px_1fr]">
-        <Card>
+      <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <Card className="lg:sticky lg:top-4 lg:h-fit">
           <CardHeader className="space-y-3">
             <CardTitle className="text-base">Assets</CardTitle>
+            <div className="space-y-2">
+              <Input
+                value={assetSearch}
+                onChange={(event) => setAssetSearch(event.target.value)}
+                placeholder="Search frame or asset id"
+                className="h-9"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <NativeSelect
+                  value={assetStatusFilter}
+                  onChange={(event) =>
+                    setAssetStatusFilter(event.target.value as "all" | "labeled" | "pending")
+                  }
+                  className="h-9"
+                >
+                  <option value="all">All</option>
+                  <option value="labeled">Labeled</option>
+                  <option value="pending">Pending</option>
+                </NativeSelect>
+                <NativeSelect
+                  value={assetSortOrder}
+                  onChange={(event) => setAssetSortOrder(event.target.value as "newest" | "oldest")}
+                  className="h-9"
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </NativeSelect>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2">
             {loading ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
             {!loading && supportedAssets.length === 0 ? (
               <p className="text-sm text-muted-foreground">Upload images or videos to label.</p>
             ) : null}
-            {supportedAssets.map((asset) => (
-              <button
-                key={asset.id}
-                type="button"
-                onClick={() => setSelectedAssetId(asset.id)}
-                className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
-                  selectedAsset?.id === asset.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:bg-muted/50"
-                }`}
-              >
-                <p className="truncate text-sm font-medium">{assetDisplayLabel(asset)}</p>
-                <p className="text-xs text-muted-foreground">{asset.id.slice(0, 10)}</p>
-                <div className="mt-1">
-                  <Badge variant={asset.latest_annotation ? "secondary" : "outline"}>
-                    {asset.latest_annotation ? "labeled" : "pending"}
-                  </Badge>
+            {!loading && filteredAssets.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No assets match these filters.</p>
+            ) : null}
+            <div className="max-h-[50vh] space-y-1 overflow-auto pr-1">
+              {pagedAssets.map((asset) => (
+                <button
+                  key={asset.id}
+                  type="button"
+                  onClick={() => setSelectedAssetId(asset.id)}
+                  className={`w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                    selectedAsset?.id === asset.id
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:bg-muted/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-sm font-medium">{assetDisplayLabel(asset)}</p>
+                    <Badge variant={asset.latest_annotation ? "secondary" : "outline"} className="shrink-0">
+                      {asset.latest_annotation ? "labeled" : "pending"}
+                    </Badge>
+                  </div>
+                  <p className="truncate text-[11px] text-muted-foreground">{asset.id.slice(0, 12)}</p>
+                </button>
+              ))}
+            </div>
+            {filteredAssets.length > 0 ? (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Page {assetPage + 1} / {pageCount}
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAssetPage((current) => Math.max(0, current - 1))}
+                    disabled={assetPage === 0}
+                  >
+                    Prev
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAssetPage((current) => Math.min(pageCount - 1, current + 1))}
+                    disabled={assetPage >= pageCount - 1}
+                  >
+                    Next
+                  </Button>
                 </div>
-              </button>
-            ))}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -426,6 +572,22 @@ export function AnnotateWorkspaceClient({ projectId }: { projectId: string }) {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => selectRelativeAsset(-1)}
+                  disabled={busy || !hasPreviousAsset}
+                >
+                  Prev frame
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => selectRelativeAsset(1)}
+                  disabled={busy || !hasNextAsset}
+                >
+                  Next frame
+                </Button>
                 <Button onClick={() => void runAutoLabelCurrent()} disabled={busy || !selectedAsset || !canAutoLabel}>
                   {busy ? "Labeling..." : "Auto-label this asset"}
                 </Button>

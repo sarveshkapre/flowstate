@@ -25,7 +25,7 @@ const execFile = promisify(execFileCallback);
 const COMMAND_BUFFER_SIZE = 16 * 1024 * 1024;
 const activeJobs = new Set<string>();
 const OVERLAY_COLORS = ["00ff88", "00d2ff", "ffc400", "ff6b6b", "8f7bff", "6ee7b7", "f97316"];
-const MAX_AUTO_LABEL_CONCURRENCY = 30;
+const MAX_AUTO_LABEL_CONCURRENCY = 50;
 const MIN_ADAPTIVE_CONCURRENCY = 8;
 const MAX_AUTO_LABEL_ATTEMPTS = 3;
 
@@ -84,6 +84,53 @@ function sleep(ms: number) {
   });
 }
 
+function formatDurationSeconds(totalSeconds: number) {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds === 0 ? `${minutes}m` : `${minutes}m ${remainingSeconds}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${remainingMinutes}m`;
+}
+
+function formatDurationMs(ms: number) {
+  return formatDurationSeconds(ms / 1000);
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function estimateEtaLabel(completed: number, total: number, startedAtMs: number) {
+  if (completed <= 0 || total <= completed) {
+    return "estimating";
+  }
+  const elapsedSeconds = Math.max(1, (Date.now() - startedAtMs) / 1000);
+  const throughput = completed / elapsedSeconds;
+  if (!Number.isFinite(throughput) || throughput <= 0) {
+    return "estimating";
+  }
+  const remainingSeconds = (total - completed) / throughput;
+  return formatDurationSeconds(remainingSeconds);
+}
+
 async function runAutoLabelWithRetry(input: {
   assetId: string;
   prompt?: string;
@@ -94,6 +141,7 @@ async function runAutoLabelWithRetry(input: {
 }) {
   let attempt = 0;
   let retryableSignals = 0;
+  let totalBackoffMs = 0;
 
   while (attempt < MAX_AUTO_LABEL_ATTEMPTS) {
     attempt += 1;
@@ -108,8 +156,11 @@ async function runAutoLabelWithRetry(input: {
       return {
         ok: true as const,
         attempts: attempt,
+        retries: Math.max(0, attempt - 1),
         retryableSignals,
+        totalBackoffMs,
         reason: null,
+        retryable: false,
       };
     } catch (error) {
       const reason = errorMessage(error);
@@ -118,7 +169,9 @@ async function runAutoLabelWithRetry(input: {
         return {
           ok: false as const,
           attempts: attempt,
+          retries: Math.max(0, attempt - 1),
           retryableSignals,
+          totalBackoffMs,
           reason,
           retryable,
         };
@@ -126,6 +179,7 @@ async function runAutoLabelWithRetry(input: {
 
       retryableSignals += 1;
       const backoffMs = Math.min(4000, 350 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
+      totalBackoffMs += backoffMs;
       await sleep(backoffMs);
     }
   }
@@ -133,7 +187,9 @@ async function runAutoLabelWithRetry(input: {
   return {
     ok: false as const,
     attempts: MAX_AUTO_LABEL_ATTEMPTS,
+    retries: Math.max(0, MAX_AUTO_LABEL_ATTEMPTS - 1),
     retryableSignals,
+    totalBackoffMs,
     reason: "Unknown retry state",
     retryable: false,
   };
@@ -262,6 +318,8 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
       return null;
     }
 
+    const renderStartedAt = Date.now();
+    const overlayStartedAt = renderStartedAt;
     for (const [index, frame] of availableAssets.entries()) {
       const outputFramePath = path.join(annotatedFramesDir, frameFileName(index));
       const latest = input.latestByAssetId.get(frame.asset.id);
@@ -317,8 +375,10 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
         outputFramePath,
       ]);
     }
+    const overlayDurationMs = Date.now() - overlayStartedAt;
 
     const fps = estimatedFpsFromFrames(availableAssets.map((item) => item.asset));
+    const encodeStartedAt = Date.now();
     await runCommand("ffmpeg", [
       "-hide_banner",
       "-loglevel",
@@ -334,6 +394,8 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
       "yuv420p",
       outputVideoPath,
     ]);
+    const encodeDurationMs = Date.now() - encodeStartedAt;
+    const renderDurationMs = Date.now() - renderStartedAt;
 
     const videoBytes = await fs.readFile(outputVideoPath);
     const safeBase = input.batchName
@@ -349,7 +411,15 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
       bytes: videoBytes,
     });
 
-    return artifact.id;
+    return {
+      artifactId: artifact.id,
+      frameCount: availableAssets.length,
+      fps,
+      sizeBytes: videoBytes.byteLength,
+      overlayDurationMs,
+      encodeDurationMs,
+      renderDurationMs,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create annotated video output.";
     throw new Error(message);
@@ -406,6 +476,7 @@ export async function processUploadScanJob(jobId: string) {
       return;
     }
 
+    const jobStartedAt = Date.now();
     await patchUploadScanJob({
       jobId,
       status: "processing",
@@ -416,6 +487,7 @@ export async function processUploadScanJob(jobId: string) {
       appendLog: "creating batch",
     });
 
+    const createBatchStartedAt = Date.now();
     const batch = await createDatasetBatch({
       datasetId: job.dataset_id,
       name: job.batch_name,
@@ -423,6 +495,7 @@ export async function processUploadScanJob(jobId: string) {
       sourceArtifactIds: job.source_artifact_ids,
       actor: job.created_by ?? undefined,
     });
+    const createBatchDurationMs = Date.now() - createBatchStartedAt;
 
     await patchUploadScanJob({
       jobId,
@@ -430,14 +503,16 @@ export async function processUploadScanJob(jobId: string) {
       stage: "ingesting_batch",
       progress: 0.25,
       message: "Ingesting uploaded files",
-      appendLog: `ingesting batch ${batch.id}`,
+      appendLog: `batch ${batch.id} created in ${formatDurationMs(createBatchDurationMs)}; ingesting`,
     });
 
+    const ingestStartedAt = Date.now();
     const ingest = await ingestDatasetBatch({
       batchId: batch.id,
       maxVideoFrames: job.max_video_frames ?? undefined,
       actor: job.created_by ?? undefined,
     });
+    const ingestDurationMs = Date.now() - ingestStartedAt;
 
     await patchUploadScanJob({
       jobId,
@@ -445,7 +520,7 @@ export async function processUploadScanJob(jobId: string) {
       stage: "auto_labeling",
       progress: 0.45,
       message: `Auto-labeling ${ingest.created_assets_count} asset(s)`,
-      appendLog: `ingested ${ingest.created_assets_count} asset(s)`,
+      appendLog: `ingested ${ingest.created_assets_count} asset(s) in ${formatDurationMs(ingestDurationMs)}`,
     });
 
     const batchAssets = await listDatasetAssetsByBatch({
@@ -456,6 +531,7 @@ export async function processUploadScanJob(jobId: string) {
     const runnableAssets = batchAssets.filter((asset) => isRenderableAssetType(asset.asset_type));
 
     if (runnableAssets.length === 0) {
+      const totalDurationMs = Date.now() - jobStartedAt;
       await patchUploadScanJob({
         jobId,
         status: "completed",
@@ -463,7 +539,7 @@ export async function processUploadScanJob(jobId: string) {
         progress: 1,
         message: "No image assets found in batch.",
         failedAssetsCount: ingest.failed_extraction_artifact_ids.length,
-        appendLog: "completed with no runnable assets",
+        appendLog: `completed with no runnable assets (total=${formatDurationMs(totalDurationMs)})`,
       });
       return;
     }
@@ -480,9 +556,17 @@ export async function processUploadScanJob(jobId: string) {
     let failedCount = 0;
     let completedCount = 0;
     let nextOffset = 0;
+    let waveIndex = 0;
+    const labelingStartedAt = Date.now();
     while (nextOffset < runnableAssets.length) {
+      waveIndex += 1;
       const waveAssets = runnableAssets.slice(nextOffset, nextOffset + currentConcurrency);
       nextOffset += waveAssets.length;
+      const waveStartedAt = Date.now();
+      await patchUploadScanJob({
+        jobId,
+        appendLog: `wave ${waveIndex} start: assets=${waveAssets.length}, concurrency=${currentConcurrency}`,
+      });
 
       const results = await Promise.all(
         waveAssets.map(async (asset) => {
@@ -500,29 +584,45 @@ export async function processUploadScanJob(jobId: string) {
 
       let waveRetryableSignals = 0;
       let waveRetryableFinalFailures = 0;
+      let waveRetries = 0;
+      let waveBackoffMs = 0;
+      let waveFailedCount = 0;
+
       for (const item of results) {
         completedCount += 1;
         waveRetryableSignals += item.result.retryableSignals;
+        waveRetries += item.result.retries;
+        waveBackoffMs += item.result.totalBackoffMs;
 
         if (item.result.ok) {
           labeledCount += 1;
         } else {
           failedCount += 1;
+          waveFailedCount += 1;
           if (item.result.retryable) {
             waveRetryableFinalFailures += 1;
           }
         }
 
         const progress = 0.45 + (completedCount / Math.max(1, runnableAssets.length)) * 0.45;
+        const eta = estimateEtaLabel(completedCount, runnableAssets.length, labelingStartedAt);
         await patchUploadScanJob({
           jobId,
           progress,
-          message: `Auto-labeling (${completedCount}/${runnableAssets.length})`,
+          message: `Auto-labeling (${completedCount}/${runnableAssets.length}) • ETA ${eta}`,
           appendLog: !item.result.ok
-            ? `asset ${item.asset.id} failed after ${item.result.attempts} attempt(s): ${item.result.reason}`
-            : undefined,
+            ? `asset ${item.asset.id} failed after ${item.result.attempts} attempt(s), retries=${item.result.retries}, backoff=${formatDurationMs(item.result.totalBackoffMs)}: ${item.result.reason}`
+            : item.result.retries > 0
+              ? `asset ${item.asset.id} succeeded after retry: attempts=${item.result.attempts}, backoff=${formatDurationMs(item.result.totalBackoffMs)}`
+              : undefined,
         });
       }
+
+      const waveDurationMs = Date.now() - waveStartedAt;
+      await patchUploadScanJob({
+        jobId,
+        appendLog: `wave ${waveIndex} done: ok=${results.length - waveFailedCount}, failed=${waveFailedCount}, retries=${waveRetries}, backoff=${formatDurationMs(waveBackoffMs)}, duration=${formatDurationMs(waveDurationMs)}`,
+      });
 
       if (
         currentConcurrency > adaptiveFloor &&
@@ -534,30 +634,35 @@ export async function processUploadScanJob(jobId: string) {
           currentConcurrency = nextConcurrency;
           await patchUploadScanJob({
             jobId,
-            appendLog: `adaptive throttle: reduced concurrency to ${currentConcurrency}`,
+            appendLog: `adaptive throttle: reduced concurrency to ${currentConcurrency} (retry_signals=${waveRetryableSignals}, retryable_failures=${waveRetryableFinalFailures})`,
           });
         }
       }
     }
+    const labelingDurationMs = Date.now() - labelingStartedAt;
 
-    await patchUploadScanJob({
-      jobId,
-      stage: "finalizing",
-      progress: 0.95,
-      message: "Finalizing outputs",
-      labeledAssetsCount: labeledCount,
-      failedAssetsCount: failedCount + ingest.failed_extraction_artifact_ids.length,
-      appendLog: `labeled=${labeledCount}, failed=${failedCount}`,
-    });
-
+    const finalizingStartedAt = Date.now();
     const latestMap = await listLatestAssetAnnotations(runnableAssets.map((asset) => asset.id));
     const previewAsset =
       runnableAssets.find((asset) => latestMap.has(asset.id)) ?? runnableAssets[0] ?? null;
     const videoFrameAssets = runnableAssets.filter(
       (asset) => asset.asset_type === "video_frame" && Boolean(asset.artifact_id),
     );
+    const failedAssetsCount = failedCount + ingest.failed_extraction_artifact_ids.length;
+    const finalizingEta = formatDurationSeconds(videoFrameAssets.length > 0 ? Math.max(8, Math.ceil(videoFrameAssets.length / 5)) : 5);
+
+    await patchUploadScanJob({
+      jobId,
+      stage: "finalizing",
+      progress: 0.95,
+      message: `Finalizing outputs • ETA ${finalizingEta}`,
+      labeledAssetsCount: labeledCount,
+      failedAssetsCount,
+      appendLog: `labeled=${labeledCount}, failed=${failedCount}, labeling_duration=${formatDurationMs(labelingDurationMs)}`,
+    });
 
     let annotatedVideoArtifactId: string | null = null;
+    let annotatedVideoStats: Awaited<ReturnType<typeof createAnnotatedVideoArtifactFromFrames>> | null = null;
     if (videoFrameAssets.length > 0) {
       const byArtifact = new Map<string, DatasetAssetRecord[]>();
       for (const asset of videoFrameAssets) {
@@ -572,12 +677,31 @@ export async function processUploadScanJob(jobId: string) {
       const primaryVideoFrames =
         [...byArtifact.values()].sort((left, right) => right.length - left.length)[0] ?? [];
       if (primaryVideoFrames.length > 0) {
+        const renderEta = formatDurationSeconds(Math.max(8, Math.ceil(primaryVideoFrames.length / 5)));
+        await patchUploadScanJob({
+          jobId,
+          progress: 0.97,
+          message: `Rendering annotated clip (${primaryVideoFrames.length} frames) • ETA ${renderEta}`,
+        });
         try {
-          annotatedVideoArtifactId = await createAnnotatedVideoArtifactFromFrames({
+          const videoResult = await createAnnotatedVideoArtifactFromFrames({
             batchName: job.batch_name,
             assets: primaryVideoFrames,
             latestByAssetId: latestMap,
           });
+          if (videoResult) {
+            annotatedVideoArtifactId = videoResult.artifactId;
+            annotatedVideoStats = videoResult;
+            await patchUploadScanJob({
+              jobId,
+              appendLog: `annotated video ready: frames=${videoResult.frameCount}, fps=${videoResult.fps.toFixed(2)}, size=${formatBytes(videoResult.sizeBytes)}, overlay=${formatDurationMs(videoResult.overlayDurationMs)}, encode=${formatDurationMs(videoResult.encodeDurationMs)}, render=${formatDurationMs(videoResult.renderDurationMs)}`,
+            });
+          } else {
+            await patchUploadScanJob({
+              jobId,
+              appendLog: "annotated video output skipped: no usable frames",
+            });
+          }
         } catch (error) {
           const reason = error instanceof Error ? error.message : "unknown error";
           await patchUploadScanJob({
@@ -588,17 +712,27 @@ export async function processUploadScanJob(jobId: string) {
       }
     }
 
+    const finalizingDurationMs = Date.now() - finalizingStartedAt;
+    const totalDurationMs = Date.now() - jobStartedAt;
+    const timingSummary =
+      `timings create_batch=${formatDurationMs(createBatchDurationMs)}, ` +
+      `ingest=${formatDurationMs(ingestDurationMs)}, labeling=${formatDurationMs(labelingDurationMs)}, ` +
+      `finalizing=${formatDurationMs(finalizingDurationMs)}, total=${formatDurationMs(totalDurationMs)}`;
+    const completionLog = annotatedVideoStats
+      ? `${timingSummary}; completed with annotated video output (${formatBytes(annotatedVideoStats.sizeBytes)})`
+      : `${timingSummary}; completed`;
+
     await patchUploadScanJob({
       jobId,
       status: "completed",
       stage: "completed",
       progress: 1,
-      message: `Completed. Labeled ${labeledCount}/${runnableAssets.length} assets.`,
+      message: `Completed. Labeled ${labeledCount}/${runnableAssets.length} assets in ${formatDurationMs(totalDurationMs)}.`,
       previewAssetId: previewAsset?.id ?? null,
       annotatedVideoArtifactId,
       labeledAssetsCount: labeledCount,
-      failedAssetsCount: failedCount + ingest.failed_extraction_artifact_ids.length,
-      appendLog: annotatedVideoArtifactId ? "completed with annotated video output" : "completed",
+      failedAssetsCount,
+      appendLog: completionLog,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upload scan job failed";

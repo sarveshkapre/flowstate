@@ -54,13 +54,27 @@ export type AutoLabelOptions = {
 };
 
 const DEFAULT_AUTO_LABEL_PROMPT =
-  "You are data labeling expert for computer vision tasks - autolabel, bounding boxes, and labels for the image. " +
-  "Make sure it is accurate.";
+  "You are a computer vision data labeling expert. Auto-label the image with accurate, tight bounding boxes and " +
+  "specific object labels.";
 
 const DEFAULT_MAX_OBJECTS = 250;
 const DENSE_MAX_OBJECTS = 400;
 const AUTO_LABEL_MODEL = "gpt-5.2";
 const DUPLICATE_IOU_THRESHOLD = 0.88;
+const GENERIC_LABELS = new Set([
+  "object",
+  "objects",
+  "thing",
+  "things",
+  "item",
+  "items",
+  "photo",
+  "image",
+  "picture",
+  "scene",
+  "content",
+  "entity",
+]);
 
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) {
@@ -79,6 +93,14 @@ function normalizeLabel(value: string) {
     return "object";
   }
   return lowered;
+}
+
+function filterUnhelpfulLabels(objects: PixelObject[]) {
+  const filtered = objects.filter((item) => !GENERIC_LABELS.has(item.label));
+  if (filtered.length > 0) {
+    return filtered;
+  }
+  return objects;
 }
 
 type PixelObject = {
@@ -187,14 +209,18 @@ function promptForPass(input: {
   qualityMode: "fast" | "dense";
   priorDetections?: PixelObject[];
 }) {
+  const priorDetections = input.priorDetections ?? [];
+  const refinementPass = priorDetections.length > 0;
   const base = [
     input.instruction,
     input.hints,
-    "Task: produce CV-quality dataset annotations.",
+    "Task: produce production-quality computer vision dataset annotations.",
+    "Focus on semantically meaningful foreground task objects.",
+    "Ignore browser/player controls, UI overlays, watermark chrome, and incidental tiny background clutter unless the user explicitly asks for them.",
     "Output absolute pixel bounding boxes as [x,y,w,h] with top-left origin.",
     `Image size is ${input.imageWidth}x${input.imageHeight}.`,
     `Return at most ${input.maxObjects} objects.`,
-    "Use specific short labels. Avoid generic labels like 'object' when possible.",
+    "Use specific short singular noun labels. Avoid generic labels like object, thing, photo, image, or scene.",
     "If uncertain, keep the best-effort label and lower confidence.",
   ];
 
@@ -208,18 +234,19 @@ function promptForPass(input: {
     base.push("Return the most important instances first.");
   }
 
-  if (input.priorDetections && input.priorDetections.length > 0) {
-    const compact = input.priorDetections.slice(0, 200).map((item) => ({
+  if (refinementPass) {
+    const compact = priorDetections.slice(0, 200).map((item) => ({
       label: item.label,
       confidence: item.confidence,
       bbox_xywh: item.bbox_xywh.map((value) => Math.round(value * 10) / 10),
     }));
     base.push(
-      "Refinement pass:",
-      "1) tighten boxes",
-      "2) replace generic labels with specific ones",
-      "3) add missed objects",
+      "Refinement pass on top of seeded detections:",
+      "1) tighten box boundaries",
+      "2) replace generic labels with specific labels",
+      "3) add obvious missed salient objects",
       "4) remove duplicates",
+      "5) remove detections that are just player/browser UI controls or non-semantic background noise",
       `Existing detections seed:\n${JSON.stringify(compact)}`,
     );
   }
@@ -376,7 +403,7 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
   });
 
   let finalObjects = firstPass;
-  if (qualityMode === "dense" && firstPass.length > 0) {
+  if (firstPass.length > 0) {
     try {
       const refined = await runDetectionPass({
         base64Image,
@@ -395,6 +422,7 @@ export async function runAssetAutoLabel(assetId: string, options?: AutoLabelOpti
       finalObjects = firstPass;
     }
   }
+  finalObjects = filterUnhelpfulLabels(finalObjects);
 
   const shapes = finalObjects.map((item) => {
     const [x, y, width, height] = item.bbox_xywh;

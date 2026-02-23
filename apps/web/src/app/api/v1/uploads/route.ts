@@ -157,23 +157,7 @@ async function normalizeUploadedVideo(input: {
 
   await fs.writeFile(sourcePath, input.rawBytes);
   try {
-    let originalDurationSeconds: number | null = null;
-    try {
-      await runCommand("ffprobe", [
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "stream=codec_type",
-        "-of",
-        "default=nokey=1:noprint_wrappers=1",
-        sourcePath,
-      ]);
-      originalDurationSeconds = await probeVideoDurationSeconds(sourcePath);
-    } catch (error) {
-      throw new Error(normalizeExecErrorMessage("ffprobe", error));
-    }
+    const originalDurationSeconds = await probeVideoDurationSeconds(sourcePath);
 
     try {
       await runCommand("ffmpeg", [
@@ -203,7 +187,13 @@ async function normalizeUploadedVideo(input: {
         normalizedPath,
       ]);
     } catch (error) {
-      throw new Error(normalizeExecErrorMessage("ffmpeg", error));
+      const normalized = normalizeExecErrorMessage("ffmpeg", error);
+      if (normalized.includes("binary is not available on PATH")) {
+        throw new Error(
+          "ffmpeg binary is not available on PATH. Install with `brew install ffmpeg` and restart Flowstate.",
+        );
+      }
+      throw new Error(normalized);
     }
 
     const normalizedBytes = await fs.readFile(normalizedPath);

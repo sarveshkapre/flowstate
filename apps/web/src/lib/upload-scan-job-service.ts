@@ -25,6 +25,9 @@ const execFile = promisify(execFileCallback);
 const COMMAND_BUFFER_SIZE = 16 * 1024 * 1024;
 const activeJobs = new Set<string>();
 const OVERLAY_COLORS = ["00ff88", "00d2ff", "ffc400", "ff6b6b", "8f7bff", "6ee7b7", "f97316"];
+const MAX_AUTO_LABEL_CONCURRENCY = 30;
+const MIN_ADAPTIVE_CONCURRENCY = 8;
+const MAX_AUTO_LABEL_ATTEMPTS = 3;
 
 function isRenderableAssetType(assetType: "image" | "video_frame" | "pdf_page") {
   return assetType === "image" || assetType === "video_frame";
@@ -46,6 +49,94 @@ async function runCommand(command: string, args: string[]) {
     encoding: "utf8",
     maxBuffer: COMMAND_BUFFER_SIZE,
   });
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error && typeof error.message === "string") {
+    return error.message;
+  }
+  return String(error ?? "unknown error");
+}
+
+function isRetryableAutoLabelError(error: unknown) {
+  const message = errorMessage(error).toLowerCase();
+  if (!message) {
+    return false;
+  }
+
+  return (
+    message.includes("429") ||
+    message.includes("rate limit") ||
+    message.includes("too many request") ||
+    message.includes("overloaded") ||
+    message.includes("timeout") ||
+    message.includes("temporar") ||
+    message.includes("500") ||
+    message.includes("502") ||
+    message.includes("503") ||
+    message.includes("504")
+  );
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function runAutoLabelWithRetry(input: {
+  assetId: string;
+  prompt?: string;
+  reasoningEffort: "low" | "medium" | "high";
+  maxObjects?: number;
+  qualityMode: "fast" | "dense";
+  actor?: string;
+}) {
+  let attempt = 0;
+  let retryableSignals = 0;
+
+  while (attempt < MAX_AUTO_LABEL_ATTEMPTS) {
+    attempt += 1;
+    try {
+      await runAssetAutoLabel(input.assetId, {
+        prompt: input.prompt,
+        reasoningEffort: input.reasoningEffort,
+        maxObjects: input.maxObjects,
+        qualityMode: input.qualityMode,
+        actor: input.actor,
+      });
+      return {
+        ok: true as const,
+        attempts: attempt,
+        retryableSignals,
+        reason: null,
+      };
+    } catch (error) {
+      const reason = errorMessage(error);
+      const retryable = isRetryableAutoLabelError(error);
+      if (!retryable || attempt >= MAX_AUTO_LABEL_ATTEMPTS) {
+        return {
+          ok: false as const,
+          attempts: attempt,
+          retryableSignals,
+          reason,
+          retryable,
+        };
+      }
+
+      retryableSignals += 1;
+      const backoffMs = Math.min(4000, 350 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
+      await sleep(backoffMs);
+    }
+  }
+
+  return {
+    ok: false as const,
+    attempts: MAX_AUTO_LABEL_ATTEMPTS,
+    retryableSignals,
+    reason: "Unknown retry state",
+    retryable: false,
+  };
 }
 
 function escapeDrawText(value: string) {
@@ -364,59 +455,77 @@ export async function processUploadScanJob(jobId: string) {
       return;
     }
 
-    const inferredConcurrency =
-      job.video_analysis_preset === "minimum"
-        ? 4
-        : job.video_analysis_preset === "high_quality"
-          ? 2
-          : 3;
-    const maxConcurrency = Math.min(inferredConcurrency, 6, Math.max(1, runnableAssets.length));
+    const targetConcurrency = Math.min(MAX_AUTO_LABEL_CONCURRENCY, Math.max(1, runnableAssets.length));
+    const adaptiveFloor = Math.min(MIN_ADAPTIVE_CONCURRENCY, targetConcurrency);
+    let currentConcurrency = targetConcurrency;
     await patchUploadScanJob({
       jobId,
-      appendLog: `video_preset=${job.video_analysis_preset}, max_video_frames=${job.max_video_frames ?? "default"}, label_concurrency=${maxConcurrency}`,
+      appendLog: `video_preset=${job.video_analysis_preset}, max_video_frames=${job.max_video_frames ?? "default"}, target_concurrency=${targetConcurrency}`,
     });
 
     let labeledCount = 0;
     let failedCount = 0;
     let completedCount = 0;
-    let nextIndex = 0;
+    let nextOffset = 0;
+    while (nextOffset < runnableAssets.length) {
+      const waveAssets = runnableAssets.slice(nextOffset, nextOffset + currentConcurrency);
+      nextOffset += waveAssets.length;
 
-    const runWorker = async () => {
-      while (true) {
-        const index = nextIndex;
-        nextIndex += 1;
-        if (index >= runnableAssets.length) {
-          return;
-        }
-
-        const asset = runnableAssets[index]!;
-        let failureReason: string | null = null;
-        try {
-          await runAssetAutoLabel(asset.id, {
+      const results = await Promise.all(
+        waveAssets.map(async (asset) => {
+          const result = await runAutoLabelWithRetry({
+            assetId: asset.id,
             prompt: job.scan_prompt ?? undefined,
             reasoningEffort: job.reasoning_effort,
             maxObjects: job.max_objects ?? undefined,
             qualityMode: job.quality_mode,
             actor: job.created_by ?? undefined,
           });
+          return { asset, result };
+        }),
+      );
+
+      let waveRetryableSignals = 0;
+      let waveRetryableFinalFailures = 0;
+      for (const item of results) {
+        completedCount += 1;
+        waveRetryableSignals += item.result.retryableSignals;
+
+        if (item.result.ok) {
           labeledCount += 1;
-        } catch (error) {
+        } else {
           failedCount += 1;
-          failureReason = error instanceof Error ? error.message : "unknown error";
+          if (item.result.retryable) {
+            waveRetryableFinalFailures += 1;
+          }
         }
 
-        completedCount += 1;
         const progress = 0.45 + (completedCount / Math.max(1, runnableAssets.length)) * 0.45;
         await patchUploadScanJob({
           jobId,
           progress,
           message: `Auto-labeling (${completedCount}/${runnableAssets.length})`,
-          appendLog: failureReason ? `asset ${asset.id} failed: ${failureReason}` : undefined,
+          appendLog: !item.result.ok
+            ? `asset ${item.asset.id} failed after ${item.result.attempts} attempt(s): ${item.result.reason}`
+            : undefined,
         });
       }
-    };
 
-    await Promise.all(Array.from({ length: maxConcurrency }, () => runWorker()));
+      if (
+        currentConcurrency > adaptiveFloor &&
+        (waveRetryableSignals >= Math.max(3, Math.floor(results.length / 2)) ||
+          waveRetryableFinalFailures >= 1)
+      ) {
+        const nextConcurrency = Math.max(adaptiveFloor, Math.floor(currentConcurrency * 0.7));
+        if (nextConcurrency < currentConcurrency) {
+          currentConcurrency = nextConcurrency;
+          await patchUploadScanJob({
+            jobId,
+            appendLog: `adaptive throttle: reduced concurrency to ${currentConcurrency}`,
+          });
+        }
+      }
+    }
 
     await patchUploadScanJob({
       jobId,

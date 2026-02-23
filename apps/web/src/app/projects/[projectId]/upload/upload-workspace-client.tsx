@@ -91,23 +91,54 @@ type UploadScanJob = {
   updated_at: string;
 };
 
+const IMAGE_FILE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const VIDEO_FILE_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"]);
+
 function defaultBatchName() {
   return `Uploaded on ${new Date().toLocaleString()}`;
 }
 
+function fileExtension(fileName: string) {
+  const dotIndex = fileName.lastIndexOf(".");
+  if (dotIndex < 0) {
+    return "";
+  }
+  return fileName.slice(dotIndex).toLowerCase();
+}
+
+function detectUploadFileKind(file: File): "image" | "video" | null {
+  if (file.type.startsWith("image/")) {
+    return "image";
+  }
+  if (file.type.startsWith("video/")) {
+    return "video";
+  }
+
+  const extension = fileExtension(file.name);
+  if (IMAGE_FILE_EXTENSIONS.has(extension)) {
+    return "image";
+  }
+  if (VIDEO_FILE_EXTENSIONS.has(extension)) {
+    return "video";
+  }
+
+  return null;
+}
+
 function isSupportedUploadFile(file: File) {
-  return file.type.startsWith("image/") || file.type.startsWith("video/");
+  return detectUploadFileKind(file) !== null;
 }
 
 function inferSourceType(files: File[]): "image" | "video" | "mixed" {
   const found = new Set<"image" | "video">();
   for (const file of files) {
-    if (file.type.startsWith("image/")) {
+    const kind = detectUploadFileKind(file);
+    if (kind === "image") {
       found.add("image");
       continue;
     }
 
-    if (file.type.startsWith("video/")) {
+    if (kind === "video") {
       found.add("video");
       continue;
     }
@@ -341,9 +372,20 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       return;
     }
 
-    const incoming = Array.from(fileList).filter((file) => isSupportedUploadFile(file));
-    if (incoming.length !== fileList.length) {
-      setError("Some files were skipped. Please upload images and videos only.");
+    const files = Array.from(fileList);
+    const incoming = files.filter((file) => isSupportedUploadFile(file));
+    const skipped = files.filter((file) => !isSupportedUploadFile(file));
+    if (skipped.length > 0) {
+      const examples = skipped
+        .slice(0, 2)
+        .map((file) => file.name)
+        .join(", ");
+      const suffix = skipped.length > 2 ? ` and ${skipped.length - 2} more` : "";
+      setError(
+        `Skipped unsupported file(s): ${examples}${suffix}. Use image or video files.`,
+      );
+    } else {
+      setError(null);
     }
 
     if (incoming.length === 0) {
@@ -678,7 +720,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               </div>
               <p className="text-2xl font-semibold tracking-tight">Drag and drop files</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Upload images or short videos. Videos are sampled into frames automatically.
+                Upload images or videos. Videos are auto-trimmed to 3s and capped at 20MB, then
+                sampled into frames.
               </p>
 
               <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
@@ -687,7 +730,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   type="file"
                   multiple
                   className="hidden"
-                  accept="image/*,video/*"
+                  accept="image/*,video/*,.jpg,.jpeg,.png,.webp,.mp4,.mov,.m4v,.avi,.mkv,.webm"
                   onChange={(event) => addFiles(event.target.files)}
                 />
                 <input
@@ -719,6 +762,9 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   <Badge variant="secondary">Images (.jpg, .png, .webp)</Badge>
                   <Badge variant="secondary">Videos (.mp4, .mov)</Badge>
                 </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Videos are normalized to first 3 seconds and max 20MB on upload.
+                </p>
               </div>
             </div>
 

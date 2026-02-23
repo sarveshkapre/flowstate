@@ -226,7 +226,7 @@ export function ProjectsClient() {
                 <p className="text-xs text-muted-foreground">Created {formatDateTime(project.created_at)}</p>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-2">
-                <Button asChild>
+                <Button asChild className="bg-foreground text-background hover:bg-foreground/90">
                   <Link href={`/projects/${project.id}/upload`}>
                     Open
                     <ArrowRight className="ml-2 h-4 w-4" />

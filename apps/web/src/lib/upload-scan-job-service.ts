@@ -28,6 +28,7 @@ const OVERLAY_COLORS = ["00ff88", "00d2ff", "ffc400", "ff6b6b", "8f7bff", "6ee7b
 const MAX_AUTO_LABEL_CONCURRENCY = 50;
 const MIN_ADAPTIVE_CONCURRENCY = 8;
 const MAX_AUTO_LABEL_ATTEMPTS = 3;
+let ffmpegDrawTextSupportPromise: Promise<boolean> | null = null;
 
 function isRenderableAssetType(assetType: "image" | "video_frame" | "pdf_page") {
   return assetType === "image" || assetType === "video_frame";
@@ -49,6 +50,21 @@ async function runCommand(command: string, args: string[]) {
     encoding: "utf8",
     maxBuffer: COMMAND_BUFFER_SIZE,
   });
+}
+
+async function ffmpegSupportsDrawText() {
+  if (ffmpegDrawTextSupportPromise) {
+    return ffmpegDrawTextSupportPromise;
+  }
+
+  ffmpegDrawTextSupportPromise = runCommand("ffmpeg", ["-hide_banner", "-filters"])
+    .then(({ stdout, stderr }) => {
+      const combined = `${stdout}\n${stderr}`.toLowerCase();
+      return combined.includes(" drawtext");
+    })
+    .catch(() => false);
+
+  return ffmpegDrawTextSupportPromise;
 }
 
 function errorMessage(error: unknown) {
@@ -318,6 +334,7 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
       return null;
     }
 
+    const drawTextSupported = await ffmpegSupportsDrawText();
     const renderStartedAt = Date.now();
     const overlayStartedAt = renderStartedAt;
     for (const [index, frame] of availableAssets.entries()) {
@@ -348,12 +365,14 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
           `drawbox=x=${x.toFixed(2)}:y=${y.toFixed(2)}:w=${w.toFixed(2)}:h=${h.toFixed(2)}:color=0x${color}@0.95:t=2`,
         );
 
-        const label = shapeOverlayLabel(shape);
-        const safeText = escapeDrawText(label);
-        const textY = Math.max(10, y - 8);
-        filters.push(
-          `drawtext=text='${safeText}':x=${Math.max(0, x).toFixed(2)}:y=${textY.toFixed(2)}:fontsize=16:fontcolor=white:box=1:boxcolor=0x${color}@0.85`,
-        );
+        if (drawTextSupported) {
+          const label = shapeOverlayLabel(shape);
+          const safeText = escapeDrawText(label);
+          const textY = Math.max(10, y - 8);
+          filters.push(
+            `drawtext=text='${safeText}':x=${Math.max(0, x).toFixed(2)}:y=${textY.toFixed(2)}:fontsize=16:fontcolor=white:box=1:boxcolor=0x${color}@0.85`,
+          );
+        }
       }
 
       if (filters.length === 0) {
@@ -419,6 +438,7 @@ async function createAnnotatedVideoArtifactFromFrames(input: {
       overlayDurationMs,
       encodeDurationMs,
       renderDurationMs,
+      drawTextSupported,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create annotated video output.";
@@ -694,7 +714,7 @@ export async function processUploadScanJob(jobId: string) {
             annotatedVideoStats = videoResult;
             await patchUploadScanJob({
               jobId,
-              appendLog: `annotated video ready: frames=${videoResult.frameCount}, fps=${videoResult.fps.toFixed(2)}, size=${formatBytes(videoResult.sizeBytes)}, overlay=${formatDurationMs(videoResult.overlayDurationMs)}, encode=${formatDurationMs(videoResult.encodeDurationMs)}, render=${formatDurationMs(videoResult.renderDurationMs)}`,
+              appendLog: `annotated video ready: frames=${videoResult.frameCount}, fps=${videoResult.fps.toFixed(2)}, labels=${videoResult.drawTextSupported ? "on" : "off (ffmpeg missing drawtext)"}, size=${formatBytes(videoResult.sizeBytes)}, overlay=${formatDurationMs(videoResult.overlayDurationMs)}, encode=${formatDurationMs(videoResult.encodeDurationMs)}, render=${formatDurationMs(videoResult.renderDurationMs)}`,
             });
           } else {
             await patchUploadScanJob({

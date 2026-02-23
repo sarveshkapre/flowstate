@@ -264,6 +264,8 @@ export async function enqueueUploadScanJob(input: {
   scanPrompt?: string | null;
   qualityMode: "fast" | "dense";
   maxObjects?: number | null;
+  videoAnalysisPreset?: "minimum" | "balanced" | "high_quality";
+  maxVideoFrames?: number | null;
   actor?: string;
 }) {
   const job = await createUploadScanJob({
@@ -276,6 +278,8 @@ export async function enqueueUploadScanJob(input: {
     scanPrompt: input.scanPrompt,
     qualityMode: input.qualityMode,
     maxObjects: input.maxObjects,
+    videoAnalysisPreset: input.videoAnalysisPreset,
+    maxVideoFrames: input.maxVideoFrames,
     actor: input.actor,
   });
 
@@ -327,6 +331,7 @@ export async function processUploadScanJob(jobId: string) {
 
     const ingest = await ingestDatasetBatch({
       batchId: batch.id,
+      maxVideoFrames: job.max_video_frames ?? undefined,
       actor: job.created_by ?? undefined,
     });
 
@@ -359,37 +364,59 @@ export async function processUploadScanJob(jobId: string) {
       return;
     }
 
+    const inferredConcurrency =
+      job.video_analysis_preset === "minimum"
+        ? 4
+        : job.video_analysis_preset === "high_quality"
+          ? 2
+          : 3;
+    const maxConcurrency = Math.min(inferredConcurrency, 6, Math.max(1, runnableAssets.length));
+    await patchUploadScanJob({
+      jobId,
+      appendLog: `video_preset=${job.video_analysis_preset}, max_video_frames=${job.max_video_frames ?? "default"}, label_concurrency=${maxConcurrency}`,
+    });
+
     let labeledCount = 0;
     let failedCount = 0;
-    for (const [index, asset] of runnableAssets.entries()) {
-      const progress = 0.45 + ((index + 1) / Math.max(1, runnableAssets.length)) * 0.45;
-      try {
-        await runAssetAutoLabel(asset.id, {
-          prompt: job.scan_prompt ?? undefined,
-          reasoningEffort: job.reasoning_effort,
-          maxObjects: job.max_objects ?? undefined,
-          qualityMode: job.quality_mode,
-          actor: job.created_by ?? undefined,
-        });
-        labeledCount += 1;
-      } catch (error) {
-        failedCount += 1;
-        const reason = error instanceof Error ? error.message : "unknown error";
+    let completedCount = 0;
+    let nextIndex = 0;
+
+    const runWorker = async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= runnableAssets.length) {
+          return;
+        }
+
+        const asset = runnableAssets[index]!;
+        let failureReason: string | null = null;
+        try {
+          await runAssetAutoLabel(asset.id, {
+            prompt: job.scan_prompt ?? undefined,
+            reasoningEffort: job.reasoning_effort,
+            maxObjects: job.max_objects ?? undefined,
+            qualityMode: job.quality_mode,
+            actor: job.created_by ?? undefined,
+          });
+          labeledCount += 1;
+        } catch (error) {
+          failedCount += 1;
+          failureReason = error instanceof Error ? error.message : "unknown error";
+        }
+
+        completedCount += 1;
+        const progress = 0.45 + (completedCount / Math.max(1, runnableAssets.length)) * 0.45;
         await patchUploadScanJob({
           jobId,
           progress,
-          message: `Auto-labeling (${index + 1}/${runnableAssets.length})`,
-          appendLog: `asset ${asset.id} failed: ${reason}`,
+          message: `Auto-labeling (${completedCount}/${runnableAssets.length})`,
+          appendLog: failureReason ? `asset ${asset.id} failed: ${failureReason}` : undefined,
         });
-        continue;
       }
+    };
 
-      await patchUploadScanJob({
-        jobId,
-        progress,
-        message: `Auto-labeling (${index + 1}/${runnableAssets.length})`,
-      });
-    }
+    await Promise.all(Array.from({ length: maxConcurrency }, () => runWorker()));
 
     await patchUploadScanJob({
       jobId,

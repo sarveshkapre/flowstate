@@ -34,6 +34,8 @@ import {
   type UploadScanJobStage,
   uploadScanJobQualityModeSchema,
   type UploadScanJobQualityMode,
+  uploadScanVideoAnalysisPresetSchema,
+  type UploadScanVideoAnalysisPreset,
   connectorDeliveryAttemptRecordSchema,
   type ConnectorDeliveryAttemptRecord,
   connectorDeliveryRecordSchema,
@@ -1543,6 +1545,8 @@ export async function createUploadScanJob(input: {
   scanPrompt?: string | null;
   qualityMode: UploadScanJobQualityMode;
   maxObjects?: number | null;
+  videoAnalysisPreset?: UploadScanVideoAnalysisPreset;
+  maxVideoFrames?: number | null;
   actor?: string;
 }) {
   return withWriteLock(async (state) => {
@@ -1563,6 +1567,15 @@ export async function createUploadScanJob(input: {
       max_objects:
         typeof input.maxObjects === "number" && Number.isFinite(input.maxObjects) && input.maxObjects > 0
           ? Math.floor(input.maxObjects)
+          : null,
+      video_analysis_preset: uploadScanVideoAnalysisPresetSchema.parse(
+        input.videoAnalysisPreset ?? "balanced",
+      ),
+      max_video_frames:
+        typeof input.maxVideoFrames === "number" &&
+        Number.isFinite(input.maxVideoFrames) &&
+        input.maxVideoFrames > 0
+          ? Math.min(120, Math.floor(input.maxVideoFrames))
           : null,
       status: "queued",
       stage: "queued",

@@ -33,7 +33,7 @@ const MAX_RAW_VIDEO_UPLOAD_BYTES = readPositiveIntEnv(
 );
 const VIDEO_UPLOAD_MAX_SECONDS = Math.min(
   30,
-  Math.max(1, readPositiveIntEnv("FLOWSTATE_VIDEO_UPLOAD_MAX_SECONDS", 3)),
+  Math.max(1, readPositiveIntEnv("FLOWSTATE_VIDEO_UPLOAD_MAX_SECONDS", 10)),
 );
 
 const IMAGE_FILE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);

@@ -527,6 +527,13 @@ export type UploadScanJobStage = z.infer<typeof uploadScanJobStageSchema>;
 export const uploadScanJobQualityModeSchema = z.enum(["fast", "dense"]);
 export type UploadScanJobQualityMode = z.infer<typeof uploadScanJobQualityModeSchema>;
 
+export const uploadScanVideoAnalysisPresetSchema = z.enum([
+  "minimum",
+  "balanced",
+  "high_quality",
+]);
+export type UploadScanVideoAnalysisPreset = z.infer<typeof uploadScanVideoAnalysisPresetSchema>;
+
 export const uploadScanJobRecordSchema = z.object({
   id: z.string(),
   project_id: z.string(),
@@ -538,6 +545,8 @@ export const uploadScanJobRecordSchema = z.object({
   scan_prompt: z.string().nullable(),
   quality_mode: uploadScanJobQualityModeSchema,
   max_objects: z.number().int().positive().nullable(),
+  video_analysis_preset: uploadScanVideoAnalysisPresetSchema.default("balanced"),
+  max_video_frames: z.number().int().positive().max(120).nullable().default(null),
   status: uploadScanJobStatusSchema,
   stage: uploadScanJobStageSchema,
   progress: z.number().min(0).max(1).nullable(),

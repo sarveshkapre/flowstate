@@ -18,6 +18,8 @@ const createUploadJobSchema = z.object({
   scanPrompt: z.string().max(3000).optional(),
   qualityMode: z.enum(["fast", "dense"]).default("dense"),
   maxObjects: z.number().int().positive().max(1000).optional(),
+  videoAnalysisPreset: z.enum(["minimum", "balanced", "high_quality"]).default("balanced"),
+  maxVideoFrames: z.number().int().positive().max(120).optional(),
 });
 
 export async function GET(request: Request, { params }: Params) {
@@ -85,6 +87,8 @@ export async function POST(request: Request, { params }: Params) {
       scanPrompt: parsed.data.scanPrompt,
       qualityMode: parsed.data.qualityMode,
       maxObjects: parsed.data.maxObjects,
+      videoAnalysisPreset: parsed.data.videoAnalysisPreset,
+      maxVideoFrames: parsed.data.maxVideoFrames,
       actor: auth.actor.email ?? undefined,
     });
 

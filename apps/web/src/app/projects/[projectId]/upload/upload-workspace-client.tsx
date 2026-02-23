@@ -68,6 +68,7 @@ type BatchAsset = {
 };
 
 type ReasoningEffort = "low" | "medium" | "high";
+type VideoAnalysisPreset = "minimum" | "balanced" | "high_quality";
 type UploadScanJobStatus = "queued" | "processing" | "completed" | "failed";
 type UploadScanJobStage =
   | "queued"
@@ -88,6 +89,8 @@ type UploadScanJob = {
   scan_prompt: string | null;
   quality_mode: "fast" | "dense";
   max_objects: number | null;
+  video_analysis_preset: VideoAnalysisPreset;
+  max_video_frames: number | null;
   status: UploadScanJobStatus;
   stage: UploadScanJobStage;
   progress: number | null;
@@ -107,8 +110,7 @@ type UploadScanJob = {
 
 const IMAGE_FILE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const VIDEO_FILE_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"]);
-const DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS = 3;
-const DEFAULT_VIDEO_SAMPLE_FRAMES = 10;
+const DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS = 10;
 const DEFAULT_INPUT_TOKENS_PER_FRAME = 910;
 const AUTO_LABEL_PASSES_PER_FRAME = 2;
 const INPUT_PRICE_PER_MILLION = 1.75;
@@ -117,6 +119,32 @@ const OUTPUT_TOKENS_PER_FRAME = {
   low: 120,
   typical: 260,
   high: 500,
+};
+const VIDEO_ANALYSIS_PRESETS: Record<
+  VideoAnalysisPreset,
+  { label: string; targetFps: number; maxFramesAt10s: number; qualityMode: "fast" | "dense"; helper: string }
+> = {
+  minimum: {
+    label: "Minimum",
+    targetFps: 3,
+    maxFramesAt10s: 30,
+    qualityMode: "fast",
+    helper: "Coarse boxes, fastest turnaround.",
+  },
+  balanced: {
+    label: "Balanced",
+    targetFps: 6,
+    maxFramesAt10s: 60,
+    qualityMode: "fast",
+    helper: "Recommended for smooth-enough overlays.",
+  },
+  high_quality: {
+    label: "High Quality",
+    targetFps: 10,
+    maxFramesAt10s: 100,
+    qualityMode: "dense",
+    helper: "Smoothest output, highest latency and cost.",
+  },
 };
 
 function defaultBatchName() {
@@ -194,14 +222,20 @@ function estimateVisionInputTokens(width: number | null, height: number | null) 
   return 70 + 140 * tiles;
 }
 
-function analyzedFramesForVideo(durationSeconds: number | null) {
+function analyzedFramesForVideo(
+  durationSeconds: number | null,
+  preset: VideoAnalysisPreset,
+) {
+  const config = VIDEO_ANALYSIS_PRESETS[preset];
   if (durationSeconds === null || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-    return DEFAULT_VIDEO_SAMPLE_FRAMES;
+    return config.maxFramesAt10s;
   }
 
   const clipped = Math.min(durationSeconds, DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS);
-  const ratio = clipped / DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS;
-  return Math.max(1, Math.min(DEFAULT_VIDEO_SAMPLE_FRAMES, Math.round(ratio * DEFAULT_VIDEO_SAMPLE_FRAMES)));
+  return Math.max(
+    1,
+    Math.min(config.maxFramesAt10s, Math.round(clipped * config.targetFps)),
+  );
 }
 
 async function analyzeFile(file: File): Promise<FileAnalysis> {
@@ -357,6 +391,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [batchName, setBatchName] = useState(defaultBatchName);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
+  const [videoAnalysisPreset, setVideoAnalysisPreset] = useState<VideoAnalysisPreset>("balanced");
   const [scanPrompt, setScanPrompt] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [fileAnalyses, setFileAnalyses] = useState<Record<string, FileAnalysis>>({});
@@ -647,6 +682,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       }
 
       const sourceType = selectedFiles.length ? inferSourceType(selectedFiles) : "mixed";
+      const hasVideoSource = selectedFiles.some((file) => detectUploadFileKind(file) === "video");
       const createJobResponse = await fetch(`/api/v2/projects/${projectId}/upload-jobs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -657,7 +693,9 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
           sourceArtifactIds,
           reasoningEffort,
           scanPrompt: prompt || undefined,
-          qualityMode: "dense",
+          qualityMode: videoPresetConfig.qualityMode,
+          videoAnalysisPreset,
+          maxVideoFrames: hasVideoSource ? videoFrameBudget : undefined,
         }),
       });
       const createJobPayload = (await createJobResponse.json().catch(() => ({}))) as {
@@ -699,6 +737,31 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     const videoCount = selectedFiles.filter((file) => detectUploadFileKind(file) === "video").length;
     return { imageCount, videoCount };
   }, [selectedFiles]);
+  const selectedVideoDurations = useMemo(
+    () =>
+      selectedFiles
+        .filter((file) => detectUploadFileKind(file) === "video")
+        .map((file) => fileAnalyses[fileKey(file)]?.durationSeconds ?? null)
+        .filter(
+          (value): value is number =>
+            value !== null && Number.isFinite(value) && value > 0,
+        ),
+    [fileAnalyses, selectedFiles],
+  );
+  const videoPresetConfig = VIDEO_ANALYSIS_PRESETS[videoAnalysisPreset];
+  const videoFrameBudget = useMemo(() => {
+    const baseDuration =
+      selectedVideoDurations.length > 0
+        ? Math.min(DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS, Math.max(...selectedVideoDurations))
+        : DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS;
+    return Math.max(
+      1,
+      Math.min(
+        videoPresetConfig.maxFramesAt10s,
+        Math.round(baseDuration * videoPresetConfig.targetFps),
+      ),
+    );
+  }, [selectedVideoDurations, videoPresetConfig.maxFramesAt10s, videoPresetConfig.targetFps]);
   const costEstimate = useMemo(() => {
     if (selectedFiles.length === 0) {
       return null;
@@ -719,7 +782,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       );
       const frames =
         kind === "video"
-          ? analyzedFramesForVideo(analysis?.durationSeconds ?? null)
+          ? analyzedFramesForVideo(analysis?.durationSeconds ?? null, videoAnalysisPreset)
           : 1;
 
       analyzedFrames += frames;
@@ -750,7 +813,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       typical: totalTypical,
       high: totalHigh,
     };
-  }, [selectedFiles, fileAnalyses]);
+  }, [selectedFiles, fileAnalyses, videoAnalysisPreset]);
   const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null;
   const hasRunningJobs = jobs.some((job) => isJobRunning(job.status));
 
@@ -952,7 +1015,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       <div className="grid gap-5">
         <Card>
           <CardContent className="space-y-5 p-5">
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-3">
               <label className="space-y-1">
                 <span className="text-sm font-medium">Batch Name</span>
                 <Input value={batchName} onChange={(event) => setBatchName(event.target.value)} />
@@ -968,7 +1031,25 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   <option value="high">High</option>
                 </NativeSelect>
               </label>
+              <label className="space-y-1">
+                <span className="text-sm font-medium">Video Analysis Quality</span>
+                <NativeSelect
+                  value={videoAnalysisPreset}
+                  onChange={(event) =>
+                    setVideoAnalysisPreset(event.target.value as VideoAnalysisPreset)
+                  }
+                >
+                  <option value="minimum">Minimum</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="high_quality">High Quality</option>
+                </NativeSelect>
+              </label>
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              {videoPresetConfig.label}: {videoPresetConfig.helper} Up to {videoFrameBudget} frame(s)
+              analyzed per video clip (trimmed to {DEFAULT_VIDEO_UPLOAD_CLIP_SECONDS}s).
+            </p>
 
             <label className="space-y-1">
               <span className="text-sm font-medium">Scan Instructions (optional)</span>
@@ -996,7 +1077,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
               </div>
               <p className="text-2xl font-semibold tracking-tight">Drag and drop files</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Upload images or videos. Videos are auto-trimmed to 3s and capped at 20MB, then
+                Upload images or videos. Videos are auto-trimmed to 10s and capped at 20MB, then
                 sampled into frames.
               </p>
 
@@ -1039,7 +1120,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                   <Badge variant="secondary">Videos (.mp4, .mov)</Badge>
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  Videos are normalized to first 3 seconds and max 20MB on upload.
+                  Videos are normalized to first 10 seconds and max 20MB on upload.
                 </p>
               </div>
 
@@ -1057,7 +1138,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
                     {(costEstimate.inputTokens / 1000).toFixed(1)}k input tokens.
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    Assumes high-detail vision and dense auto-labeling (2 passes/frame).
+                    Assumes {videoPresetConfig.label.toLowerCase()} video preset, high-detail vision,
+                    and {AUTO_LABEL_PASSES_PER_FRAME} pass(es)/frame.
                   </p>
                 </div>
               ) : null}

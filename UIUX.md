@@ -8,6 +8,8 @@
 - Require confirmation for destructive actions to prevent accidental clicks even when icons are subtle.
 - Ensure destructive controls have clear `aria-label` and `title` text for accessibility.
 - Ensure all buttons, links, badges, and input borders have strong contrast in both light and dark themes.
+- Keep theme switching as a single icon control in the top-right header area.
+- Ensure the theme icon always remains visible and reachable on desktop and mobile.
 - Never rely on global anchor styles to color button links; button text must inherit button variant colors.
 - Validate every UI change in both light and dark themes before merging.
 - Preserve generous whitespace and spacing rhythm; do not crowd cards with unnecessary action buttons.
@@ -16,6 +18,7 @@
 - Keep layouts responsive across desktop and mobile with readable widths and comfortable tap targets.
 - Keep sidebars structurally consistent with top-level navigation and predictable item ordering.
 - Provide a ChatGPT-style sidebar hide/show affordance with a clear collapse/expand icon.
+- In collapsed sidebar mode, show icon-only navigation and reveal labels immediately on hover.
 - Support sidebar resizing on desktop with min/max width constraints and persist user preference locally.
 - Persist sidebar collapsed state and width across reloads for continuity.
 - In collapsed sidebar mode, keep icon-only nav with tooltips/titles so navigation remains discoverable.

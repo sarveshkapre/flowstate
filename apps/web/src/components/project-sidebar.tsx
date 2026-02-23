@@ -44,14 +44,19 @@ export function ProjectSidebar({
   return (
     <aside
       className={cn(
-        "w-full rounded-2xl border border-border/90 bg-card p-3 shadow-sm md:sticky md:top-20 md:h-fit",
-        collapsed ? "md:w-[72px]" : "md:w-full",
+        "w-full rounded-2xl border border-border/90 bg-card shadow-sm md:sticky md:top-20 md:h-fit",
+        collapsed ? "p-2 md:w-[64px]" : "p-3 md:w-full",
       )}
     >
-      <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-border bg-muted/40 p-3">
-        {collapsed ? (
-          <p className="truncate text-sm font-semibold text-foreground">{projectName.slice(0, 1)}</p>
-        ) : (
+      <div
+        className={cn(
+          "mb-2 flex items-center",
+          collapsed
+            ? "justify-center"
+            : "justify-between gap-2 rounded-xl border border-border bg-muted/40 p-3",
+        )}
+      >
+        {!collapsed ? (
           <div className="min-w-0">
             <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Project
@@ -59,7 +64,7 @@ export function ProjectSidebar({
             <p className="truncate text-base font-semibold text-foreground">{projectName}</p>
             <p className="truncate text-xs text-muted-foreground">ID {projectId.slice(0, 8)}</p>
           </div>
-        )}
+        ) : null}
         <Button
           type="button"
           size="icon-sm"
@@ -83,9 +88,9 @@ export function ProjectSidebar({
             <Link
               key={item.key}
               href={href}
-              title={item.label}
+              title={collapsed ? undefined : item.label}
               className={cn(
-                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "group relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 collapsed && "justify-center px-2",
                 active
                   ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
@@ -94,6 +99,11 @@ export function ProjectSidebar({
             >
               <Icon className="h-4 w-4" />
               {!collapsed ? <span>{item.label}</span> : null}
+              {collapsed ? (
+                <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs text-popover-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  {item.label}
+                </span>
+              ) : null}
             </Link>
           );
         })}

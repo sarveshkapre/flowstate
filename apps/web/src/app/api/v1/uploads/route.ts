@@ -40,6 +40,13 @@ const IMAGE_FILE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const VIDEO_FILE_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"]);
 
 type UploadKind = "image" | "video" | "pdf";
+type VideoUploadStatus = {
+  original_size_bytes: number;
+  original_duration_seconds: number | null;
+  processed_size_bytes: number;
+  processed_duration_seconds: number | null;
+  max_duration_seconds: number;
+};
 
 function fileExtension(fileName: string) {
   return path.extname(fileName).toLowerCase();
@@ -111,6 +118,32 @@ async function runCommand(command: string, args: string[]) {
   });
 }
 
+function parseDurationSeconds(stdout: string) {
+  const candidate = stdout.trim().split("\n")[0]?.trim() || "";
+  const parsed = Number(candidate);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+async function probeVideoDurationSeconds(filePath: string) {
+  try {
+    const result = await runCommand("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=nokey=1:noprint_wrappers=1",
+      filePath,
+    ]);
+    return parseDurationSeconds(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
 async function normalizeUploadedVideo(input: {
   rawBytes: Buffer;
   originalName: string;
@@ -124,6 +157,7 @@ async function normalizeUploadedVideo(input: {
 
   await fs.writeFile(sourcePath, input.rawBytes);
   try {
+    let originalDurationSeconds: number | null = null;
     try {
       await runCommand("ffprobe", [
         "-v",
@@ -136,6 +170,7 @@ async function normalizeUploadedVideo(input: {
         "default=nokey=1:noprint_wrappers=1",
         sourcePath,
       ]);
+      originalDurationSeconds = await probeVideoDurationSeconds(sourcePath);
     } catch (error) {
       throw new Error(normalizeExecErrorMessage("ffprobe", error));
     }
@@ -172,6 +207,7 @@ async function normalizeUploadedVideo(input: {
     }
 
     const normalizedBytes = await fs.readFile(normalizedPath);
+    const processedDurationSeconds = await probeVideoDurationSeconds(normalizedPath);
     if (normalizedBytes.byteLength > input.maxBytes) {
       throw new Error(
         `Processed video exceeds ${input.maxBytes} bytes after ${input.maxSeconds}s trim. Try a lower-resolution source video.`,
@@ -184,6 +220,13 @@ async function normalizeUploadedVideo(input: {
       mimeType: "video/mp4",
       originalName: `${parsed.name || "video"}-clip.mp4`,
       sizeBytes: normalizedBytes.byteLength,
+      uploadStatus: {
+        original_size_bytes: input.rawBytes.byteLength,
+        original_duration_seconds: originalDurationSeconds,
+        processed_size_bytes: normalizedBytes.byteLength,
+        processed_duration_seconds: processedDurationSeconds,
+        max_duration_seconds: input.maxSeconds,
+      } satisfies VideoUploadStatus,
     };
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -250,6 +293,7 @@ export async function POST(request: Request) {
     mimeType: string;
     sizeBytes: number;
     bytes: Buffer;
+    uploadStatus?: VideoUploadStatus;
   };
 
   if (kind === "video") {
@@ -284,5 +328,6 @@ export async function POST(request: Request) {
   return NextResponse.json({
     artifact,
     file_url: `/api/v1/uploads/${artifact.id}/file`,
+    upload_status: artifactInput.uploadStatus ?? null,
   });
 }

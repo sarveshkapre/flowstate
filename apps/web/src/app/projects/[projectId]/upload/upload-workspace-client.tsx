@@ -26,6 +26,13 @@ type UploadArtifactResponse = {
     id: string;
     mime_type: string;
   };
+  upload_status?: {
+    original_size_bytes: number;
+    original_duration_seconds: number | null;
+    processed_size_bytes: number;
+    processed_duration_seconds: number | null;
+    max_duration_seconds: number;
+  } | null;
 };
 
 type BatchAsset = {
@@ -163,6 +170,34 @@ function downloadBlob(filename: string, blob: Blob) {
   URL.revokeObjectURL(url);
 }
 
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  const precision = value >= 10 || index === 0 ? 0 : 1;
+  return `${value.toFixed(precision)}${units[index]}`;
+}
+
+function formatSeconds(seconds: number | null) {
+  if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) {
+    return "n/a";
+  }
+
+  if (seconds < 10) {
+    return `${seconds.toFixed(1)}s`;
+  }
+
+  return `${Math.round(seconds)}s`;
+}
+
 function isJobRunning(status: UploadScanJobStatus) {
   return status === "queued" || status === "processing";
 }
@@ -208,6 +243,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [uploadStatusLine, setUploadStatusLine] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -420,10 +456,12 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
     setBusy(true);
     setError(null);
     setMessage(null);
+    setUploadStatusLine(null);
 
     try {
       const prompt = scanPrompt.trim();
       const sourceArtifactIds: string[] = [];
+      const uploadStatusLines: string[] = [];
 
       for (const file of selectedFiles) {
         const form = new FormData();
@@ -440,6 +478,16 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
         }
 
         sourceArtifactIds.push(uploadPayload.artifact.id);
+        if (uploadPayload.upload_status) {
+          uploadStatusLines.push(
+            `Original: ${formatBytes(uploadPayload.upload_status.original_size_bytes)} / ${formatSeconds(
+              uploadPayload.upload_status.original_duration_seconds,
+            )} -> Processed: ${formatBytes(uploadPayload.upload_status.processed_size_bytes)} / ${formatSeconds(
+              uploadPayload.upload_status.processed_duration_seconds ??
+                uploadPayload.upload_status.max_duration_seconds,
+            )}`,
+          );
+        }
       }
 
       const sourceType = selectedFiles.length ? inferSourceType(selectedFiles) : "mixed";
@@ -480,6 +528,7 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
       if (folderInputRef.current) {
         folderInputRef.current.value = "";
       }
+      setUploadStatusLine(uploadStatusLines[uploadStatusLines.length - 1] ?? null);
       setMessage("Upload accepted. Auto-label job is running in the background.");
       await loadUploadJobs({ hydratePreview: true, silent: true });
     } catch (submitError) {
@@ -490,8 +539,8 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   const fileSummary = useMemo(() => {
-    const imageCount = selectedFiles.filter((file) => file.type.startsWith("image/")).length;
-    const videoCount = selectedFiles.filter((file) => file.type.startsWith("video/")).length;
+    const imageCount = selectedFiles.filter((file) => detectUploadFileKind(file) === "image").length;
+    const videoCount = selectedFiles.filter((file) => detectUploadFileKind(file) === "video").length;
     return { imageCount, videoCount };
   }, [selectedFiles]);
   const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null;
@@ -781,6 +830,9 @@ export function UploadWorkspaceClient({ projectId }: { projectId: string }) {
 
             {message ? (
               <p className="text-sm text-emerald-600 dark:text-emerald-400">{message}</p>
+            ) : null}
+            {uploadStatusLine ? (
+              <p className="text-xs text-muted-foreground">{uploadStatusLine}</p>
             ) : null}
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
           </CardContent>
